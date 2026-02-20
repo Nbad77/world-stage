@@ -20,8 +20,10 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 # ── Load env ────────────────────────────────────────────────────────────────
+# override=False: Railway's injected env vars always win over local .env file.
+# On Railway there is no .env file; DATABASE_URL is injected directly.
 _ENV_PATH = Path(__file__).parent / ".env"
-load_dotenv(dotenv_path=_ENV_PATH)
+load_dotenv(dotenv_path=_ENV_PATH, override=False)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 if not DATABASE_URL:

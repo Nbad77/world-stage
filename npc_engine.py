@@ -21,9 +21,11 @@ import traceback
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load API key from .env — use explicit path so it works regardless of cwd
+# Load API key from .env for local dev — override=False means Railway's injected
+# environment variables always take precedence over anything in the .env file.
+# On Railway there is no .env file; the key is injected directly into the environment.
 _ENV_PATH = Path(__file__).parent / ".env"
-load_dotenv(dotenv_path=_ENV_PATH)
+load_dotenv(dotenv_path=_ENV_PATH, override=False)
 
 # ─── NPC System Prompts ────────────────────────────────────────────────────────
 
