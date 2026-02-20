@@ -35,12 +35,22 @@ def process_choice_consequences(game_state, choice):
         direction = "↑" if consequences['stability'] > 0 else "↓"
         messages.append(f"{direction} Stability: {old}% → {game_state.stability}% ({consequences['stability']:+d}%)")
 
-    # Oil price changes from deals are cosmetic — end of turn recalculates from relations
+    # Oil price changes from deals are cosmetic — end of turn recalculates from relations.
+    # BUG 2: Derive message direction from Arabia relations delta (not oil_price sign),
+    # so that negotiated deals with a counter-offer oil_price override can't show
+    # a contradicting message (e.g. "worsened" when Arabia +72).
     if 'oil_price' in consequences:
-        if consequences['oil_price'] < 0:
+        arabia_delta = consequences.get('arabia', 0)
+        if arabia_delta > 0:
             messages.append("🛢️  Arabia relations improved — oil prices will reflect this next turn")
-        elif consequences['oil_price'] > 0:
+        elif arabia_delta < 0:
             messages.append("🛢️  Arabia relations worsened — oil prices will reflect this next turn")
+        else:
+            # No Arabia change — use oil_price sign as fallback (non-Arabia deals)
+            if consequences['oil_price'] < 0:
+                messages.append("🛢️  Arabia relations improved — oil prices will reflect this next turn")
+            elif consequences['oil_price'] > 0:
+                messages.append("🛢️  Arabia relations worsened — oil prices will reflect this next turn")
 
     # Special flags
     if 'special' in consequences:
@@ -108,11 +118,70 @@ def apply_end_of_turn_effects(game_state):
     messages = []
 
     # ──────────────────────────────────────────
-    # 1. OIL PRICE — recalculate from Arabia relations, then add embargo tier penalty.
+    # 1. OIL PRICE — recalculate from Arabia relations (or use negotiated lock),
+    # then add embargo tier penalty.
     # Tier penalty is INCLUDED in final_oil so oil imports reflect it correctly.
     # Tier 0: +$0  Tier 1: +$10  Tier 2: +$20  Tier 3: +$35  Tier 4: +$50
     # ──────────────────────────────────────────
-    game_state.set_oil_price_from_relations()   # sets base from relations
+
+    # BUG 3: Check for a negotiated oil price lock before recalculating from relations
+    if game_state.oil_price_locked and game_state.oil_price_lock_turns_remaining > 0:
+        game_state.oil_price = max(20, round(game_state.oil_price_lock_value))
+        game_state.oil_price_lock_turns_remaining -= 1
+        if game_state.oil_price_lock_turns_remaining <= 0:
+            game_state.oil_price_locked = False
+            messages.append(
+                f"🔓 Negotiated oil price lock expired — market rates resume next turn"
+            )
+        else:
+            messages.append(
+                f"🔒 Oil price locked at ${game_state.oil_price_lock_value:.0f}/bbl "
+                f"({game_state.oil_price_lock_turns_remaining} turn(s) remaining)"
+            )
+    else:
+        game_state.set_oil_price_from_relations()   # sets base from relations
+
+    # Tick down active trade commitments and remove expired ones
+    if game_state.active_trade_commitments:
+        still_active = []
+        for commitment in game_state.active_trade_commitments:
+            commitment['turns_remaining'] -= 1
+            if commitment['turns_remaining'] > 0:
+                still_active.append(commitment)
+                messages.append(
+                    f"🤝 Trade commitment active ({commitment['turns_remaining']} turn(s) left): "
+                    f"{commitment['description']}"
+                )
+            else:
+                messages.append(f"🤝 Trade commitment concluded: {commitment['description']}")
+        game_state.active_trade_commitments = still_active
+
+    # BUG 2: Apply active installment payments and tick them down
+    if game_state.active_installments:
+        still_active = []
+        for inst in game_state.active_installments:
+            amount = float(inst.get('amount', 0))
+            inst['turns_remaining'] -= 1
+            remaining = inst['turns_remaining']
+            desc = inst.get('description', 'installment')
+
+            # Apply the payment this turn
+            game_state.update_budget(amount)
+            direction = "↑" if amount > 0 else "↓"
+            direction_word = "received" if amount > 0 else "paid"
+
+            if remaining > 0:
+                still_active.append(inst)
+                messages.append(
+                    f"📋 Installment {direction_word}: {direction}${abs(amount):.1f}B ({desc}, "
+                    f"{remaining} turn(s) remaining)"
+                )
+            else:
+                messages.append(
+                    f"📋 Final installment {direction_word}: {direction}${abs(amount):.1f}B ({desc} — concluded)"
+                )
+        game_state.active_installments = still_active
+
     arabia_rel = game_state.relations['arabia']
 
     # Determine Arabia embargo tier for oil penalty (ramp-limited below in step 5)

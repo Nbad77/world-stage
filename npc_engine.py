@@ -626,3 +626,365 @@ def print_session_stats():
     cost = (t['input_tokens'] / 1_000_000 * 0.80) + (t['output_tokens'] / 1_000_000 * 4.00)
     print(f"  Est. API cost:  ~${cost:.4f} USD")
     print(f"{'─'*60}")
+
+
+# ─── Stage 4: World Events ────────────────────────────────────────────────────
+
+WORLD_EVENT_SYSTEM = """
+You are the game narrator for "The World Stage" — a geopolitical simulation.
+Your job is to generate a brief, plausible breaking world event that impacts Europa.
+Return ONLY a valid JSON object with exactly these fields:
+{
+  "title": "Short headline (max 8 words)",
+  "description": "1-2 sentence news-ticker style description of the event.",
+  "effects": {
+    "oil_price_delta": <integer, -15 to +20>,
+    "stability_delta": <integer, -8 to +5>,
+    "relations_delta": {
+      "usa": <integer, -10 to +10>,
+      "arabia": <integer, -10 to +10>,
+      "eu": <integer, -10 to +10>,
+      "dprg": <integer, -10 to +10>
+    }
+  },
+  "affected_npc": "<usa|arabia|eu|dprg|none>"
+}
+Rules:
+- Make the event fit the current game context (active crises, relations, last player action).
+- Events can be geopolitical (coup, summit, sanctions), economic (OPEC cut, recession),
+  or environmental (oil spill, natural disaster).
+- affected_npc should be the single NPC most affected, or "none" if global.
+- Keep effects believable — not game-breaking. Small-medium deltas preferred.
+- Return ONLY the JSON. No extra text, no markdown, no explanation.
+"""
+
+
+def generate_world_event(game_state, last_action_type: str = ""):
+    """
+    Generate a world event via Claude.
+    Returns a dict with {title, description, effects, affected_npc}
+    or None if generation fails.
+    last_action_type: the type string of the player's last action (e.g. 'side_with', 'accept_deal')
+    """
+    context = _build_context(game_state)
+    context["last_player_action"] = last_action_type or "unknown"
+
+    # Hint the event theme based on current state
+    hints = []
+    if game_state.usa_sanctions_active:
+        hints.append("USA sanctions are active — event could escalate or ease this pressure.")
+    if game_state.arabia_embargo_active:
+        hints.append("Arabia oil embargo is active — event could affect oil supply chain.")
+    if game_state.stability < 35:
+        hints.append("Domestic stability is critically low — internal unrest is possible.")
+    if game_state.relations['dprg'] > 65:
+        hints.append("DPRG relations are suspiciously high — Western reaction is plausible.")
+    if not hints:
+        hints.append("Generate an interesting geopolitical event that fits the current situation.")
+
+    extra = " ".join(hints)
+
+    import anthropic
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return None
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=300,
+            temperature=0.9,
+            system=WORLD_EVENT_SYSTEM,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Current game state:\n{json.dumps(context, indent=2)}\n\n"
+                    f"Event hint: {extra}\n\n"
+                    f"Generate a world event JSON now."
+                )
+            }]
+        )
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
+
+        raw = response.content[0].text.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        event = json.loads(raw)
+        # Validate required keys
+        required = {"title", "description", "effects", "affected_npc"}
+        if not required.issubset(event.keys()):
+            return None
+        return event
+    except Exception as e:
+        _token_log["fallbacks"] += 1
+        print(f"  [npc_engine] World event generation failed: {type(e).__name__}: {e}")
+        return None
+
+
+# ─── Stage 4: Negotiation ─────────────────────────────────────────────────────
+
+# NPC negotiation system prompts — one per character
+_NEGOTIATION_PROMPTS = {
+    'usa': f"""{USA_SYSTEM_PROMPT}
+
+NEGOTIATION MODE:
+You are now in a direct private channel with Europa's leader.
+They are trying to negotiate the terms of your offer.
+Keep your character's voice and agenda. You may adjust your offer — but only for genuine strategic gain.
+If you offer modified terms, include a "counter_offer" key in your JSON response.
+
+SIGN CONVENTION: positive = Europa receives money, negative = Europa pays money.
+  "budget": one-time immediate payment applied the turn the deal is accepted.
+  "installments": recurring payment streams applied at end-of-turn, starting NEXT turn.
+    Each entry: {{"amount": <float>, "turns": <int>, "description": "<label>"}}
+    "turns" = number of end-of-turn payments (NOT counting the current turn).
+    positive amount = Europa receives each turn, negative = Europa pays each turn.
+    A deal CAN have multiple streams — e.g. one inbound and one outbound simultaneously.
+    DO NOT mix budget + installments for the same payment; use one or the other.
+IMPORTANT: make sure your dialogue text exactly matches your JSON numbers and turns.
+  If you say "$8B now + $8B next turn", use budget:8 and installments:[{{amount:8, turns:1, ...}}].
+  If you say "$10B over 2 turns", use installments:[{{amount:10, turns:2, ...}}] (no budget key).
+Example two-stream deal: USA pays $10B/turn for 2 turns AND Europa pays $2.5B/turn for 3 turns:
+  "installments": [{{"amount": 10.0, "turns": 2, "description": "US investment"}},
+                   {{"amount": -2.5, "turns": 3, "description": "weapons purchase"}}]
+
+Return a JSON object:
+{{
+  "response": "your in-character dialogue (2-3 sentences max)",
+  "counter_offer": null
+}}
+OR if you want to propose modified deal terms:
+{{
+  "response": "your in-character dialogue",
+  "counter_offer": {{
+    "text": "Modified offer description (shown as option in game)",
+    "type": "accept_deal",
+    "npc": "usa",
+    "consequences": {{
+      "usa": <int>,
+      "budget": <float or omit>,
+      "installments": [<array of streams, or omit>],
+      "stability": <int or omit>,
+      "approval": <int or omit>
+    }}
+  }}
+}}
+Return ONLY valid JSON. No extra text.
+""",
+
+    'arabia': f"""{SADAM_SYSTEM_PROMPT}
+
+NEGOTIATION MODE:
+You are now in a private back-channel with Europa's leader.
+Stay fully in character as Sadam. You enjoy deal-making and may sweeten offers for loyalty.
+If you offer new terms, include a "counter_offer" in your JSON.
+
+SIGN CONVENTION: positive = Europa receives money, negative = Europa pays money.
+  "budget": one-time immediate payment applied the turn the deal is accepted.
+  "installments": recurring payments applied at end-of-turn, starting NEXT turn.
+    Each entry: {{"amount": <float>, "turns": <int>, "description": "<label>"}}
+    "turns" = number of end-of-turn payments (NOT counting the current turn).
+    A deal CAN have multiple streams (e.g. oil revenue inbound + equipment payment outbound).
+    DO NOT mix budget + installments for the same payment; use one or the other.
+IMPORTANT: your dialogue text must exactly match your JSON numbers and turns.
+
+Return a JSON object:
+{{
+  "response": "*stage direction* your in-character dialogue (2-3 sentences)",
+  "counter_offer": null
+}}
+OR with a deal offer:
+{{
+  "response": "*stage direction* dialogue",
+  "counter_offer": {{
+    "text": "Modified offer description",
+    "type": "accept_deal",
+    "npc": "arabia",
+    "consequences": {{
+      "arabia": <int>,
+      "budget": <float or omit>,
+      "installments": [<array of streams, or omit>],
+      "oil_price": <int or omit>
+    }}
+  }}
+}}
+Return ONLY valid JSON. No extra text.
+""",
+
+    'eu': f"""{EU_SYSTEM_PROMPT}
+
+NEGOTIATION MODE:
+You are in a private session with Europa's leader.
+Stay fully in character as Marsha — skeptical, procedural, demanding specifics.
+You don't do backroom deals. If you adjust terms, it is because they earned it with specifics.
+
+SIGN CONVENTION: positive = Europa receives money, negative = Europa pays money.
+  "budget": one-time immediate payment applied the turn the deal is accepted.
+  "installments": recurring payments applied at end-of-turn, starting NEXT turn.
+    Each entry: {{"amount": <float>, "turns": <int>, "description": "<label>"}}
+    "turns" = number of end-of-turn payments (NOT counting the current turn).
+    EU may structure phased grants alongside compliance obligations across multiple streams.
+    DO NOT mix budget + installments for the same payment; use one or the other.
+IMPORTANT: your dialogue text must exactly match your JSON numbers and turns.
+
+Return a JSON object:
+{{
+  "response": "your in-character dialogue (2-3 sentences)",
+  "counter_offer": null
+}}
+OR if they have genuinely convinced you:
+{{
+  "response": "dialogue",
+  "counter_offer": {{
+    "text": "Modified offer description",
+    "type": "accept_deal",
+    "npc": "eu",
+    "consequences": {{
+      "eu": <int>,
+      "budget": <float or omit>,
+      "installments": [<array of streams, or omit>],
+      "stability": <int or omit>
+    }}
+  }}
+}}
+Return ONLY valid JSON. No extra text.
+""",
+
+    'dprg': f"""{JIWON_SYSTEM_PROMPT}
+
+NEGOTIATION MODE:
+You are in a secure encrypted channel with Europa's leader.
+Stay fully in character as Ji-won — cryptic, precise, occasionally warm.
+You offer real intelligence or capabilities that other NPCs cannot.
+
+SIGN CONVENTION FOR budget: positive = Europa receives money, negative = Europa pays money.
+Example: "budget": 3.0 means DPRG channels $3B to Europa.
+
+SIGN CONVENTION: positive = Europa receives money, negative = Europa pays money.
+  "budget": one-time immediate payment applied the turn the deal is accepted.
+  "installments": recurring payments applied at end-of-turn, starting NEXT turn.
+    Each entry: {{"amount": <float>, "turns": <int>, "description": "<label>"}}
+    "turns" = number of end-of-turn payments (NOT counting the current turn).
+    Ji-won may structure shadow payments or intelligence fees across multiple streams.
+    DO NOT mix budget + installments for the same payment; use one or the other.
+IMPORTANT: your dialogue text must exactly match your JSON numbers and turns.
+
+Return a JSON object:
+{{
+  "response": "your in-character dialogue (2-3 sentences)",
+  "counter_offer": null
+}}
+OR with a modified deal:
+{{
+  "response": "dialogue",
+  "counter_offer": {{
+    "text": "Modified offer description",
+    "type": "accept_deal",
+    "npc": "dprg",
+    "consequences": {{
+      "dprg": <int>,
+      "budget": <float or omit>,
+      "installments": [<array of streams, or omit>]
+    }}
+  }}
+}}
+Return ONLY valid JSON. No extra text.
+""",
+}
+
+
+def generate_negotiation_response(game_state, npc_id: str, message: str, history: list):
+    """
+    Generate an NPC response during negotiation.
+
+    Args:
+        game_state: current GameState
+        npc_id: 'usa' | 'arabia' | 'eu' | 'dprg'
+        message: the player's latest message
+        history: list of {role: 'user'|'assistant', content: str} prior messages
+
+    Returns:
+        dict: { response: str, counter_offer: dict | None }
+        Falls back to a plain string response on parse failure.
+    """
+    system_prompt = _NEGOTIATION_PROMPTS.get(npc_id)
+    if not system_prompt:
+        return {"response": "I have nothing to say to that.", "counter_offer": None}
+
+    context = _build_context(game_state)
+
+    import anthropic
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return {"response": "…", "counter_offer": None}
+
+    raw = None
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+
+        # Build messages list: inject context as system preamble in first user turn
+        messages = []
+        context_prefix = f"[Current game state: {json.dumps(context)}]\n\n"
+
+        if history:
+            # Prepend context to first user message
+            first = history[0]
+            messages.append({
+                "role": first["role"],
+                "content": context_prefix + first["content"]
+            })
+            messages.extend(history[1:])
+            messages.append({"role": "user", "content": message})
+        else:
+            messages.append({
+                "role": "user",
+                "content": context_prefix + message
+            })
+
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=350,
+            temperature=0.8,
+            system=system_prompt,
+            messages=messages
+        )
+
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
+
+        raw = response.content[0].text.strip()
+
+        # Strip markdown code fences
+        clean = raw
+        if clean.startswith("```"):
+            clean = clean.split("```")[1]
+            if clean.startswith("json"):
+                clean = clean[4:]
+        clean = clean.strip()
+
+        result = json.loads(clean)
+        return {
+            "response": result.get("response", "…"),
+            "counter_offer": result.get("counter_offer", None),
+        }
+
+    except Exception as e:
+        _token_log["fallbacks"] += 1
+        print(f"  [npc_engine] Negotiation error for {npc_id}: {type(e).__name__}: {e}")
+        # If we got a raw response but JSON parse failed, use it as plain text
+        if raw:
+            return {"response": raw, "counter_offer": None}
+        fallbacks = {
+            'usa': "I need time to consult with the team. Don't take that as encouragement.",
+            'arabia': "*adjusts cufflinks* We will speak again when you are ready to be serious.",
+            'eu': "I've said what I have to say. Come back with something concrete.",
+            'dprg': "The channel remains open. Think carefully.",
+        }
+        return {"response": fallbacks.get(npc_id, "…"), "counter_offer": None}

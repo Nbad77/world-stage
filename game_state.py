@@ -60,6 +60,17 @@ class GameState:
         # USA blackmail mechanic — fires once per game
         self.blackmail_used = False
 
+        # Stage 4: World Events & Negotiation
+        self.current_event = None        # dict | None — world event active this turn
+        self.options_override = None     # list | None — negotiated counter-offers
+
+        # Stage 4: Persistent negotiated deal effects
+        self.oil_price_locked = False           # True while a negotiated oil lock is active
+        self.oil_price_lock_value = 0.0         # The locked price per barrel
+        self.oil_price_lock_turns_remaining = 0  # Turns left on the lock
+        self.active_trade_commitments = []      # list of {description, turns_remaining}
+        self.active_installments = []           # list of {amount, turns_remaining, description, npc}
+
     def record_action(self, choice_type, npc_target=None):
         """
         Record player action with full context
@@ -104,6 +115,9 @@ class GameState:
     def update_relations(self, npc, change):
         """Update relationship and check crisis thresholds"""
         self.relations[npc] = max(0, min(100, self.relations[npc] + change))
+        # BUG 4: Arabia relations capped at 90 — Sadam never fully trusts outsiders
+        if npc == 'arabia':
+            self.relations[npc] = min(90, self.relations[npc])
 
         # Crisis triggers
         if npc == 'usa':
@@ -222,6 +236,13 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'took_usa_side_after_arabia_oil': self.took_usa_side_after_arabia_oil,
             'took_arabia_side_after_usa_alliance': self.took_arabia_side_after_usa_alliance,
             'blackmail_used': self.blackmail_used,
+            'current_event': self.current_event,
+            'options_override': self.options_override,
+            'oil_price_locked': self.oil_price_locked,
+            'oil_price_lock_value': self.oil_price_lock_value,
+            'oil_price_lock_turns_remaining': self.oil_price_lock_turns_remaining,
+            'active_trade_commitments': self.active_trade_commitments,
+            'active_installments': self.active_installments,
         }
 
     @classmethod
@@ -250,4 +271,11 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.took_usa_side_after_arabia_oil = data['took_usa_side_after_arabia_oil']
         gs.took_arabia_side_after_usa_alliance = data['took_arabia_side_after_usa_alliance']
         gs.blackmail_used = data['blackmail_used']
+        gs.current_event = data.get('current_event', None)
+        gs.options_override = data.get('options_override', None)
+        gs.oil_price_locked = data.get('oil_price_locked', False)
+        gs.oil_price_lock_value = data.get('oil_price_lock_value', 0.0)
+        gs.oil_price_lock_turns_remaining = data.get('oil_price_lock_turns_remaining', 0)
+        gs.active_trade_commitments = data.get('active_trade_commitments', [])
+        gs.active_installments = data.get('active_installments', [])
         return gs

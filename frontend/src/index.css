@@ -557,8 +557,521 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   min-width: 120px;
 }
 
+/* ── Event Banner ────────────────────────────────────────────────────────── */
+.event-banner {
+  background: rgba(180, 30, 30, 0.12);
+  border: 1px solid rgba(220, 60, 60, 0.5);
+  border-left: 4px solid #d03030;
+  border-radius: var(--radius);
+  padding: 0.7rem 0.9rem;
+  margin-bottom: 0.75rem;
+  animation: event-flash 0.4s ease-out;
+}
+
+@keyframes event-flash {
+  0%   { background: rgba(220, 60, 60, 0.25); }
+  100% { background: rgba(180, 30, 30, 0.12); }
+}
+
+.event-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.event-ticker {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #e05050;
+  background: rgba(220,60,60,0.15);
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.event-title {
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--text);
+  flex: 1;
+}
+
+.event-npc-flag {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.event-description {
+  font-size: 0.84rem;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-bottom: 0.4rem;
+}
+
+.event-effects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.event-chip {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 3px;
+  font-weight: 600;
+}
+.chip-good {
+  color: var(--success);
+  background: rgba(76,175,110,0.12);
+  border: 1px solid rgba(76,175,110,0.3);
+}
+.chip-bad {
+  color: #e05050;
+  background: rgba(220,60,60,0.12);
+  border: 1px solid rgba(220,60,60,0.3);
+}
+
+/* ── Negotiate button (in DialoguePanel) ─────────────────────────────────── */
+.npc-row-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.negotiate-btn {
+  font-size: 0.65rem;
+  font-family: var(--mono);
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.negotiate-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.negotiate-btn-active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(74,158,255,0.08);
+}
+
+/* ── Negotiation Panel (slide-up overlay) ────────────────────────────────── */
+.negotiation-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0,0,0,0.55);
+  animation: overlay-fade-in 0.2s ease;
+}
+
+@keyframes overlay-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.negotiation-panel {
+  width: 100%;
+  max-width: 600px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+  animation: panel-slide-up 0.22s ease;
+}
+
+@keyframes panel-slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.negotiation-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+}
+
+.npc-color-usa    { border-top: 3px solid var(--usa); }
+.npc-color-arabia { border-top: 3px solid var(--arabia); }
+.npc-color-eu     { border-top: 3px solid var(--eu); }
+.npc-color-dprg   { border-top: 3px solid var(--dprg); }
+
+.negotiation-npc-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text);
+}
+
+.negotiation-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 0.9rem;
+  padding: 0.2rem 0.4rem;
+  cursor: pointer;
+  line-height: 1;
+}
+.negotiation-close-btn:hover { color: var(--text); }
+
+.negotiation-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 80px;
+}
+
+.negotiation-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-style: italic;
+  text-align: center;
+  padding: 0.5rem;
+}
+
+.negotiation-msg {
+  max-width: 85%;
+  padding: 0.45rem 0.7rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.msg-user {
+  align-self: flex-end;
+  background: rgba(74,158,255,0.15);
+  border: 1px solid rgba(74,158,255,0.25);
+  color: var(--text);
+}
+
+.msg-npc {
+  align-self: flex-start;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.msg-npc.msg-usa    { border-left: 3px solid var(--usa); }
+.msg-npc.msg-arabia { border-left: 3px solid var(--arabia); }
+.msg-npc.msg-eu     { border-left: 3px solid var(--eu); }
+.msg-npc.msg-dprg   { border-left: 3px solid var(--dprg); }
+
+.msg-loading {
+  align-self: flex-start;
+  color: var(--muted);
+  font-style: italic;
+  font-size: 1.2rem;
+  padding: 0.2rem 0.6rem;
+}
+
+/* ── Counter-offer banner ────────────────────────────────────────────────── */
+.counter-offer-banner {
+  background: rgba(74,158,255,0.08);
+  border-top: 1px solid rgba(74,158,255,0.25);
+  border-bottom: 1px solid rgba(74,158,255,0.25);
+  padding: 0.6rem 1rem;
+}
+
+.counter-offer-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  text-transform: uppercase;
+  margin-bottom: 0.25rem;
+}
+
+.counter-offer-text {
+  font-size: 0.84rem;
+  color: var(--text);
+  line-height: 1.4;
+  margin-bottom: 0.5rem;
+}
+
+/* FEATURE: YOU RECEIVE / YOU PAY money direction label */
+.counter-offer-money-dir {
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-family: var(--mono);
+  letter-spacing: 0.02em;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+  display: inline-block;
+  white-space: pre-line;  /* allows \n to split RECEIVE / PAY onto separate lines */
+}
+.counter-offer-money-dir.money-receive {
+  background: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+.counter-offer-money-dir.money-pay {
+  background: rgba(239, 68, 68, 0.10);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.22);
+}
+.counter-offer-money-dir.money-mixed {
+  background: rgba(251, 191, 36, 0.10);
+  color: var(--text);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+}
+.last-offer-money-dir {
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: var(--mono);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.last-offer-money-dir.money-receive { color: #22c55e; }
+.last-offer-money-dir.money-pay     { color: #ef4444; }
+
+.btn-accept-counter {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.82rem;
+  padding: 0.4rem 1rem;
+  border-radius: var(--radius);
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.btn-accept-counter:hover { opacity: 0.85; }
+
+/* ── Negotiation input ───────────────────────────────────────────────────── */
+.negotiation-input-row {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface2);
+  align-items: flex-end;
+}
+
+.negotiation-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 0.87rem;
+  padding: 0.45rem 0.65rem;
+  resize: none;
+  line-height: 1.4;
+}
+.negotiation-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.btn-send {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 0.45rem 1rem;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+}
+.btn-send:hover:not(:disabled) { opacity: 0.85; }
+.btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.negotiation-footer {
+  padding: 0.5rem 1rem 0.7rem;
+  display: flex;
+  justify-content: center;
+  background: var(--surface);
+}
+
+.negotiation-done-btn {
+  font-size: 0.82rem;
+  padding: 0.4rem 1.2rem;
+}
+
+/* ── Counter-offer badge in OffersPanel ──────────────────────────────────── */
+.offer-btn.counter-btn {
+  border-color: var(--accent);
+  background: rgba(74,158,255,0.06);
+}
+.offer-btn.counter-btn .offer-letter {
+  color: var(--accent);
+}
+.counter-badge {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  vertical-align: middle;
+  margin-right: 0.3rem;
+}
+
+/* ── Confirmation modal (FEATURE 1) ─────────────────────────────────────── */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  padding: 1rem;
+}
+
+.confirm-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-width: 420px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.confirm-header {
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  padding: 0.65rem 1rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.confirm-body {
+  padding: 1rem 1rem 0.8rem;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border);
+  justify-content: flex-end;
+}
+
+.confirm-back-btn {
+  font-size: 0.83rem;
+  padding: 0.4rem 0.9rem;
+}
+
+.confirm-commit-btn {
+  font-size: 0.83rem;
+  padding: 0.4rem 1.1rem;
+}
+
+/* ── Active deals banner in NegotiationPanel (FEATURE 2) ─────────────────── */
+.negotiation-active-deal {
+  background: rgba(74, 158, 255, 0.07);
+  border-bottom: 1px solid var(--border);
+  padding: 0.45rem 1rem;
+  font-size: 0.76rem;
+  color: var(--accent);
+  font-family: var(--mono);
+  letter-spacing: 0.02em;
+}
+
+/* ── Last-offer footer in NegotiationPanel (FEATURE 3) ───────────────────── */
+.last-offer-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 1rem;
+  border-top: 1px solid var(--border);
+  background: rgba(74, 158, 255, 0.05);
+  font-size: 0.78rem;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+
+.last-offer-label {
+  font-weight: 600;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.last-offer-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-accept-last-offer {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.7rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-accept-last-offer:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ── Counter-offer keep-negotiating layout (FEATURE 3) ───────────────────── */
+.counter-offer-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.btn-keep-negotiating {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.4rem 0.9rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.btn-keep-negotiating:hover {
+  border-color: var(--muted);
+  color: var(--text);
+}
+
 /* ── Mobile fine-tuning ──────────────────────────────────────────────────── */
 @media (max-width: 400px) {
   .status-bar { font-size: 0.75rem; gap: 0.4rem 0.9rem; }
   h1 { font-size: 1.8rem; }
+  .negotiation-panel { max-height: 80vh; }
 }

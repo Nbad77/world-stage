@@ -118,7 +118,13 @@ function renderWithStageDirections(text) {
   })
 }
 
-export default function DialoguePanel({ dialogue }) {
+/**
+ * Props:
+ *   dialogue        : array of 4 raw NPC strings
+ *   onNegotiate     : (npcKey) => void — optional, if provided shows Negotiate buttons
+ *   negotiatingNpc  : string | null — which NPC panel is currently open
+ */
+export default function DialoguePanel({ dialogue, onNegotiate, negotiatingNpc }) {
   if (!dialogue || dialogue.length === 0) return null
 
   return (
@@ -126,16 +132,28 @@ export default function DialoguePanel({ dialogue }) {
       <div className="panel-header">Diplomatic Communiqués</div>
       {NPC_ORDER.map(({ key, label, flag }, i) => {
         const { subtitle, text } = parseNpcString(dialogue[i])
+        const isNegotiating = negotiatingNpc === key
         return (
           <div key={key} className="npc-row">
-            <span className={`npc-name ${key}`}>
-              {flag} {label}
-              {subtitle && (
-                <span style={{ fontWeight: 400, opacity: 0.65, marginLeft: '0.4rem', fontSize: '0.65rem' }}>
-                  — {subtitle}
-                </span>
+            <div className="npc-row-header">
+              <span className={`npc-name ${key}`}>
+                {flag} {label}
+                {subtitle && (
+                  <span style={{ fontWeight: 400, opacity: 0.65, marginLeft: '0.4rem', fontSize: '0.65rem' }}>
+                    — {subtitle}
+                  </span>
+                )}
+              </span>
+              {onNegotiate && (
+                <button
+                  className={`negotiate-btn ${isNegotiating ? 'negotiate-btn-active' : ''}`}
+                  onClick={() => onNegotiate(isNegotiating ? null : key)}
+                  title="Open private negotiation channel"
+                >
+                  {isNegotiating ? 'Close ✕' : 'Negotiate →'}
+                </button>
               )}
-            </span>
+            </div>
             <span className="npc-text">{renderWithStageDirections(text)}</span>
           </div>
         )

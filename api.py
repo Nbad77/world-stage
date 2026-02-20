@@ -5,16 +5,18 @@ Game logic is entirely in Python (game_state, turn_processor).
 Claude generates dialogue only (npc_engine).
 
 Endpoints:
-  POST /game/new               → { session_id, game_state, offers, dialogue }
-  GET  /game/{id}              → { game_state, offers }
-  POST /game/{id}/action       → { consequences, blackmail, game_state, offers }
-  POST /game/{id}/skim         → { skim_result, intercepts, eot_effects, game_state, status }
-  POST /game/{id}/inject       → { inject_result, game_state }
-  GET  /game/{id}/status       → { status: active|won|lost|escaped }
+  POST /game/new                    → { session_id, game_state, offers, dialogue }
+  GET  /game/{id}                   → { game_state, offers }
+  POST /game/{id}/action            → { consequences, blackmail, game_state, offers }
+  POST /game/{id}/skim              → { skim_result, intercepts, eot_effects, game_state, status }
+  POST /game/{id}/inject            → { inject_result, game_state }
+  GET  /game/{id}/status            → { status: active|won|lost|escaped }
+  POST /game/{id}/negotiate         → { response, counter_offer }
 """
 
 import sys
 import os
+import random
 from pathlib import Path
 
 # Ensure project root is importable regardless of cwd
@@ -23,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List, Any
 
 import npc_engine
 import npc_usa
@@ -65,6 +67,15 @@ class SkimRequest(BaseModel):
 
 class InjectRequest(BaseModel):
     choice: int          # 0, 1, 2, or 3
+
+class NegotiateRequest(BaseModel):
+    npc_id: str          # "usa" | "arabia" | "eu" | "dprg"
+    message: str         # player's latest message
+    history: List[Any] = []  # list of {role, content} prior messages
+
+class AcceptCounterRequest(BaseModel):
+    letter: str           # "A"-"D"
+    counter_offer: Any    # the counter_offer dict from negotiate response
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -211,6 +222,59 @@ def _get_corruption_intercepts(gs: GameState) -> list[str]:
     return comments
 
 
+def _maybe_generate_world_event(gs: GameState, last_action_type: str = "") -> Optional[dict]:
+    """
+    Probabilistically generate a world event.
+    Base 35% chance, boosted by action type:
+      oil/trade deal      +20%
+      usa side/sanctions  +25%
+      heavy skim (>=$7B)  +15% (checked via action_history)
+      alliance shifts     +20%
+    Returns the event dict or None.
+    """
+    base_chance = 0.35
+
+    action_lower = (last_action_type or "").lower()
+    if action_lower in ("accept_deal",):
+        # Check which NPC to determine boost
+        last = gs.action_history[-1] if gs.action_history else {}
+        npc = last.get("npc", "")
+        if npc in ("arabia",):
+            base_chance += 0.20
+        elif npc in ("usa",):
+            base_chance += 0.25
+        elif npc in ("eu", "dprg"):
+            base_chance += 0.20
+    elif action_lower == "do_nothing":
+        base_chance -= 0.10  # boring turn, less likely
+
+    base_chance = min(base_chance, 0.85)  # cap at 85%
+
+    if random.random() > base_chance:
+        return None
+
+    event = npc_engine.generate_world_event(gs, last_action_type)
+    return event
+
+
+def _apply_world_event(gs: GameState, event: dict):
+    """Apply a world event's numeric effects to game state."""
+    if not event:
+        return
+    effects = event.get("effects", {})
+    oil_delta = effects.get("oil_price_delta", 0)
+    stability_delta = effects.get("stability_delta", 0)
+    rels = effects.get("relations_delta", {})
+
+    if oil_delta:
+        gs.update_oil_price(oil_delta)
+    if stability_delta:
+        gs.update_stability(stability_delta)
+    for npc, delta in rels.items():
+        if npc in gs.relations and delta:
+            gs.update_relations(npc, delta)
+
+
 def _game_status(gs: GameState) -> str:
     """Return 'active', 'won', 'lost', or 'escaped'."""
     if gs.budget <= 0 or gs.stability <= 0 or gs.public_approval <= 0:
@@ -328,6 +392,7 @@ def new_game():
         "blackmail_active": blackmail_active,
         "offers": offers,
         "skim_options": skim_options,
+        "current_event": None,   # no world event on Turn 1
     }
 
 
@@ -408,20 +473,154 @@ def post_action(session_id: str, body: ActionRequest):
     # ── Options A–E — Normal diplomatic choice ─────────────────────────────
     blackmail_active = _check_blackmail(gs)
 
-    # Build a full offer dict compatible with process_choice_consequences
+    # Resolve effective offer: use negotiated counter-offer if one was stored
+    effective_offer = offer
+    is_negotiated = False
+    if gs.options_override:
+        for override in gs.options_override:
+            if override.get("letter") == letter:
+                effective_offer = override
+                is_negotiated = True
+                break
+
+    # BUG 1 + 2: For negotiated offers, build a merged consequences dict.
+    #
+    # The counter-offer Claude generates only contains the terms it negotiated
+    # (e.g. {"usa": +15, "budget": +5}).  It does NOT include third-party
+    # relation penalties that the base offer carries (e.g. Arabia -30 when
+    # taking a USA alignment deal).  We must:
+    #   a) Start with the BASE offer's full consequences dict (gives us all
+    #      third-party relation costs that always apply).
+    #   b) Then overlay the counter-offer's explicit fields on top — so any
+    #      relation or financial term the NPC actually negotiated overrides
+    #      the base value for that specific key.
+    #
+    # This means:
+    #   - Third-party penalties (Arabia -30 on USA deal) are inherited ✓
+    #   - Negotiated primary-NPC relation change replaces the base one ✓
+    #   - Negotiated budget / personal_wealth / oil_price fields are applied ✓
+    if is_negotiated:
+        base_consequences = dict(offer.get("consequences", {}))
+        counter_consequences = dict(effective_offer.get("consequences", {}))
+
+        # Handle monetary fields that process_choice_consequences doesn't know about.
+        # All of these are popped from counter_consequences BEFORE merging so they
+        # are never passed to process_choice_consequences (which would mishandle them).
+        #
+        # Key conventions (all player-perspective: positive = Europa receives, negative = Europa pays):
+        #   budget            — immediate cash payment this turn (popped + applied directly)
+        #   budget_delta      — alternate key for same concept   (popped + applied directly)
+        #   personal_wealth_delta — direct personal account hit  (popped + applied directly)
+        #   installment_amount    — per-turn payment amount      (popped + registered to active_installments)
+        #   installment_turns     — number of turns to pay       (popped + registered)
+        #   oil_price_lock / oil_price_lock_turns — negotiated price lock (popped + stored)
+        #
+        # The NPC negotiation prompts now explicitly specify this sign convention, so
+        # raw_budget is applied directly (no negation needed).
+        raw_budget = counter_consequences.pop("budget", None)
+        budget_delta = counter_consequences.pop("budget_delta", None)
+        pw_delta = counter_consequences.pop("personal_wealth_delta", None)
+        oil_lock_value = counter_consequences.pop("oil_price_lock", None)
+        oil_lock_turns = counter_consequences.pop("oil_price_lock_turns", None)
+        # BUG 2: installment payments — supports both legacy single-stream and new multi-stream array.
+        # New format: "installments": [{"amount": float, "turns": int, "description": str}, ...]
+        # Legacy format: "installment_amount" + "installment_turns" + "installment_description"
+        # positive amount = Europa receives each turn, negative = Europa pays each turn
+        installments_array = counter_consequences.pop("installments", None)
+        installment_amount = counter_consequences.pop("installment_amount", None)
+        installment_turns = counter_consequences.pop("installment_turns", None)
+        installment_desc = counter_consequences.pop("installment_description", None)
+
+        # Overlay counter-offer terms on base consequences (base keeps its "budget" key
+        # if the counter-offer didn't include one — but we've already popped counter's)
+        merged = {**base_consequences, **counter_consequences}
+        effective_offer = dict(effective_offer)
+        effective_offer["consequences"] = merged
+
+        # Apply monetary side-effects now (before process_choice_consequences)
+        extra_msgs = []
+
+        # BUG 1 FIX: apply counter-offer budget grant/cost directly with correct sign.
+        # Both "budget" and "budget_delta" use player-perspective (positive = Europa receives).
+        # The NPC prompts now explicitly specify this, so apply raw_budget directly.
+        combined_budget_delta = (raw_budget or 0) + (budget_delta or 0)
+        if combined_budget_delta != 0:
+            gs.update_budget(combined_budget_delta)
+            direction = "↑" if combined_budget_delta > 0 else "↓"
+            extra_msgs.append(f"{direction} Budget: negotiated payment {combined_budget_delta:+.1f}B → ${gs.budget:.1f}B")
+
+        if pw_delta is not None and pw_delta != 0:
+            if pw_delta > 0:
+                gs.personal_wealth += pw_delta
+                extra_msgs.append(f"💰 Negotiated personal payment: +${pw_delta:.1f}B personal account")
+            else:
+                gs.personal_wealth = max(0, gs.personal_wealth + pw_delta)
+                extra_msgs.append(f"💰 Negotiated personal cost: ${abs(pw_delta):.1f}B personal account")
+
+        if oil_lock_value is not None and oil_lock_turns:
+            gs.oil_price_locked = True
+            gs.oil_price_lock_value = float(oil_lock_value)
+            gs.oil_price_lock_turns_remaining = int(oil_lock_turns)
+            extra_msgs.append(
+                f"🛢️  Oil price locked at ${oil_lock_value:.0f}/bbl for {oil_lock_turns} turns (negotiated)"
+            )
+
+        # BUG 2: register installment payment streams so EOT processor can apply them.
+        # Build a unified list from whichever format the NPC used.
+        npc_name = effective_offer.get("npc", "unknown")
+        streams_to_register = []
+
+        # New format: "installments" array — one entry per payment stream
+        if installments_array and isinstance(installments_array, list):
+            for entry in installments_array:
+                amt = entry.get("amount")
+                turns = entry.get("turns")
+                desc = entry.get("description") or f"{npc_name.upper()} payment"
+                if amt is not None and turns and int(turns) > 0:
+                    streams_to_register.append({
+                        "amount": float(amt),
+                        "turns_remaining": int(turns),
+                        "description": desc,
+                        "npc": npc_name,
+                    })
+
+        # Legacy format: single installment_amount + installment_turns pair
+        elif installment_amount is not None and installment_turns and int(installment_turns) > 0:
+            desc = installment_desc or f"{npc_name.upper()} payment"
+            streams_to_register.append({
+                "amount": float(installment_amount),
+                "turns_remaining": int(installment_turns),
+                "description": desc,
+                "npc": npc_name,
+            })
+
+        for stream in streams_to_register:
+            gs.active_installments.append(stream)
+            direction_word = "receive" if stream["amount"] > 0 else "pay"
+            extra_msgs.append(
+                f"📋 Installment registered: {direction_word} ${abs(stream['amount']):.1f}B/turn "
+                f"for {stream['turns_remaining']} turns ({stream['description']})"
+            )
+    else:
+        extra_msgs = []
+
     choice_dict = {
-        "type": offer.get("type", "accept_deal"),
-        "npc": offer.get("npc"),
-        "consequences": offer.get("consequences", {}),
+        "type": effective_offer.get("type", "accept_deal"),
+        "npc": effective_offer.get("npc"),
+        "consequences": effective_offer.get("consequences", {}),
     }
 
     gs.record_action(choice_dict["type"], choice_dict.get("npc"))
     consequence_msgs = process_choice_consequences(gs, choice_dict)
+    consequence_msgs = extra_msgs + consequence_msgs
+
+    # Clear options_override after use
+    gs.options_override = None
 
     # Blackmail result
     blackmail_result = None
     if blackmail_active:
-        chose_cooperate = (offer.get("npc") == "usa")
+        chose_cooperate = (effective_offer.get("npc") == "usa")
         gs.blackmail_used = True
         if chose_cooperate:
             gs.personal_wealth = max(0, gs.personal_wealth - 2.0)
@@ -525,11 +724,27 @@ def post_skim(session_id: str, body: SkimRequest):
             ending = _build_ending(gs)
             status = "won"
 
-    # Generate next turn dialogue (if still playing)
+    # Generate next turn data (if still playing)
     next_dialogue = None
     next_offers = None
     next_blackmail = False
+    next_event = None
     if status == "active":
+        # BUG 3: World event generation is wrapped in try/except so a Claude API
+        # failure never crashes the turn or permanently silences future events.
+        # current_event is always explicitly reset each turn (None = no event).
+        gs.current_event = None  # clear stale event before attempting new one
+        try:
+            last_action = gs.action_history[-1] if gs.action_history else {}
+            next_event = _maybe_generate_world_event(gs, last_action.get("type", ""))
+            if next_event:
+                _apply_world_event(gs, next_event)
+                gs.current_event = next_event
+        except Exception as _evt_err:
+            print(f"  [api] World event generation error (non-fatal): {_evt_err}")
+            next_event = None
+            gs.current_event = None
+
         next_dialogue = npc_engine.generate_dialogue(gs)
         next_blackmail = _check_blackmail(gs)
         next_offers = _build_offers(gs)
@@ -547,6 +762,7 @@ def post_skim(session_id: str, body: SkimRequest):
         "next_blackmail": next_blackmail,
         "next_offers": next_offers,
         "next_skim_options": _build_skim_options(gs) if status == "active" else [],
+        "next_event": next_event,
         "game_state": gs.serialize(),
     }
 
@@ -609,7 +825,21 @@ def post_inject(session_id: str, body: InjectRequest):
     next_dialogue = None
     next_offers = None
     next_blackmail = False
+    next_event = None
     if status == "active":
+        # BUG 3: same fail-safe wrapping as post_skim
+        gs.current_event = None  # clear stale event before attempting new one
+        try:
+            last_action = gs.action_history[-1] if gs.action_history else {}
+            next_event = _maybe_generate_world_event(gs, last_action.get("type", ""))
+            if next_event:
+                _apply_world_event(gs, next_event)
+                gs.current_event = next_event
+        except Exception as _evt_err:
+            print(f"  [api] World event generation error (non-fatal): {_evt_err}")
+            next_event = None
+            gs.current_event = None
+
         next_dialogue = npc_engine.generate_dialogue(gs)
         next_blackmail = _check_blackmail(gs)
         next_offers = _build_offers(gs)
@@ -626,6 +856,7 @@ def post_inject(session_id: str, body: InjectRequest):
         "next_blackmail": next_blackmail,
         "next_offers": next_offers,
         "next_skim_options": _build_skim_options(gs) if status == "active" else [],
+        "next_event": next_event,
         "game_state": gs.serialize(),
     }
 
@@ -635,3 +866,61 @@ def get_status(session_id: str):
     """Quick status check."""
     gs = _load_gs(session_id)
     return {"status": _game_status(gs)}
+
+
+@app.post("/game/{session_id}/negotiate")
+def post_negotiate(session_id: str, body: NegotiateRequest):
+    """
+    Private negotiation channel with a single NPC.
+    Accepts: { npc_id, message, history }
+    Returns: { response, counter_offer }
+
+    If counter_offer is not null, the frontend should display it as a
+    special ⚡ offer option and, if accepted, save it via options_override.
+    """
+    gs = _load_gs(session_id)
+
+    npc_id = body.npc_id.lower()
+    if npc_id not in ("usa", "arabia", "eu", "dprg"):
+        raise HTTPException(status_code=400, detail=f"Invalid npc_id '{npc_id}'")
+
+    result = npc_engine.generate_negotiation_response(
+        gs,
+        npc_id=npc_id,
+        message=body.message,
+        history=body.history,
+    )
+
+    return {
+        "npc_id": npc_id,
+        "response": result.get("response", "…"),
+        "counter_offer": result.get("counter_offer", None),
+    }
+
+
+@app.post("/game/{session_id}/accept_counter")
+def post_accept_counter(session_id: str, body: AcceptCounterRequest):
+    """
+    Accept a negotiated counter-offer.
+    Body: { letter: "A", counter_offer: { text, type, npc, consequences } }
+    Stores it in game_state.options_override so /action will use it.
+    """
+    gs = _load_gs(session_id)
+
+    letter = (body.letter or "").upper()
+    counter = body.counter_offer
+
+    if not letter or not counter:
+        raise HTTPException(status_code=400, detail="letter and counter_offer required")
+
+    # Merge into options_override
+    if not gs.options_override:
+        gs.options_override = []
+
+    # Replace existing override for this letter if any
+    gs.options_override = [o for o in gs.options_override if o.get("letter") != letter]
+    counter["letter"] = letter
+    gs.options_override.append(counter)
+
+    _save_gs(session_id, gs)
+    return {"status": "ok", "letter": letter}

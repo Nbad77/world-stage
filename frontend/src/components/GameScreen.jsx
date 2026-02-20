@@ -10,6 +10,8 @@ import InjectPanel from './InjectPanel'
 import InterceptPanel from './InterceptPanel'
 import EotPanel from './EotPanel'
 import EndingScreen from './EndingScreen'
+import EventBanner from './EventBanner'
+import NegotiationPanel from './NegotiationPanel'
 
 /**
  * GameScreen manages the full turn lifecycle:
@@ -27,6 +29,13 @@ const PHASE = {
   INJECT_PROMPT: 'inject_prompt',
   EOT: 'eot',
   ENDED: 'ended',
+}
+
+const NPC_INFO = {
+  usa:    { label: 'Bill Washington', flag: '🇺🇸', letter: 'A' },
+  arabia: { label: 'Sadam',           flag: '🛢️',  letter: 'B' },
+  eu:     { label: 'Marsha',          flag: '🇪🇺', letter: 'C' },
+  dprg:   { label: 'Ji-won Ryang',    flag: '⚡',  letter: 'D' },
 }
 
 export default function GameScreen({ sessionId, initialData, onGameEnd, onRestart }) {
@@ -56,6 +65,20 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   // Ending
   const [ending, setEnding] = useState(null)
 
+  // FEATURE 1: Confirmation dialog — intercepts choice + skim before committing
+  // { type: 'choice'|'skim', value: letter|choiceNum, text: string } | null
+  const [pendingConfirm, setPendingConfirm] = useState(null)
+
+  // Stage 4: World events
+  const [currentEvent, setCurrentEvent] = useState(initialData.current_event || null)
+
+  // Stage 4: Negotiation
+  const [negotiatingNpc, setNegotiatingNpc] = useState(null)   // 'usa'|'arabia'|'eu'|'dprg'|null
+  // counterOffers: { [letter]: counterOffer } — displayed in OffersPanel
+  const [counterOffers, setCounterOffers] = useState({})
+  // BUG 5: per-NPC chat history, keyed by npcKey — survives panel close/reopen within same turn
+  const [chatHistories, setChatHistories] = useState({})
+
   const scrollRef = useRef(null)
 
   // Scroll to top of game area whenever phase changes
@@ -65,8 +88,43 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
 
   const clearError = () => setError(null)
 
+  // ── FEATURE 1: Confirmation dialog helpers ────────────────────────────────
+  function requestConfirmChoice(letter) {
+    // Find the full offer text to show in the dialog
+    const allOffers = offers || []
+    const counter = counterOffers[letter]
+    const base = allOffers.find(o => o.letter === letter)
+    const text = counter
+      ? `[NEGOTIATED] ${counter.text}`
+      : base?.text || `Option ${letter}`
+    setPendingConfirm({ type: 'choice', value: letter, text })
+  }
+
+  function requestConfirmSkim(choice) {
+    const opt = (skimOptions || []).find(o => o.choice === choice)
+    const text = opt?.label || `Option ${choice}`
+    setPendingConfirm({ type: 'skim', value: choice, text })
+  }
+
+  function handleConfirmExecute() {
+    if (!pendingConfirm) return
+    const { type, value } = pendingConfirm
+    setPendingConfirm(null)
+    if (type === 'choice') _executeChoice(value)
+    else if (type === 'skim') _executeSkim(value)
+  }
+
+  function handleConfirmCancel() {
+    setPendingConfirm(null)
+  }
+
   // ── PHASE 0 → 1: player picks A-G ───────────────────────────────────────
   async function handleChoice(letter) {
+    // FEATURE 1: Route through confirmation first
+    requestConfirmChoice(letter)
+  }
+
+  async function _executeChoice(letter) {
     clearError()
     setLoading(true)
     try {
@@ -106,6 +164,11 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
 
   // ── PHASE 1 → 2: player picks skim option ────────────────────────────────
   async function handleSkim(choice) {
+    // FEATURE 1: Route through confirmation first
+    requestConfirmSkim(choice)
+  }
+
+  async function _executeSkim(choice) {
     clearError()
     setLoading(true)
     try {
@@ -134,6 +197,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         blackmailActive: res.next_blackmail,
         status: res.status,
         ending: res.ending,
+        event: res.next_event || null,
       }
 
     } catch (e) {
@@ -172,6 +236,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         blackmailActive: res.next_blackmail,
         status: res.status,
         ending: res.ending,
+        event: res.next_event || null,
       }
 
     } catch (e) {
@@ -216,8 +281,30 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     setPatriotMessage(null)
     setIntercepts([])
     setEotMessages([])
+    // Stage 4
+    setCurrentEvent(next.event || null)
+    setNegotiatingNpc(null)
+    setCounterOffers({})
+    setChatHistories({})   // BUG 5: clear all per-NPC histories on turn advance
     setPhase(PHASE.DIALOGUE)
     _nextTurnRef.current = null
+  }
+
+  // ── Stage 4: counter-offer handler ────────────────────────────────────────
+  async function handleCounterOffer(letter, counterOffer) {
+    // Store in local state for display in OffersPanel
+    setCounterOffers(prev => ({ ...prev, [letter]: counterOffer }))
+    // Tell backend to use this override when the player picks that letter
+    try {
+      await api.acceptCounter(sessionId, letter, counterOffer)
+    } catch (e) {
+      console.warn('acceptCounter failed:', e.message)
+    }
+  }
+
+  // BUG 5: update per-NPC chat history without clearing other NPCs
+  function handleHistoryChange(npcKey, newMessages) {
+    setChatHistories(prev => ({ ...prev, [npcKey]: newMessages }))
   }
 
   // ── Render: ENDED ────────────────────────────────────────────────────────
@@ -267,7 +354,64 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
           <>
             <div className="turn-divider">— TURN {gs?.current_turn}/{gs?.max_turns} —</div>
 
-            <DialoguePanel dialogue={dialogue} />
+            {/* World event banner */}
+            <EventBanner event={currentEvent} />
+
+            <DialoguePanel
+              dialogue={dialogue}
+              onNegotiate={!loading ? setNegotiatingNpc : null}
+              negotiatingNpc={negotiatingNpc}
+            />
+
+            {/* Negotiation slide-up panel */}
+            {negotiatingNpc && (() => {
+              const info = NPC_INFO[negotiatingNpc]
+
+              // FEATURE 2: Build active deal summary for this NPC
+              let activeDealSummary = null
+              if (gs) {
+                const summaries = []
+                // Oil price lock (arabia is the relevant NPC for oil)
+                if (
+                  negotiatingNpc === 'arabia' &&
+                  gs.oil_price_locked &&
+                  gs.oil_price_lock_turns_remaining > 0
+                ) {
+                  summaries.push(
+                    `🔒 Oil locked at $${gs.oil_price_lock_value}/bbl — ${gs.oil_price_lock_turns_remaining} turn(s) remaining`
+                  )
+                }
+                // Active trade commitments for this NPC
+                if (Array.isArray(gs.active_trade_commitments)) {
+                  for (const c of gs.active_trade_commitments) {
+                    if (!c.npc || c.npc === negotiatingNpc) {
+                      summaries.push(
+                        `🤝 ${c.description} — ${c.turns_remaining} turn(s) remaining`
+                      )
+                    }
+                  }
+                }
+                if (summaries.length > 0) {
+                  activeDealSummary = summaries.join(' · ')
+                }
+              }
+
+              return (
+                <NegotiationPanel
+                  key={negotiatingNpc}
+                  npcKey={negotiatingNpc}
+                  npcLabel={info.label}
+                  npcFlag={info.flag}
+                  sessionId={sessionId}
+                  offerLetter={info.letter}
+                  onClose={() => setNegotiatingNpc(null)}
+                  onCounterOffer={handleCounterOffer}
+                  initialMessages={chatHistories[negotiatingNpc] || []}
+                  onHistoryChange={(msgs) => handleHistoryChange(negotiatingNpc, msgs)}
+                  activeDealSummary={activeDealSummary}
+                />
+              )
+            })()}
 
             <div className="panel" style={{ paddingBottom: '0.5rem' }}>
               <div className="panel-header">Relations</div>
@@ -282,6 +426,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               offers={offers}
               onChoice={handleChoice}
               disabled={loading}
+              counterOffers={counterOffers}
             />
           </>
         )}
@@ -373,6 +518,35 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         )}
 
       </div>
+
+      {/* FEATURE 1: Confirmation modal — intercepts choice and skim commits */}
+      {pendingConfirm && (
+        <div className="confirm-overlay">
+          <div className="confirm-dialog">
+            <div className="confirm-header">
+              {pendingConfirm.type === 'choice' ? 'Confirm Diplomatic Choice' : 'Confirm Allocation'}
+            </div>
+            <div className="confirm-body">
+              {pendingConfirm.text}
+            </div>
+            <div className="confirm-actions">
+              <button
+                className="btn-ghost confirm-back-btn"
+                onClick={handleConfirmCancel}
+              >
+                ← Go Back
+              </button>
+              <button
+                className="btn-primary confirm-commit-btn"
+                onClick={handleConfirmExecute}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }

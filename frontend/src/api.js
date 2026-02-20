@@ -42,4 +42,12 @@ export const api = {
 
   /** POST /game/{id}/inject — body: { choice: 0-3 } */
   postInject: (id, choice) => request('POST', `/game/${id}/inject`, { choice }),
+
+  /** POST /game/{id}/negotiate — body: { npc_id, message, history } */
+  negotiate: (id, npc_id, message, history = []) =>
+    request('POST', `/game/${id}/negotiate`, { npc_id, message, history }),
+
+  /** POST /game/{id}/accept_counter — body: { letter, counter_offer } */
+  acceptCounter: (id, letter, counter_offer) =>
+    request('POST', `/game/${id}/accept_counter`, { letter, counter_offer }),
 }

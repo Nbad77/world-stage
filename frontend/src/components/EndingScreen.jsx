@@ -32,12 +32,15 @@ export default function EndingScreen({ ending, gs, onRestart }) {
       <div className={`ending-grade-box ${screenClass}`}>
         <div className={`ending-grade ${screenClass}`}>{gradeStr}</div>
         <div className="ending-grade-label">{gradeLabel}</div>
-        <div className="ending-title">
-          {ending.grade_title || ending.personal_title || 'Unknown Fate'}
-        </div>
-        <div className="ending-desc">
-          {ending.grade_description || ending.personal_description || ''}
-        </div>
+        {/* BUG 3: Only show title/desc from grade_title (victory) — never fall back to
+            personal_title here, since Personal Legacy section below handles that for
+            non-victory endings. Avoids the duplicate text. */}
+        {ending.grade_title && (
+          <div className="ending-title">{ending.grade_title}</div>
+        )}
+        {ending.grade_description && (
+          <div className="ending-desc">{ending.grade_description}</div>
+        )}
       </div>
 
       {/* Cause */}
