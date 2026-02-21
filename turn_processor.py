@@ -43,8 +43,8 @@ def process_choice_consequences(game_state, choice):
         arabia_delta = consequences.get('arabia', 0)
         if oil_delta != 0:
             duration = consequences.get('oil_price_turns', 3)
-            npc = consequences.get('_npc', 'deal')  # set by caller if available
-            desc = f"{npc} oil deal"
+            npc = choice.get('npc') or 'deal'
+            desc = f"{npc.upper()} oil deal"
             game_state.oil_price_modifiers.append({
                 "delta": float(oil_delta),
                 "turns_remaining": int(duration),

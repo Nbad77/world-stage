@@ -72,7 +72,8 @@ class GameState:
         self.active_installments = []           # list of {amount, turns_remaining, description, npc}
         # Persistent oil price modifiers — applied on top of relation-based price each EOT.
         # list of {delta: float, turns_remaining: int, description: str}
-        # Positive delta = cheaper oil, negative = more expensive.
+        # Negative delta = cheaper oil (e.g. Arabia deal -$5 → price drops $5).
+        # Positive delta = more expensive (e.g. supply shock +$10).
         # Used for world events and negotiated per-barrel discounts.
         self.oil_price_modifiers = []
 
