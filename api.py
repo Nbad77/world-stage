@@ -136,6 +136,25 @@ def _build_offers(gs: GameState) -> list[dict]:
             "npc": None,
             "consequences": {},
         })
+    # H) Loyalty Brigades deployment — available every turn once purchased
+    # Costs $2B budget + -5% approval, gives +10% stability (suppress unrest)
+    # Only shown when upgrade is active and budget can cover the cost
+    if gs.corruption_upgrades.get('loyalty_brigades') and gs.budget >= 2:
+        offers.append({
+            "letter": "H",
+            "text": "[BRIGADES] Deploy Loyalty Brigades — suppress domestic unrest (-$2B, -5% approval, +10% stability, all relations -3)",
+            "type": "deploy_brigades",
+            "npc": None,
+            "consequences": {
+                "budget": -2,
+                "approval": -5,
+                "stability": 10,
+                "usa": -3,
+                "arabia": -3,
+                "eu": -3,
+                "dprg": -3,
+            },
+        })
     return offers
 
 

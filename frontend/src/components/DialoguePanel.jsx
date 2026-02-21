@@ -118,18 +118,33 @@ function renderWithStageDirections(text) {
   })
 }
 
+// Intelligence Apparatus: static intel dossier per NPC
+// Revealed when corruption_upgrades.intelligence_apparatus is active.
+const NPC_INTEL = {
+  usa: "Primary objective: bind Europa to Western sanctions regime and reduce Arabian energy dependence. Secondary pressure: CIA financial dossier on personal wealth is active leverage.",
+  arabia: "Primary objective: make Europa's oil supply exclusively Arabian. Will embargo at <25 relations. Quietly coordinates with DPRG on arms transfers outside Western visibility.",
+  eu: "Primary objective: institutional alignment — press freedom, rule-of-law benchmarks. Will cut aid programs if DPRG relations exceed 65. Hardest to charm; responds only to concrete steps.",
+  dprg: "Primary objective: extract a network of leaders who owe DPRG favors. The escape offer is genuine: Ji-won maintains exfiltration infrastructure for useful clients.",
+}
+
 /**
  * Props:
  *   dialogue        : array of 4 raw NPC strings
  *   onNegotiate     : (npcKey) => void — optional, if provided shows Negotiate buttons
  *   negotiatingNpc  : string | null — which NPC panel is currently open
+ *   intelActive     : bool — true when Intelligence Apparatus upgrade is purchased
  */
-export default function DialoguePanel({ dialogue, onNegotiate, negotiatingNpc }) {
+export default function DialoguePanel({ dialogue, onNegotiate, negotiatingNpc, intelActive = false }) {
   if (!dialogue || dialogue.length === 0) return null
 
   return (
     <div className="panel dialogue-panel">
-      <div className="panel-header">Diplomatic Communiqués</div>
+      <div className="panel-header">
+        Diplomatic Communiqués
+        {intelActive && (
+          <span className="intel-active-badge">🕵️ INTEL ACTIVE</span>
+        )}
+      </div>
       {NPC_ORDER.map(({ key, label, flag }, i) => {
         const { subtitle, text } = parseNpcString(dialogue[i])
         const isNegotiating = negotiatingNpc === key
@@ -155,6 +170,13 @@ export default function DialoguePanel({ dialogue, onNegotiate, negotiatingNpc })
               )}
             </div>
             <span className="npc-text">{renderWithStageDirections(text)}</span>
+            {/* Intelligence Apparatus: show hidden agenda dossier */}
+            {intelActive && NPC_INTEL[key] && (
+              <div className="intel-dossier">
+                <span className="intel-dossier-label">🕵️ DOSSIER</span>
+                {NPC_INTEL[key]}
+              </div>
+            )}
           </div>
         )
       })}

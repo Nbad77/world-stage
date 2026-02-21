@@ -14,15 +14,17 @@ export default function OffersPanel({ offers, onChoice, disabled, counterOffers 
     <div className="panel offers-panel">
       <div className="panel-header">Your Move</div>
       {offers.map((offer) => {
-        const isEscape  = offer.type === 'escape'
-        const isInject  = offer.type === 'inject_funds'
-        const isNothing = offer.type === 'do_nothing'
-        const counter   = counterOffers[offer.letter]
+        const isEscape   = offer.type === 'escape'
+        const isInject   = offer.type === 'inject_funds'
+        const isNothing  = offer.type === 'do_nothing'
+        const isBrigades = offer.type === 'deploy_brigades'
+        const counter    = counterOffers[offer.letter]
 
-        const extraClass = isEscape  ? 'escape-btn'
-                         : isInject  ? 'inject-btn'
-                         : isNothing ? 'nothing-btn'
-                         : counter   ? 'counter-btn'
+        const extraClass = isEscape   ? 'escape-btn'
+                         : isInject   ? 'inject-btn'
+                         : isNothing  ? 'nothing-btn'
+                         : isBrigades ? 'brigades-btn'
+                         : counter    ? 'counter-btn'
                          : ''
 
         return (

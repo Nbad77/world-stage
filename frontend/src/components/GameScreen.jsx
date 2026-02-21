@@ -388,6 +388,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               dialogue={dialogue}
               onNegotiate={!loading ? setNegotiatingNpc : null}
               negotiatingNpc={negotiatingNpc}
+              intelActive={!!gs?.corruption_upgrades?.intelligence_apparatus}
             />
 
             {/* Negotiation slide-up panel */}
