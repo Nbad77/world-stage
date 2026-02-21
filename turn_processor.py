@@ -35,21 +35,30 @@ def process_choice_consequences(game_state, choice):
         direction = "↑" if consequences['stability'] > 0 else "↓"
         messages.append(f"{direction} Stability: {old}% → {game_state.stability}% ({consequences['stability']:+d}%)")
 
-    # Oil price changes from deals are cosmetic — end of turn recalculates from relations.
-    # BUG 2: Derive message direction from Arabia relations delta (not oil_price sign),
-    # so that negotiated deals with a counter-offer oil_price override can't show
-    # a contradicting message (e.g. "worsened" when Arabia +72).
+    # Oil price consequences from deals — register as a persistent modifier so EOT
+    # recalculation doesn't wipe the effect. Negative = cheaper oil for player.
+    # Default duration: 3 turns (the deal lasts a while, not just one turn).
     if 'oil_price' in consequences:
+        oil_delta = consequences['oil_price']
         arabia_delta = consequences.get('arabia', 0)
-        if arabia_delta > 0:
-            messages.append("🛢️  Arabia relations improved — oil prices will reflect this next turn")
-        elif arabia_delta < 0:
-            messages.append("🛢️  Arabia relations worsened — oil prices will reflect this next turn")
+        if oil_delta != 0:
+            duration = consequences.get('oil_price_turns', 3)
+            npc = consequences.get('_npc', 'deal')  # set by caller if available
+            desc = f"{npc} oil deal"
+            game_state.oil_price_modifiers.append({
+                "delta": float(oil_delta),
+                "turns_remaining": int(duration),
+                "description": desc,
+            })
+            sign = '+' if oil_delta > 0 else ''
+            messages.append(
+                f"🛢️  Oil deal locked in: {sign}${oil_delta:.0f}/bbl for {duration} turns"
+            )
         else:
-            # No Arabia change — use oil_price sign as fallback (non-Arabia deals)
-            if consequences['oil_price'] < 0:
+            # Pure relation change — no direct oil modifier, just note it
+            if arabia_delta > 0:
                 messages.append("🛢️  Arabia relations improved — oil prices will reflect this next turn")
-            elif consequences['oil_price'] > 0:
+            elif arabia_delta < 0:
                 messages.append("🛢️  Arabia relations worsened — oil prices will reflect this next turn")
 
     # Special flags
@@ -140,6 +149,32 @@ def apply_end_of_turn_effects(game_state):
             )
     else:
         game_state.set_oil_price_from_relations()   # sets base from relations
+
+    # Apply persistent oil price modifiers (world events, negotiated discounts)
+    # These stack on top of the relation-based price and tick down each EOT.
+    if game_state.oil_price_modifiers:
+        still_active = []
+        total_modifier = 0
+        for mod in game_state.oil_price_modifiers:
+            mod['turns_remaining'] -= 1
+            total_modifier += mod['delta']
+            remaining = mod['turns_remaining']
+            desc = mod.get('description', 'oil modifier')
+            sign = '+' if mod['delta'] > 0 else ''
+            if remaining > 0:
+                still_active.append(mod)
+                messages.append(
+                    f"🛢️  Oil modifier active: {sign}${mod['delta']:.0f}/bbl ({desc}, "
+                    f"{remaining} turn(s) remaining)"
+                )
+            else:
+                messages.append(
+                    f"🛢️  Oil modifier expired: {sign}${mod['delta']:.0f}/bbl ({desc} — concluded)"
+                )
+        game_state.oil_price_modifiers = still_active
+        # Apply the combined modifier to this turn's price, floor at $20
+        if total_modifier != 0:
+            game_state.oil_price = max(20, round(game_state.oil_price + total_modifier))
 
     # Tick down active trade commitments and remove expired ones
     if game_state.active_trade_commitments:

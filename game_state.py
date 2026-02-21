@@ -70,6 +70,11 @@ class GameState:
         self.oil_price_lock_turns_remaining = 0  # Turns left on the lock
         self.active_trade_commitments = []      # list of {description, turns_remaining}
         self.active_installments = []           # list of {amount, turns_remaining, description, npc}
+        # Persistent oil price modifiers — applied on top of relation-based price each EOT.
+        # list of {delta: float, turns_remaining: int, description: str}
+        # Positive delta = cheaper oil, negative = more expensive.
+        # Used for world events and negotiated per-barrel discounts.
+        self.oil_price_modifiers = []
 
     def record_action(self, choice_type, npc_target=None):
         """
@@ -243,6 +248,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'oil_price_lock_turns_remaining': self.oil_price_lock_turns_remaining,
             'active_trade_commitments': self.active_trade_commitments,
             'active_installments': self.active_installments,
+            'oil_price_modifiers': self.oil_price_modifiers,
         }
 
     @classmethod
@@ -278,4 +284,5 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.oil_price_lock_turns_remaining = data.get('oil_price_lock_turns_remaining', 0)
         gs.active_trade_commitments = data.get('active_trade_commitments', [])
         gs.active_installments = data.get('active_installments', [])
+        gs.oil_price_modifiers = data.get('oil_price_modifiers', [])
         return gs

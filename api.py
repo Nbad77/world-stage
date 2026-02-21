@@ -267,7 +267,17 @@ def _apply_world_event(gs: GameState, event: dict):
     rels = effects.get("relations_delta", {})
 
     if oil_delta:
-        gs.update_oil_price(oil_delta)
+        # Register as a persistent modifier so EOT recalculation doesn't wipe it.
+        # World event oil effects last for the duration specified, defaulting to 2 turns.
+        duration = effects.get("oil_price_duration", 2)
+        desc = event.get("title", "world event")
+        gs.oil_price_modifiers.append({
+            "delta": float(oil_delta),
+            "turns_remaining": int(duration),
+            "description": desc,
+        })
+        # Also apply immediately so the current turn's display shows the new price
+        gs.oil_price = max(20, round(gs.oil_price + oil_delta))
     if stability_delta:
         gs.update_stability(stability_delta)
     for npc, delta in rels.items():
