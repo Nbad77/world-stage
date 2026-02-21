@@ -48,6 +48,10 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
+  // Stage 5: Corruption Upgrade UI
+  const [upgradeLoading, setUpgradeLoading] = useState(false)
+  const [upgradeMessages, setUpgradeMessages] = useState([])
+
   // Phase 1 data
   const [consequences, setConsequences] = useState([])
   const [blackmailResult, setBlackmailResult] = useState(null)
@@ -307,6 +311,22 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     setChatHistories(prev => ({ ...prev, [npcKey]: newMessages }))
   }
 
+  // Stage 5: Corruption Upgrade purchase
+  async function handlePurchaseUpgrade(upgradeId) {
+    clearError()
+    setUpgradeLoading(true)
+    setUpgradeMessages([])
+    try {
+      const res = await api.purchaseUpgrade(sessionId, upgradeId)
+      setGs(res.game_state)
+      setUpgradeMessages(res.messages || [])
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setUpgradeLoading(false)
+    }
+  }
+
   // ── Render: ENDED ────────────────────────────────────────────────────────
   if (phase === PHASE.ENDED) {
     return (
@@ -353,6 +373,13 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         {phase === PHASE.DIALOGUE && (
           <>
             <div className="turn-divider">— TURN {gs?.current_turn}/{gs?.max_turns} —</div>
+
+            {/* Stage 5: Per-turn epitaph — historian voice line */}
+            {gs?.current_epitaph && (
+              <div className="epitaph-line">
+                <em>{gs.current_epitaph}</em>
+              </div>
+            )}
 
             {/* World event banner */}
             <EventBanner event={currentEvent} />
@@ -428,6 +455,73 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               disabled={loading}
               counterOffers={counterOffers}
             />
+
+            {/* Stage 5: Corruption Upgrades panel — shown when player has personal wealth */}
+            {gs?.personal_wealth > 0 && (() => {
+              const upgrades = gs.corruption_upgrades || {}
+              const UPGRADES = [
+                {
+                  id: 'intelligence_apparatus',
+                  label: 'Intelligence Apparatus',
+                  cost: 3,
+                  effect: 'Unlock intel tooltips on NPC cards',
+                  icon: '🕵️',
+                },
+                {
+                  id: 'sovereign_wealth_diversion',
+                  label: 'Sovereign Wealth Diversion',
+                  cost: 5,
+                  effect: 'Large skim stability penalty: -6% → -3%',
+                  icon: '💼',
+                },
+                {
+                  id: 'loyalty_brigades',
+                  label: 'Loyalty Brigades',
+                  cost: 8,
+                  effect: 'Unlocks brigade deployment options',
+                  icon: '⚔️',
+                },
+                {
+                  id: 'debt_infrastructure_deal',
+                  label: 'Debt Infrastructure Deal',
+                  cost: 10,
+                  effect: '+$20B national budget, USA -15, EU -15',
+                  icon: '🏗️',
+                },
+              ]
+              const availableUpgrades = UPGRADES.filter(u => !upgrades[u.id])
+              if (availableUpgrades.length === 0) return null
+
+              return (
+                <div className="panel upgrades-panel">
+                  <div className="panel-header">🏦 Corruption Upgrades — Personal Funds: ${gs.personal_wealth.toFixed(1)}B</div>
+                  {upgradeMessages.length > 0 && (
+                    <div className="upgrade-result-msgs">
+                      {upgradeMessages.map((m, i) => <div key={i} className="upgrade-msg">{m}</div>)}
+                    </div>
+                  )}
+                  {availableUpgrades.map(u => {
+                    const canAfford = gs.personal_wealth >= u.cost
+                    return (
+                      <button
+                        key={u.id}
+                        className={`upgrade-btn ${canAfford ? '' : 'upgrade-btn-disabled'}`}
+                        onClick={() => canAfford && !upgradeLoading && handlePurchaseUpgrade(u.id)}
+                        disabled={!canAfford || upgradeLoading}
+                        title={canAfford ? `Cost: $${u.cost}B personal` : `Need $${u.cost}B personal (have $${gs.personal_wealth.toFixed(1)}B)`}
+                      >
+                        <span className="upgrade-icon">{u.icon}</span>
+                        <span className="upgrade-info">
+                          <span className="upgrade-name">{u.label}</span>
+                          <span className="upgrade-effect">{u.effect}</span>
+                        </span>
+                        <span className="upgrade-cost">${u.cost}B</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </>
         )}
 

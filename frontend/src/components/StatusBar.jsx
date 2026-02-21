@@ -1,5 +1,6 @@
 /**
  * Sticky top status bar — mirrors game_state.get_status_display()
+ * Stage 5: shows state identity (regime_type | power_base) below main stats.
  */
 export default function StatusBar({ gs }) {
   if (!gs) return null
@@ -12,6 +13,15 @@ export default function StatusBar({ gs }) {
     gs.public_approval >= 70 ? '🟢' :
     gs.public_approval >= 50 ? '🟡' :
     gs.public_approval >= 30 ? '🔴' : '💀'
+
+  // Stage 5: state identity
+  const regimeType = gs.state_identity?.regime_type || 'Managed Democracy'
+  const powerBase  = gs.state_identity?.power_base  || 'Mass-Dependent'
+
+  // Color-code regime severity (left = democratic, right = authoritarian)
+  const REGIME_ORDER = ['Managed Democracy', 'Soft Authoritarianism', 'Patronage State', 'Kleptocracy', 'Totalitarian Regime']
+  const regimeIdx = REGIME_ORDER.indexOf(regimeType)
+  const regimeColorClass = regimeIdx <= 1 ? 'regime-democratic' : regimeIdx === 2 ? 'regime-mid' : 'regime-authoritarian'
 
   return (
     <div className="status-bar">
@@ -40,6 +50,12 @@ export default function StatusBar({ gs }) {
       <div className="stat">
         <span className="stat-label">Oil</span>
         <span className="stat-value mono">${gs.oil_price}/bbl</span>
+      </div>
+      {/* Stage 5: state identity — full width row below the stats */}
+      <div className="state-identity-row">
+        <span className={`state-identity-regime ${regimeColorClass}`}>{regimeType}</span>
+        <span className="state-identity-sep">·</span>
+        <span className="state-identity-power">{powerBase}</span>
       </div>
     </div>
   )

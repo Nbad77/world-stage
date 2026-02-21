@@ -50,4 +50,8 @@ export const api = {
   /** POST /game/{id}/accept_counter — body: { letter, counter_offer } */
   acceptCounter: (id, letter, counter_offer) =>
     request('POST', `/game/${id}/accept_counter`, { letter, counter_offer }),
+
+  /** POST /game/{id}/purchase_upgrade — body: { upgrade_id } */
+  purchaseUpgrade: (id, upgrade_id) =>
+    request('POST', `/game/${id}/purchase_upgrade`, { upgrade_id }),
 }

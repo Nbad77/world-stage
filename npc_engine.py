@@ -297,7 +297,10 @@ def _build_context(game_state):
         "arabia_embargo_tier": game_state.arabia_embargo_tier,
         "cia_blackmail_used": game_state.blackmail_used,
         "player_history_last3": history,
-        "is_crisis": game_state.stability < 30 or game_state.budget < 8
+        "is_crisis": game_state.stability < 30 or game_state.budget < 8,
+        # Stage 5: state identity — NPCs can reference regime type and power base
+        "regime_type": getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy'),
+        "power_base": getattr(game_state, 'state_identity', {}).get('power_base', 'Mass-Dependent'),
     }
 
     # Only reveal personal_wealth if above intercept threshold
@@ -899,6 +902,101 @@ OR with a modified deal:
 Return ONLY valid JSON. No extra text.
 """,
 }
+
+
+EPITAPH_SYSTEM = """
+You are a sardonic historian writing a one-sentence verdict on a fictional leader's turn in power.
+Write in third person. Max 20 words. Dry wit preferred — like a historian a century from now
+reading the footnotes. Reference the specific action taken, the regime type, or the mood of the nation.
+Output ONLY the single sentence. No quotes. No attribution. No extra text.
+Examples:
+  "Having extracted six billion from the treasury, the Pragmatic Leader called it infrastructure spending."
+  "Sadam's handshake that quarter would cost Europa dearly in the turns to come."
+  "The people, still trusting their leader, would not read the Swiss account disclosures until spring."
+"""
+
+def generate_epitaph(game_state) -> str:
+    """
+    Generate a one-sentence historian-voice epitaph for the current turn.
+    Uses the last action taken, regime type, approval, and budget trend as context.
+    Returns a string (never None — falls back to a static line on error).
+    """
+    import anthropic
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return _static_epitaph_fallback(game_state)
+
+    context = _build_context(game_state)
+    # Add extra detail for epitaph specificity
+    last_action = game_state.action_history[-1] if game_state.action_history else {}
+    last_npc = last_action.get('npc', 'none')
+    last_type = last_action.get('type', 'unknown')
+    npc_names = {'usa': 'Bill Washington', 'arabia': 'Sadam', 'eu': 'Marsha', 'dprg': 'Ji-won'}
+
+    action_summary = "did nothing"
+    if last_type == 'side_with' and last_npc in npc_names:
+        action_summary = f"sided with {npc_names[last_npc]}"
+    elif last_type == 'accept_deal' and last_npc in npc_names:
+        action_summary = f"accepted a deal from {npc_names[last_npc]}"
+    elif last_type == 'do_nothing':
+        action_summary = "declined all overtures"
+
+    prompt = (
+        f"Turn {game_state.current_turn} of {game_state.max_turns}. "
+        f"The leader {action_summary}. "
+        f"Regime: {context.get('regime_type', 'Managed Democracy')}. "
+        f"Power base: {context.get('power_base', 'Mass-Dependent')}. "
+        f"Approval: {game_state.public_approval}%. "
+        f"Budget: ${game_state.budget:.0f}B. "
+        f"Personal wealth: ${game_state.personal_wealth:.1f}B. "
+        + (f"Active crisis: sanctions + embargo." if game_state.usa_sanctions_active and game_state.arabia_embargo_active
+           else f"Sanctions: {game_state.usa_sanctions_active}. Embargo: {game_state.arabia_embargo_active}.")
+        + "\n\nWrite the historian's one-sentence epitaph for this turn."
+    )
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=60,
+            temperature=0.85,
+            system=EPITAPH_SYSTEM,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
+
+        text = response.content[0].text.strip()
+        # Remove surrounding quotes if the model added them
+        if text.startswith('"') and text.endswith('"'):
+            text = text[1:-1]
+        return text
+    except Exception as e:
+        _token_log["fallbacks"] += 1
+        print(f"  [npc_engine] Epitaph generation failed: {type(e).__name__}: {e}")
+        return _static_epitaph_fallback(game_state)
+
+
+def _static_epitaph_fallback(game_state) -> str:
+    """Static fallback epitaphs keyed on rough game state."""
+    pw = game_state.personal_wealth
+    approval = game_state.public_approval
+    stability = game_state.stability
+    regime = getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy')
+
+    if pw > 20:
+        return "The leader enriched themselves considerably, a fact the ledgers would confirm long after the speeches were forgotten."
+    if stability < 30:
+        return "The nation trembled, and those responsible called it turbulence rather than collapse."
+    if approval < 30:
+        return "The people had grown quiet — not from satisfaction, but from exhaustion."
+    if approval > 70:
+        return "Public confidence held, though the more cynical observers noted it rarely lasts."
+    if regime in ('Kleptocracy', 'Totalitarian Regime'):
+        return "The regime by this point had outlasted the ideals that justified it."
+    return "History, which is patient, continued to observe."
 
 
 def generate_negotiation_response(game_state, npc_id: str, message: str, history: list):

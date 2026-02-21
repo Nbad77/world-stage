@@ -440,6 +440,107 @@ def apply_end_of_turn_effects(game_state):
     # (Random ±$3 fluctuation removed — it was confusing noise that got wiped by
     # set_oil_price_from_relations() next turn anyway, with no strategic effect.)
 
+    # ──────────────────────────────────────────
+    # 10. STAGE 5: REGIME SHIFT CHECKS
+    # Regime types (left → right): Managed Democracy → Soft Authoritarianism
+    #   → Patronage State → Kleptocracy → Totalitarian Regime
+    # Power base: Mass-Dependent → Mixed → Elite-Captured
+    # ──────────────────────────────────────────
+    _regime_order = [
+        'Managed Democracy',
+        'Soft Authoritarianism',
+        'Patronage State',
+        'Kleptocracy',
+        'Totalitarian Regime',
+    ]
+    _power_order = ['Mass-Dependent', 'Mixed', 'Elite-Captured']
+
+    si = game_state.state_identity
+    current_regime = si.get('regime_type', 'Managed Democracy')
+    current_power = si.get('power_base', 'Mass-Dependent')
+    regime_idx = _regime_order.index(current_regime) if current_regime in _regime_order else 0
+    power_idx  = _power_order.index(current_power) if current_power in _power_order else 0
+
+    # Update approval/skim streak counters (checked BEFORE shifting)
+    if game_state.public_approval < 35:
+        game_state.low_approval_turns += 1
+        game_state.high_approval_turns = 0
+    elif game_state.public_approval > 65:
+        game_state.high_approval_turns += 1
+        game_state.low_approval_turns = 0
+    else:
+        game_state.low_approval_turns = 0
+        game_state.high_approval_turns = 0
+
+    regime_changed = False
+    power_changed = False
+
+    # ── Regime shift RIGHT (more authoritarian) ──
+    # Condition A: large skim (≥$7B) for 2+ consecutive turns
+    if game_state.consecutive_large_skims >= 2 and regime_idx < len(_regime_order) - 1:
+        regime_idx += 1
+        regime_changed = True
+        messages.append(
+            f"⚠️  Regime shift: '{_regime_order[regime_idx - 1]}' → '{_regime_order[regime_idx]}'"
+            f" (prolonged extraction)"
+        )
+    # Condition B: approval below 35% for 2+ turns
+    elif game_state.low_approval_turns >= 2 and regime_idx < len(_regime_order) - 1:
+        regime_idx += 1
+        regime_changed = True
+        messages.append(
+            f"⚠️  Regime shift: '{_regime_order[regime_idx - 1]}' → '{_regime_order[regime_idx]}'"
+            f" (sustained unpopularity)"
+        )
+    # Condition C: stability below 30% (immediate)
+    elif game_state.stability < 30 and regime_idx < len(_regime_order) - 1:
+        regime_idx += 1
+        regime_changed = True
+        messages.append(
+            f"⚠️  Regime shift: '{_regime_order[regime_idx - 1]}' → '{_regime_order[regime_idx]}'"
+            f" (instability forces crackdown)"
+        )
+
+    # ── Regime shift LEFT (more democratic) ──
+    elif game_state.high_approval_turns >= 2 and regime_idx > 0:
+        regime_idx -= 1
+        regime_changed = True
+        messages.append(
+            f"✅ Regime shift: '{_regime_order[regime_idx + 1]}' → '{_regime_order[regime_idx]}'"
+            f" (public confidence restored)"
+        )
+
+    # ── Power base shifts ──
+    # Check last action to see if Arabia/DPRG oriented (shift toward Elite-Captured)
+    # or USA/EU oriented (shift toward Mass-Dependent)
+    last_action = game_state.action_history[-1] if game_state.action_history else {}
+    last_npc = last_action.get('npc', '')
+    last_type = last_action.get('type', '')
+    if last_type in ('side_with', 'accept_deal'):
+        if last_npc in ('arabia', 'dprg') and power_idx < len(_power_order) - 1:
+            power_idx += 1
+            power_changed = True
+        elif last_npc in ('usa', 'eu') and power_idx > 0:
+            power_idx -= 1
+            power_changed = True
+
+    # Corruption upgrades push toward Elite-Captured
+    upgrades = getattr(game_state, 'corruption_upgrades', {})
+    active_upgrades = sum(1 for v in upgrades.values() if v)
+    if active_upgrades >= 2 and power_idx < len(_power_order) - 1:
+        power_idx = min(len(_power_order) - 1, power_idx + 1)
+        power_changed = True
+
+    if regime_changed:
+        si['regime_type'] = _regime_order[regime_idx]
+    if power_changed:
+        old_power = current_power
+        si['power_base'] = _power_order[power_idx]
+        if old_power != _power_order[power_idx]:
+            messages.append(
+                f"🔄 Power base: '{old_power}' → '{_power_order[power_idx]}'"
+            )
+
     return messages
 
 

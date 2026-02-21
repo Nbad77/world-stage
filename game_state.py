@@ -77,6 +77,36 @@ class GameState:
         # Used for world events and negotiated per-barrel discounts.
         self.oil_price_modifiers = []
 
+        # ── Stage 5: State Identity Progression ──────────────────────────────
+        # regime_type: how the player's rule is characterized by history
+        # Progression (left → right with more corruption/authoritarianism):
+        #   "Managed Democracy" → "Soft Authoritarianism" → "Patronage State"
+        #   → "Kleptocracy" → "Totalitarian Regime"
+        # power_base: who the player depends on for political survival
+        #   "Mass-Dependent" → "Mixed" → "Elite-Captured"
+        self.state_identity = {
+            'regime_type': 'Managed Democracy',
+            'power_base': 'Mass-Dependent',
+        }
+
+        # Regime shift tracking counters (reset each turn after checking)
+        self.consecutive_large_skims = 0   # turns in a row with skim ≥ $7B
+        self.low_approval_turns = 0        # turns with approval < 35%
+        self.high_approval_turns = 0       # turns with approval > 65%
+
+        # ── Stage 5: Corruption Upgrade System ───────────────────────────────
+        self.corruption_upgrades = {
+            'intelligence_apparatus': False,    # $3B personal — intel tooltip on NPC cards
+            'sovereign_wealth_diversion': False,# $5B personal — large skim stability -6% → -3%
+            'loyalty_brigades': False,          # $8B personal — unlock brigade deployment
+            'debt_infrastructure_deal': False,  # $10B personal — $20B budget, USA -15, EU -15
+        }
+
+        # ── Stage 5: Per-turn Epitaph ─────────────────────────────────────────
+        # Claude haiku-generated one-sentence historian voice line, cached here.
+        # Cleared and regenerated each time the player sees a new turn header.
+        self.current_epitaph = None  # str | None
+
     def record_action(self, choice_type, npc_target=None):
         """
         Record player action with full context
@@ -250,6 +280,13 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'active_trade_commitments': self.active_trade_commitments,
             'active_installments': self.active_installments,
             'oil_price_modifiers': self.oil_price_modifiers,
+            # Stage 5
+            'state_identity': self.state_identity,
+            'consecutive_large_skims': self.consecutive_large_skims,
+            'low_approval_turns': self.low_approval_turns,
+            'high_approval_turns': self.high_approval_turns,
+            'corruption_upgrades': self.corruption_upgrades,
+            'current_epitaph': self.current_epitaph,
         }
 
     @classmethod
@@ -286,4 +323,19 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.active_trade_commitments = data.get('active_trade_commitments', [])
         gs.active_installments = data.get('active_installments', [])
         gs.oil_price_modifiers = data.get('oil_price_modifiers', [])
+        # Stage 5
+        gs.state_identity = data.get('state_identity', {
+            'regime_type': 'Managed Democracy',
+            'power_base': 'Mass-Dependent',
+        })
+        gs.consecutive_large_skims = data.get('consecutive_large_skims', 0)
+        gs.low_approval_turns = data.get('low_approval_turns', 0)
+        gs.high_approval_turns = data.get('high_approval_turns', 0)
+        gs.corruption_upgrades = data.get('corruption_upgrades', {
+            'intelligence_apparatus': False,
+            'sovereign_wealth_diversion': False,
+            'loyalty_brigades': False,
+            'debt_infrastructure_deal': False,
+        })
+        gs.current_epitaph = data.get('current_epitaph', None)
         return gs

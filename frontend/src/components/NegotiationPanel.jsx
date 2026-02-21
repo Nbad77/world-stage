@@ -116,6 +116,16 @@ export default function NegotiationPanel({
     onClose()
   }
 
+  // Stage 4 Polish: when closing via "Done Negotiating", persist any staged offer
+  // so the NEGOTIATED badge remains visible in OffersPanel.
+  function handleDoneNegotiating() {
+    const stagedOffer = counterOffer || lastOffer
+    if (stagedOffer && onCounterOffer) {
+      onCounterOffer(offerLetter, stagedOffer)
+    }
+    onClose()
+  }
+
   // FEATURE 3: dismiss the banner but keep the offer accessible in the footer
   function handleKeepNegotiating() {
     setLastOffer(counterOffer)
@@ -303,7 +313,7 @@ export default function NegotiationPanel({
 
         {/* Footer */}
         <div className="negotiation-footer">
-          <button className="btn-ghost negotiation-done-btn" onClick={onClose}>
+          <button className="btn-ghost negotiation-done-btn" onClick={handleDoneNegotiating}>
             Done Negotiating
           </button>
         </div>

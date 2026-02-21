@@ -77,6 +77,9 @@ class AcceptCounterRequest(BaseModel):
     letter: str           # "A"-"D"
     counter_offer: Any    # the counter_offer dict from negotiate response
 
+class PurchaseUpgradeRequest(BaseModel):
+    upgrade_id: str  # 'intelligence_apparatus' | 'sovereign_wealth_diversion' | 'loyalty_brigades' | 'debt_infrastructure_deal'
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -393,6 +396,12 @@ def new_game():
     offers = _build_offers(gs)
     skim_options = _build_skim_options(gs)
 
+    # Stage 5: generate opening epitaph for Turn 1
+    try:
+        gs.current_epitaph = npc_engine.generate_epitaph(gs)
+    except Exception:
+        gs.current_epitaph = None
+
     session_id = create_session(gs.serialize())
 
     return {
@@ -694,6 +703,16 @@ def post_skim(session_id: str, body: SkimRequest):
     corruption_alert = None
 
     if personal_gain > 0:
+        # Stage 5: track consecutive large skims for regime shift detection
+        if national_cost >= 7.0:
+            gs.consecutive_large_skims += 1
+        else:
+            gs.consecutive_large_skims = 0
+
+        # Stage 5: Sovereign Wealth Diversion upgrade halves large skim stability penalty
+        if national_cost >= 7.0 and gs.corruption_upgrades.get('sovereign_wealth_diversion'):
+            stability_hit = stability_hit // 2  # -6% → -3%
+
         gs.budget -= national_cost
         gs.personal_wealth += personal_gain
         gs.update_stability(stability_hit)
@@ -711,6 +730,9 @@ def post_skim(session_id: str, body: SkimRequest):
             corruption_alert = "Your exit fund grows while the national reserves shrink."
         elif pw > budget * 1.5:
             corruption_alert = "You are now personally wealthier than the nation you govern."
+    else:
+        # No skim — reset consecutive large skim counter
+        gs.consecutive_large_skims = 0
 
     # Intelligence intercepts (one-shot wealth threshold comments)
     intercepts = _get_corruption_intercepts(gs)
@@ -758,6 +780,12 @@ def post_skim(session_id: str, body: SkimRequest):
         next_dialogue = npc_engine.generate_dialogue(gs)
         next_blackmail = _check_blackmail(gs)
         next_offers = _build_offers(gs)
+        # Stage 5: generate per-turn epitaph and cache in game_state
+        try:
+            gs.current_epitaph = npc_engine.generate_epitaph(gs)
+        except Exception as _epi_err:
+            print(f"  [api] Epitaph generation error (non-fatal): {_epi_err}")
+            gs.current_epitaph = None
 
     _save_gs(session_id, gs)
 
@@ -853,6 +881,12 @@ def post_inject(session_id: str, body: InjectRequest):
         next_dialogue = npc_engine.generate_dialogue(gs)
         next_blackmail = _check_blackmail(gs)
         next_offers = _build_offers(gs)
+        # Stage 5: generate per-turn epitaph and cache in game_state
+        try:
+            gs.current_epitaph = npc_engine.generate_epitaph(gs)
+        except Exception as _epi_err:
+            print(f"  [api] Epitaph generation error (non-fatal): {_epi_err}")
+            gs.current_epitaph = None
 
     _save_gs(session_id, gs)
 
@@ -905,6 +939,77 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
         "npc_id": npc_id,
         "response": result.get("response", "…"),
         "counter_offer": result.get("counter_offer", None),
+    }
+
+
+@app.post("/game/{session_id}/purchase_upgrade")
+def post_purchase_upgrade(session_id: str, body: PurchaseUpgradeRequest):
+    """
+    Purchase a corruption upgrade using personal_wealth.
+    Stage 5 — Corruption Upgrade System.
+
+    Upgrades and costs:
+      intelligence_apparatus      — $3B personal
+      sovereign_wealth_diversion  — $5B personal
+      loyalty_brigades            — $8B personal
+      debt_infrastructure_deal    — $10B personal (one-time $20B budget, -15 USA, -15 EU)
+
+    Returns: { success, message, game_state }
+    """
+    gs = _load_gs(session_id)
+
+    UPGRADE_COSTS = {
+        'intelligence_apparatus': 3.0,
+        'sovereign_wealth_diversion': 5.0,
+        'loyalty_brigades': 8.0,
+        'debt_infrastructure_deal': 10.0,
+    }
+
+    upgrade_id = body.upgrade_id
+    if upgrade_id not in UPGRADE_COSTS:
+        raise HTTPException(status_code=400, detail=f"Unknown upgrade '{upgrade_id}'")
+
+    if gs.corruption_upgrades.get(upgrade_id):
+        raise HTTPException(status_code=400, detail="Upgrade already purchased")
+
+    cost = UPGRADE_COSTS[upgrade_id]
+    if gs.personal_wealth < cost:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient personal funds (need ${cost}B, have ${gs.personal_wealth:.1f}B)"
+        )
+
+    # Deduct cost and mark purchased
+    gs.personal_wealth -= cost
+    gs.corruption_upgrades[upgrade_id] = True
+
+    messages = []
+    messages.append(f"💰 -${cost:.0f}B personal wealth → upgrade purchased")
+
+    # Apply immediate effects for debt_infrastructure_deal
+    if upgrade_id == 'debt_infrastructure_deal':
+        gs.update_budget(20.0)
+        gs.update_relations('usa', -15)
+        gs.update_relations('eu', -15)
+        messages.append("💵 DEBT INFRASTRUCTURE DEAL: +$20B national budget")
+        messages.append(f"🇺🇸 USA relations: -{15} (backlash)")
+        messages.append(f"🇪🇺 EU relations: -{15} (backlash)")
+
+    _save_gs(session_id, gs)
+
+    upgrade_labels = {
+        'intelligence_apparatus': 'Intelligence Apparatus',
+        'sovereign_wealth_diversion': 'Sovereign Wealth Diversion',
+        'loyalty_brigades': 'Loyalty Brigades',
+        'debt_infrastructure_deal': 'Debt Infrastructure Deal',
+    }
+
+    return {
+        "success": True,
+        "upgrade_id": upgrade_id,
+        "upgrade_label": upgrade_labels[upgrade_id],
+        "messages": messages,
+        "game_state": gs.serialize(),
     }
 
 
