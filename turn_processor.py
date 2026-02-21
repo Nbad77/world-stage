@@ -3,8 +3,6 @@ Turn Processor - Handles consequences, end-of-turn effects, game over detection
 VERSION 3: Tiered sanctions/embargo/pressure, passive drain, approval system, legacy titles
 """
 
-import random
-
 
 def process_choice_consequences(game_state, choice):
     """Apply immediate consequences from player choice, including approval changes"""
@@ -238,10 +236,13 @@ def apply_end_of_turn_effects(game_state):
     final_oil = game_state.oil_price + _tier_oil_penalty
     game_state.oil_price = max(20, final_oil)   # apply penalty into actual price
 
+    # Build a transparent breakdown so the player can always follow the math.
+    # Format: Oil price: $75 base → -$10 deal → +$10 embargo = $75/bbl
+    _base_oil = game_state.oil_price - _tier_oil_penalty  # price before embargo penalty
+    _oil_parts = [f"${_base_oil:.0f} base (Arabia {arabia_rel})"]
     if _tier_oil_penalty > 0:
-        messages.append(f"🛢️  Oil price: ${game_state.oil_price:.0f}/barrel (Arabia hostile +${_tier_oil_penalty})")
-    else:
-        messages.append(f"🛢️  Oil price (Arabia {arabia_rel}/100): ${game_state.oil_price:.0f}/barrel")
+        _oil_parts.append(f"+${_tier_oil_penalty} embargo")
+    messages.append(f"🛢️  Oil price: {' → '.join(_oil_parts)} = ${game_state.oil_price:.0f}/bbl")
 
     # ──────────────────────────────────────────
     # 2. PASSIVE BUDGET DRAIN
@@ -436,18 +437,8 @@ def apply_end_of_turn_effects(game_state):
         game_state.update_approval(-5)
         messages.append(f"📉 Low budget (${game_state.budget:.1f}B): -3% stability, -5% approval")
 
-    # ──────────────────────────────────────────
-    # 10. SMALL RANDOM OIL FLUCTUATION (±$3)
-    # ──────────────────────────────────────────
-    fluctuation = random.randint(-3, 3)
-    if fluctuation != 0:
-        old = game_state.oil_price
-        game_state.update_oil_price(fluctuation)
-        if game_state.oil_price == 20 and old + fluctuation < 20:
-            messages.append(f"🛢️  Oil markets: $20 floor enforced (was ${old:.0f})")
-        else:
-            direction = "↑" if fluctuation > 0 else "↓"
-            messages.append(f"🛢️  Oil market noise: ${old:.0f} → ${game_state.oil_price:.0f}/barrel ({direction})")
+    # (Random ±$3 fluctuation removed — it was confusing noise that got wiped by
+    # set_oil_price_from_relations() next turn anyway, with no strategic effect.)
 
     return messages
 
