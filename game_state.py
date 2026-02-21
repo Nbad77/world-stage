@@ -107,6 +107,18 @@ class GameState:
         # Cleared and regenerated each time the player sees a new turn header.
         self.current_epitaph = None  # str | None
 
+        # ── Stage 5 Session 2: Brigade aftermath ──────────────────────────────
+        # Set True after brigades are deployed; cleared after aftermath resolves
+        self.brigades_deployed_last_turn = False
+
+        # ── Stage 5 Session 2: Dynamic intel cache ────────────────────────────
+        # intel: { npc_id: { tier: int, text: str, turn_generated: int, relation_at_generation: int } }
+        self.intel = {}
+
+        # ── Stage 5 Session 2: Deal history ───────────────────────────────────
+        # list of { npc, summary, turn_accepted, expires_turn, broken }
+        self.deal_history = []
+
     def record_action(self, choice_type, npc_target=None):
         """
         Record player action with full context
@@ -287,6 +299,10 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'high_approval_turns': self.high_approval_turns,
             'corruption_upgrades': self.corruption_upgrades,
             'current_epitaph': self.current_epitaph,
+            # Session 2
+            'brigades_deployed_last_turn': self.brigades_deployed_last_turn,
+            'intel': self.intel,
+            'deal_history': self.deal_history,
         }
 
     @classmethod
@@ -338,4 +354,8 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'debt_infrastructure_deal': False,
         })
         gs.current_epitaph = data.get('current_epitaph', None)
+        # Session 2
+        gs.brigades_deployed_last_turn = data.get('brigades_deployed_last_turn', False)
+        gs.intel = data.get('intel', {})
+        gs.deal_history = data.get('deal_history', [])
         return gs

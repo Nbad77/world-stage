@@ -54,4 +54,16 @@ export const api = {
   /** POST /game/{id}/purchase_upgrade — body: { upgrade_id } */
   purchaseUpgrade: (id, upgrade_id) =>
     request('POST', `/game/${id}/purchase_upgrade`, { upgrade_id }),
+
+  /** POST /game/{id}/deploy_brigades — body: { deploy: bool } */
+  deployBrigades: (id, deploy) =>
+    request('POST', `/game/${id}/deploy_brigades`, { deploy }),
+
+  /** POST /game/{id}/brigade_aftermath — body: { choice: 1|2|3 } */
+  brigadeAftermath: (id, choice) =>
+    request('POST', `/game/${id}/brigade_aftermath`, { choice }),
+
+  /** POST /game/{id}/get_intel — body: { npc_id } */
+  getIntel: (id, npc_id) =>
+    request('POST', `/game/${id}/get_intel`, { npc_id }),
 }

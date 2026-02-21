@@ -441,7 +441,39 @@ def apply_end_of_turn_effects(game_state):
     # set_oil_price_from_relations() next turn anyway, with no strategic effect.)
 
     # ──────────────────────────────────────────
-    # 10. STAGE 5: REGIME SHIFT CHECKS
+    # 10. STAGE 5 SESSION 2: DEAL FOLLOW-THROUGH TRACKING
+    # Check if the player's last action contradicts any active deal commitments.
+    # Arabia/DPRG alignment breaks USA/EU deals and vice versa.
+    # ──────────────────────────────────────────
+    deal_history = getattr(game_state, 'deal_history', [])
+    if deal_history and game_state.action_history:
+        last_action = game_state.action_history[-1]
+        last_npc = last_action.get('npc', '')
+        last_type = last_action.get('type', '')
+        if last_type in ('side_with', 'accept_deal') and last_npc:
+            # Western alignment contradicts Arabia/DPRG deals and vice versa
+            _western = {'usa', 'eu'}
+            _eastern = {'arabia', 'dprg'}
+            for deal in deal_history:
+                if deal.get('broken'):
+                    continue
+                if deal.get('expires_turn', 0) < game_state.current_turn:
+                    continue
+                deal_npc = deal.get('npc', '')
+                # Check contradiction: chose west while holding east deal (or vice versa)
+                contradicted = (
+                    (last_npc in _western and deal_npc in _eastern) or
+                    (last_npc in _eastern and deal_npc in _western)
+                )
+                if contradicted:
+                    deal['broken'] = True
+                    messages.append(
+                        f"💔 Deal broken: commitment to {deal_npc.upper()} ('{deal['summary']}') "
+                        f"contradicted by {last_npc.upper()} alignment"
+                    )
+
+    # ──────────────────────────────────────────
+    # 11. STAGE 5: REGIME SHIFT CHECKS
     # Regime types (left → right): Managed Democracy → Soft Authoritarianism
     #   → Patronage State → Kleptocracy → Totalitarian Regime
     # Power base: Mass-Dependent → Mixed → Elite-Captured

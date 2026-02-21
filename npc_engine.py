@@ -308,6 +308,22 @@ def _build_context(game_state):
         ctx["personal_wealth_billions"] = round(game_state.personal_wealth, 1)
         ctx["wealth_known_to_intelligence"] = True
 
+    # Session 2: deal history — broken deals as NPC memory
+    deal_history = getattr(game_state, 'deal_history', [])
+    if deal_history:
+        broken = [d for d in deal_history if d.get('broken')]
+        active = [d for d in deal_history if not d.get('broken') and d.get('expires_turn', 0) >= game_state.current_turn]
+        if broken:
+            ctx["broken_deals"] = [
+                {"npc": d["npc"], "summary": d["summary"], "turn": d["turn_accepted"]}
+                for d in broken[-3:]  # last 3 broken deals
+            ]
+        if active:
+            ctx["active_commitments"] = [
+                {"npc": d["npc"], "summary": d["summary"], "expires_turn": d["expires_turn"]}
+                for d in active
+            ]
+
     return ctx
 
 
@@ -999,6 +1015,187 @@ def _static_epitaph_fallback(game_state) -> str:
     return "History, which is patient, continued to observe."
 
 
+INTEL_SYSTEM = """
+You are a classified intelligence analyst briefing a head of state on a foreign leader.
+Write 2-3 sentences of operational intelligence at the appropriate classification tier.
+Be specific and concrete — reference their current position, what they privately want,
+their red lines, and any leverage they hold. This is real intelligence, not public knowledge.
+Use present tense. Output ONLY the intelligence text. No labels, no preamble.
+Tier 1 (Surface): Known public positions and basic pressure points.
+Tier 2 (Operational): What they're privately willing to offer/accept, their red lines, who they're talking to.
+Tier 3 (Deep): Their actual private position, hidden leverage, what they fear most.
+"""
+
+_NPC_INTEL_NAMES = {
+    'usa': 'Bill Washington (US President)',
+    'arabia': 'Sadam (Arabian Dictator)',
+    'eu': 'Marsha (EU Representative)',
+    'dprg': 'Ji-won Ryang (DPRG Contact)',
+}
+
+def _get_intel_tier(relation: int) -> int:
+    """Return intel tier (1-3) based on current relation score."""
+    if relation >= 80:
+        return 3
+    elif relation >= 60:
+        return 2
+    else:
+        return 1
+
+_INTEL_TIER_LABELS = {1: 'Surface', 2: 'Operational', 3: 'Deep'}
+
+def generate_intel(game_state, npc_id: str) -> dict:
+    """
+    Generate or return cached dynamic intel for one NPC.
+    Regenerates if: relation crossed a tier boundary OR 2+ turns have passed.
+    Returns { tier, text, turn_generated, relation_at_generation }.
+    Falls back to static text on API failure.
+    """
+    import anthropic
+
+    relation = game_state.relations.get(npc_id, 50)
+    current_tier = _get_intel_tier(relation)
+    current_turn = game_state.current_turn
+
+    # Check cache
+    intel_cache = getattr(game_state, 'intel', {})
+    cached = intel_cache.get(npc_id)
+    if cached:
+        cached_tier = _get_intel_tier(cached.get('relation_at_generation', 0))
+        turns_since = current_turn - cached.get('turn_generated', 0)
+        if cached_tier == current_tier and turns_since < 2:
+            return cached  # use cache
+
+    # Generate new intel
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return _static_intel_fallback(npc_id, current_tier, relation)
+
+    context = _build_context(game_state)
+    npc_label = _NPC_INTEL_NAMES.get(npc_id, npc_id)
+    tier_label = _INTEL_TIER_LABELS[current_tier]
+    tier_desc = {
+        1: "Write surface-level intelligence: known public position and basic pressure points. Do not reveal private positions.",
+        2: "Write operational intelligence: what they're privately willing to accept, their red lines, and who else they're negotiating with.",
+        3: "Write deep intelligence: their actual private position, what hidden leverage they hold, and what they most fear losing.",
+    }[current_tier]
+
+    # Recent choices affecting this NPC
+    recent_choices = [a for a in game_state.action_history[-5:] if a.get('npc') == npc_id]
+    choice_summary = f"Recent choices involving this NPC: {len(recent_choices)} in last 5 turns." if recent_choices else "No recent direct engagement."
+
+    # Active deals with this NPC
+    deal_history = getattr(game_state, 'deal_history', [])
+    active_deals = [d for d in deal_history if d.get('npc') == npc_id and not d.get('broken') and d.get('expires_turn', 0) >= current_turn]
+    deal_text = f"Active commitment: {active_deals[-1]['summary']}" if active_deals else ""
+
+    prompt = (
+        f"Subject: {npc_label}\n"
+        f"Intel tier: {tier_label} (relation score {relation}/100)\n"
+        f"Current turn: {current_turn}/{game_state.max_turns}\n"
+        f"Europa's regime: {context.get('regime_type', 'Managed Democracy')} | Power base: {context.get('power_base', 'Mass-Dependent')}\n"
+        f"Budget: ${game_state.budget:.0f}B | Stability: {game_state.stability}% | Approval: {game_state.public_approval}%\n"
+        f"{choice_summary}\n"
+        + (f"{deal_text}\n" if deal_text else "")
+        + f"\n{tier_desc}"
+    )
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=100,
+            temperature=0.7,
+            system=INTEL_SYSTEM,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
+
+        text = response.content[0].text.strip()
+        result = {
+            "tier": current_tier,
+            "text": text,
+            "turn_generated": current_turn,
+            "relation_at_generation": relation,
+        }
+        # Update cache
+        if not hasattr(game_state, 'intel'):
+            game_state.intel = {}
+        game_state.intel[npc_id] = result
+        return result
+
+    except Exception as e:
+        _token_log["fallbacks"] += 1
+        print(f"  [npc_engine] Intel generation failed for {npc_id}: {type(e).__name__}: {e}")
+        return _static_intel_fallback(npc_id, current_tier, relation)
+
+
+def _static_intel_fallback(npc_id: str, tier: int, relation: int) -> dict:
+    """Static fallback intel per NPC and tier."""
+    texts = {
+        'usa': {
+            1: "Public position: Western alignment and sanctions compliance. Pressure point: fear of Arabian energy deals undermining US leverage.",
+            2: "Privately willing to offer up to $8B in aid for public anti-DPRG statements. Red line: any formal Arabia oil commitment. Currently negotiating parallel deal with EU.",
+            3: "Most fears losing Europa as a demonstration case for Western alliance value. Would accept a private Arabia contact if publicly deniable. The CIA dossier on personal wealth is active leverage he will use.",
+        },
+        'arabia': {
+            1: "Public position: oil pricing tied to political alignment. Willing to embargo at short notice. Pressure point: Western financial access.",
+            2: "Privately prepared to offer $15/bbl discount for 3-turn exclusivity. Red line: public alignment with USA sanctions regime. Also negotiating with DPRG for arms.",
+            3: "Fears a coordinated Western embargo more than any single policy. Would accept secret back-channel with EU if it prevents formal sanctions. Personally bankrolling opposition groups in two neighboring states.",
+        },
+        'eu': {
+            1: "Public position: rule-of-law benchmarks and press freedom requirements. Aid programs conditional on demonstrated reforms.",
+            2: "Privately willing to waive reform benchmarks for 2 turns if Arabia oil dependence is reduced. Red line: formal DPRG military cooperation. Monitoring your personal wealth.",
+            3: "Most fears precedent of rewarding authoritarian backsliding. Would accept a phased reform timeline privately while maintaining public conditionality. Has shared your financial data with US Treasury.",
+        },
+        'dprg': {
+            1: "Public position: technical cooperation in exchange for sanctions relief advocacy. Pressure point: Western financial exclusion.",
+            2: "Privately prepared to offer exfiltration services and arms at below-market pricing. Red line: formal Western alignment declaration. Has parallel talks with Arabia.",
+            3: "Ji-won's primary goal is expanding the network of leaders who owe DPRG favors. Would accelerate the escape timeline if you take the Arabia arms deal. Holds kompromat on two EU ministers.",
+        },
+    }
+    tier_texts = texts.get(npc_id, {})
+    text = tier_texts.get(tier, "No intelligence available at this clearance level.")
+    return {
+        "tier": tier,
+        "text": text,
+        "turn_generated": 0,
+        "relation_at_generation": relation,
+    }
+
+
+def _get_negotiation_cap(game_state, npc_id: str) -> float:
+    """
+    Return the maximum single-deal budget injection cap for this NPC
+    based on current relation score and turn number.
+    FEATURE 5 — Negotiation Amount Caps.
+    """
+    relation = game_state.relations.get(npc_id, 50)
+    turn = game_state.current_turn
+
+    # Relation-based cap
+    if relation >= 85:
+        cap = 35.0
+    elif relation >= 70:
+        cap = 20.0
+    elif relation >= 50:
+        cap = 8.0
+    else:
+        cap = 3.0
+
+    # Turn 1-2 hard cap
+    if turn <= 2:
+        cap = min(cap, 5.0)
+
+    # Cannot exceed 2x current national budget
+    budget_cap = game_state.budget * 2.0
+    cap = min(cap, budget_cap)
+
+    return round(cap, 1)
+
+
 def generate_negotiation_response(game_state, npc_id: str, message: str, history: list):
     """
     Generate an NPC response during negotiation.
@@ -1018,6 +1215,14 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
         return {"response": "I have nothing to say to that.", "counter_offer": None}
 
     context = _build_context(game_state)
+    # FEATURE 5: inject negotiation cap into context so NPC naturally incorporates it
+    negotiation_cap = _get_negotiation_cap(game_state, npc_id)
+    context["max_single_deal_budget_billions"] = negotiation_cap
+    context["negotiation_cap_note"] = (
+        f"HARD RULE: Any counter-offer budget or installment cannot exceed ${negotiation_cap}B total "
+        f"(based on current relation {game_state.relations.get(npc_id, 50)} and turn {game_state.current_turn}). "
+        f"If the player requests more, offer the capped amount and explain why in character — do not just refuse."
+    )
 
     import anthropic
     api_key = os.getenv("ANTHROPIC_API_KEY")

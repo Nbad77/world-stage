@@ -15,7 +15,14 @@
  *   subtitle — e.g. "State Department", "Brotherhood Offer"
  *   text     — raw dialogue, quotes stripped
  * Then render *stage directions* as <em> italic.
+ *
+ * FEATURE 4: Dynamic intelligence apparatus — replaces static NPC_INTEL with
+ *   tier-gated Claude-generated intel fetched from /get_intel endpoint.
+ *   Tier label shown: "🕵️ TIER 2 INTEL — Operational"
  */
+
+import { useState, useEffect, useRef } from 'react'
+import { api } from '../api'
 
 const NPC_ORDER = [
   { key: 'usa',    label: 'Bill Washington',  flag: '🇺🇸' },
@@ -49,22 +56,18 @@ function parseNpcString(raw) {
   const lines = raw.split('\n').map(l => l.trim()).filter(Boolean)
 
   // ── Case A: live API format — no ─ lines ──────────────────────────────
-  // Line 0: "EMOJI Name (Subtitle):"
-  // Line 1+: dialogue text
   const hasDashes = lines.some(l => l.match(/^─+$/))
 
   let subtitle = ''
   let textLines = []
 
   if (!hasDashes && lines.length >= 1) {
-    // First line is the name line if it ends with ":"
     const firstLine = lines[0]
     if (firstLine.endsWith(':')) {
       const parenMatch = firstLine.match(/\(([^)]+)\)/)
       if (parenMatch) subtitle = parenMatch[1]
       textLines = lines.slice(1)
     } else {
-      // No name line detected — whole thing is text
       textLines = lines
     }
   } else {
@@ -81,18 +84,14 @@ function parseNpcString(raw) {
     textLines = lastDashIdx !== undefined ? lines.slice(lastDashIdx + 1) : lines
   }
 
-  // Join text lines and clean up
   let text = textLines.join(' ').trim()
 
-  // Strip surrounding quotes
   if (text.startsWith('"') && text.endsWith('"')) {
     text = text.slice(1, -1).trim()
   }
 
-  // Strip any lingering NPC name prefix (e.g. "SADAM: " or "JI-WON: ")
   text = stripNpcPrefix(text)
 
-  // Final quote strip in case prefix removal exposed them
   if (text.startsWith('"') && text.endsWith('"')) {
     text = text.slice(1, -1).trim()
   }
@@ -118,13 +117,71 @@ function renderWithStageDirections(text) {
   })
 }
 
-// Intelligence Apparatus: static intel dossier per NPC
-// Revealed when corruption_upgrades.intelligence_apparatus is active.
-const NPC_INTEL = {
-  usa: "Primary objective: bind Europa to Western sanctions regime and reduce Arabian energy dependence. Secondary pressure: CIA financial dossier on personal wealth is active leverage.",
-  arabia: "Primary objective: make Europa's oil supply exclusively Arabian. Will embargo at <25 relations. Quietly coordinates with DPRG on arms transfers outside Western visibility.",
-  eu: "Primary objective: institutional alignment — press freedom, rule-of-law benchmarks. Will cut aid programs if DPRG relations exceed 65. Hardest to charm; responds only to concrete steps.",
-  dprg: "Primary objective: extract a network of leaders who owe DPRG favors. The escape offer is genuine: Ji-won maintains exfiltration infrastructure for useful clients.",
+// Intel tier label display
+const TIER_LABELS = {
+  1: '🕵️ TIER 1 INTEL — Surface',
+  2: '🕵️ TIER 2 INTEL — Operational',
+  3: '🕵️ TIER 3 INTEL — Deep Cover',
+}
+
+/**
+ * Single NPC intel dossier — fetches dynamically via /get_intel
+ * Caches result in a ref to avoid refetching on re-renders within same turn.
+ */
+function IntelDossier({ npcKey, sessionId, gs }) {
+  const [intelData, setIntelData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const fetchedRef = useRef(false)
+
+  // Determine tier from current gs.relations (to check cache validity)
+  const relation = gs?.relations?.[npcKey] || 50
+  const tier = relation >= 80 ? 3 : relation >= 60 ? 2 : 1
+
+  useEffect(() => {
+    // Use cached intel from game_state if available and valid
+    const cached = gs?.intel?.[npcKey]
+    if (cached) {
+      setIntelData(cached)
+      fetchedRef.current = true
+      return
+    }
+
+    // Fetch from backend
+    if (fetchedRef.current) return
+    fetchedRef.current = true
+
+    setLoading(true)
+    api.getIntel(sessionId, npcKey)
+      .then(res => {
+        setIntelData(res)
+      })
+      .catch(err => {
+        console.warn(`getIntel ${npcKey} failed:`, err.message)
+        // Graceful fallback — show nothing
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [npcKey, sessionId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (loading) {
+    return (
+      <div className="intel-dossier">
+        <span className="intel-dossier-label">🕵️ FETCHING INTEL…</span>
+      </div>
+    )
+  }
+
+  if (!intelData) return null
+
+  const tierLabel = TIER_LABELS[intelData.tier || tier] || TIER_LABELS[1]
+
+  return (
+    <div className="intel-dossier">
+      <span className="intel-dossier-label">{tierLabel}</span>
+      {intelData.text}
+    </div>
+  )
 }
 
 /**
@@ -133,8 +190,17 @@ const NPC_INTEL = {
  *   onNegotiate     : (npcKey) => void — optional, if provided shows Negotiate buttons
  *   negotiatingNpc  : string | null — which NPC panel is currently open
  *   intelActive     : bool — true when Intelligence Apparatus upgrade is purchased
+ *   sessionId       : string — needed for dynamic intel fetch
+ *   gs              : game_state object — needed for relation tier + intel cache
  */
-export default function DialoguePanel({ dialogue, onNegotiate, negotiatingNpc, intelActive = false }) {
+export default function DialoguePanel({
+  dialogue,
+  onNegotiate,
+  negotiatingNpc,
+  intelActive = false,
+  sessionId,
+  gs,
+}) {
   if (!dialogue || dialogue.length === 0) return null
 
   return (
@@ -170,12 +236,14 @@ export default function DialoguePanel({ dialogue, onNegotiate, negotiatingNpc, i
               )}
             </div>
             <span className="npc-text">{renderWithStageDirections(text)}</span>
-            {/* Intelligence Apparatus: show hidden agenda dossier */}
-            {intelActive && NPC_INTEL[key] && (
-              <div className="intel-dossier">
-                <span className="intel-dossier-label">🕵️ DOSSIER</span>
-                {NPC_INTEL[key]}
-              </div>
+            {/* FEATURE 4: Dynamic intelligence apparatus dossier */}
+            {intelActive && sessionId && gs && (
+              <IntelDossier
+                key={`intel-${key}-${gs?.current_turn}`}
+                npcKey={key}
+                sessionId={sessionId}
+                gs={gs}
+              />
             )}
           </div>
         )

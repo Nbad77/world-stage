@@ -1227,9 +1227,403 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   background: rgba(192,64,64,0.08);
 }
 
+/* ── Session 2: Shadow Cabinet button in StatusBar ───────────────────────── */
+.shadow-cabinet-btn {
+  background: transparent;
+  border: 1px solid rgba(200, 168, 75, 0.35);
+  border-radius: 6px;
+  color: rgba(200, 168, 75, 0.7);
+  font-size: 0.9rem;
+  padding: 0.1rem 0.45rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+.shadow-cabinet-btn:hover {
+  border-color: var(--arabia);
+  color: var(--arabia);
+  background: rgba(200, 168, 75, 0.08);
+}
+
+/* ── Session 2: Shadow Cabinet drawer ───────────────────────────────────── */
+.shadow-cabinet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 400;
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+  animation: overlay-fade-in 0.2s ease;
+}
+
+.shadow-cabinet-drawer {
+  width: min(340px, 92vw);
+  background: #0d0f14;
+  border-left: 1px solid rgba(200, 168, 75, 0.3);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  animation: sc-slide-in 0.22s ease;
+}
+
+@keyframes sc-slide-in {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+.sc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(200, 168, 75, 0.25);
+  background: rgba(200, 168, 75, 0.05);
+  flex-shrink: 0;
+}
+
+.sc-title {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--arabia);
+}
+
+.sc-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 0.9rem;
+  padding: 0.2rem 0.4rem;
+  cursor: pointer;
+  line-height: 1;
+  border-radius: 4px;
+}
+.sc-close-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+
+.sc-section {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(200, 168, 75, 0.1);
+}
+
+.sc-section-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(200, 168, 75, 0.5);
+  margin-bottom: 0.5rem;
+}
+
+.sc-regime-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.sc-regime-name {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text);
+  font-family: var(--mono);
+}
+
+.sc-regime-desc {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-style: italic;
+  margin-bottom: 0.35rem;
+}
+
+.sc-power-name {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: rgba(200, 168, 75, 0.7);
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sc-power-desc {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.sc-wealth {
+  font-family: var(--mono);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--arabia);
+}
+
+.sc-success {
+  margin: 0 1rem;
+  padding: 0.45rem 0.7rem;
+  background: rgba(76, 175, 110, 0.12);
+  border: 1px solid rgba(76, 175, 110, 0.3);
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  color: var(--success);
+  font-family: var(--mono);
+}
+
+.sc-error {
+  margin: 0 1rem;
+  padding: 0.45rem 0.7rem;
+  background: rgba(229, 74, 74, 0.1);
+  border: 1px solid rgba(229, 74, 74, 0.3);
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  color: var(--danger);
+  font-family: var(--mono);
+}
+
+.sc-upgrade {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(200, 168, 75, 0.12);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.5rem;
+  transition: border-color 0.15s;
+}
+.sc-upgrade:last-child { margin-bottom: 0; }
+.sc-upgrade.sc-upgrade-owned {
+  border-color: rgba(200, 168, 75, 0.3);
+  background: rgba(200, 168, 75, 0.04);
+}
+
+.sc-upgrade-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.sc-upgrade-icon {
+  font-size: 1rem;
+  width: 1.2rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.sc-upgrade-name {
+  flex: 1;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sc-upgrade-cost {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--arabia);
+  flex-shrink: 0;
+}
+
+.sc-active-badge {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--success);
+  background: rgba(76, 175, 110, 0.12);
+  border: 1px solid rgba(76, 175, 110, 0.3);
+  border-radius: 3px;
+  padding: 0.1rem 0.4rem;
+  flex-shrink: 0;
+}
+
+.sc-upgrade-effect {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-family: var(--mono);
+  line-height: 1.4;
+  margin-bottom: 0.4rem;
+}
+
+.sc-purchase-btn {
+  width: 100%;
+  background: rgba(200, 168, 75, 0.12);
+  border: 1px solid rgba(200, 168, 75, 0.4);
+  border-radius: 5px;
+  color: var(--arabia);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: var(--mono);
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+.sc-purchase-btn:hover:not(:disabled) {
+  background: rgba(200, 168, 75, 0.22);
+  border-color: var(--arabia);
+}
+.sc-purchase-btn-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sc-footer {
+  padding: 0.75rem 1rem;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: rgba(200, 168, 75, 0.3);
+  letter-spacing: 0.06em;
+  text-align: center;
+  margin-top: auto;
+  border-top: 1px solid rgba(200, 168, 75, 0.1);
+}
+
+/* ── Session 2: Brigade secondary prompt (CONSEQUENCES phase) ────────────── */
+.brigade-prompt-panel {
+  background: rgba(192, 64, 64, 0.07);
+  border: 1px solid rgba(192, 64, 64, 0.35);
+  border-left: 3px solid var(--dprg);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.brigade-prompt-header {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #e07070;
+  margin-bottom: 0.4rem;
+}
+
+.brigade-prompt-desc {
+  font-size: 0.83rem;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-bottom: 0.6rem;
+  font-family: var(--mono);
+}
+
+.brigade-loading {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-style: italic;
+  padding: 0.3rem 0;
+}
+
+.brigade-prompt-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.brigade-btn {
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: var(--mono);
+  padding: 0.4rem 0.9rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.brigade-btn-yes {
+  background: rgba(192, 64, 64, 0.15);
+  border: 1px solid rgba(192, 64, 64, 0.5);
+  color: #e07070;
+}
+.brigade-btn-yes:hover:not(:disabled) {
+  background: rgba(192, 64, 64, 0.25);
+  border-color: var(--dprg);
+}
+
+.brigade-btn-no {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.brigade-btn-no:hover:not(:disabled) {
+  border-color: var(--muted);
+  color: var(--text);
+}
+
+/* ── Session 2: Brigade aftermath banner (DIALOGUE phase, next turn) ─────── */
+.brigade-aftermath-banner {
+  background: rgba(192, 64, 64, 0.1);
+  border: 1px solid rgba(192, 64, 64, 0.45);
+  border-left: 4px solid var(--dprg);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.75rem;
+  animation: event-flash 0.4s ease-out;
+}
+
+.aftermath-header {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #e07070;
+  margin-bottom: 0.4rem;
+}
+
+.aftermath-desc {
+  font-size: 0.84rem;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-bottom: 0.65rem;
+}
+
+.aftermath-loading {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-style: italic;
+  padding: 0.3rem 0;
+}
+
+.aftermath-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.aftermath-btn {
+  width: 100%;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(192, 64, 64, 0.25);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  transition: background 0.15s, border-color 0.15s;
+}
+.aftermath-btn:hover:not(:disabled) {
+  background: rgba(192, 64, 64, 0.1);
+  border-color: rgba(192, 64, 64, 0.5);
+}
+
+.aftermath-btn-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.aftermath-btn-cost {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
 /* ── Mobile fine-tuning ──────────────────────────────────────────────────── */
 @media (max-width: 400px) {
   .status-bar { font-size: 0.75rem; gap: 0.4rem 0.9rem; }
   h1 { font-size: 1.8rem; }
   .negotiation-panel { max-height: 80vh; }
+  .shadow-cabinet-drawer { width: 96vw; }
 }

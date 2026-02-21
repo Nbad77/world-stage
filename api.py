@@ -80,6 +80,15 @@ class AcceptCounterRequest(BaseModel):
 class PurchaseUpgradeRequest(BaseModel):
     upgrade_id: str  # 'intelligence_apparatus' | 'sovereign_wealth_diversion' | 'loyalty_brigades' | 'debt_infrastructure_deal'
 
+class BrigadeRequest(BaseModel):
+    deploy: bool  # True = deploy brigades this turn
+
+class AftermathRequest(BaseModel):
+    choice: int  # 1=suppress_coverage, 2=aid_programs, 3=call_in_favor
+
+class GetIntelRequest(BaseModel):
+    npc_id: str  # 'usa' | 'arabia' | 'eu' | 'dprg'
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -136,25 +145,9 @@ def _build_offers(gs: GameState) -> list[dict]:
             "npc": None,
             "consequences": {},
         })
-    # H) Loyalty Brigades deployment — available every turn once purchased
-    # Costs $2B budget + -5% approval, gives +10% stability (suppress unrest)
-    # Only shown when upgrade is active and budget can cover the cost
-    if gs.corruption_upgrades.get('loyalty_brigades') and gs.budget >= 2:
-        offers.append({
-            "letter": "H",
-            "text": "[BRIGADES] Deploy Loyalty Brigades — suppress domestic unrest (-$2B, -5% approval, +10% stability, all relations -3)",
-            "type": "deploy_brigades",
-            "npc": None,
-            "consequences": {
-                "budget": -2,
-                "approval": -5,
-                "stability": 10,
-                "usa": -3,
-                "arabia": -3,
-                "eu": -3,
-                "dprg": -3,
-            },
-        })
+    # FEATURE 2: Brigade deployment is now a secondary prompt shown AFTER
+    # the player picks their diplomatic choice (A-E), not a competing offer.
+    # Removed H offer here; brigade prompt logic is in post_action.
     return offers
 
 
@@ -683,6 +676,29 @@ def post_action(session_id: str, body: ActionRequest):
             }
 
     skim_options = _build_skim_options(gs)
+
+    # FEATURE 6: Register accepted counter-offer (negotiated deal) into deal_history
+    if is_negotiated:
+        deal_summary = effective_offer.get("text", "Negotiated agreement")
+        # Trim the summary to a clean phrase
+        if len(deal_summary) > 80:
+            deal_summary = deal_summary[:77] + "…"
+        npc_name = effective_offer.get("npc") or letter
+        gs.deal_history.append({
+            "npc": npc_name,
+            "summary": deal_summary,
+            "turn_accepted": gs.current_turn,
+            "expires_turn": gs.current_turn + 3,
+            "broken": False,
+        })
+
+    # FEATURE 2: Brigade secondary prompt — available after A-E choice (not G/F)
+    brigade_available = (
+        gs.corruption_upgrades.get('loyalty_brigades', False) and
+        gs.budget >= 2.0 and
+        choice_dict["type"] not in ("escape", "inject_funds", "deploy_brigades")
+    )
+
     _save_gs(session_id, gs)
 
     return {
@@ -692,6 +708,7 @@ def post_action(session_id: str, body: ActionRequest):
         "blackmail_active": blackmail_active,
         "blackmail_result": blackmail_result,
         "skim_options": skim_options,
+        "brigade_available": brigade_available,
         "game_state": gs.serialize(),
     }
 
@@ -1029,6 +1046,144 @@ def post_purchase_upgrade(session_id: str, body: PurchaseUpgradeRequest):
         "upgrade_label": upgrade_labels[upgrade_id],
         "messages": messages,
         "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/deploy_brigades")
+def post_deploy_brigades(session_id: str, body: BrigadeRequest):
+    """
+    FEATURE 2: Secondary brigade deployment action, separate from diplomatic choice.
+    Called after /action if the player opts to deploy brigades this turn.
+    deploy=True: -$2B, -5% approval, +10% stability, all relations -3, sets brigades_deployed_last_turn
+    deploy=False: no-op, clears brigades_deployed_last_turn (already False)
+    """
+    gs = _load_gs(session_id)
+
+    if not gs.corruption_upgrades.get('loyalty_brigades'):
+        raise HTTPException(status_code=400, detail="Loyalty Brigades upgrade not purchased")
+
+    messages = []
+    if body.deploy:
+        if gs.budget < 2.0:
+            raise HTTPException(status_code=400, detail="Insufficient budget for brigade deployment ($2B needed)")
+        gs.update_budget(-2.0)
+        gs.update_approval(-5)
+        gs.update_stability(10)
+        for npc in ['usa', 'arabia', 'eu', 'dprg']:
+            gs.update_relations(npc, -3)
+        gs.brigades_deployed_last_turn = True
+        messages.append("⚔️  Loyalty Brigades deployed — domestic unrest suppressed")
+        messages.append(f"💰 -$2B budget | 📊 -5% approval | 🛡️  +10% stability | All relations -3")
+    else:
+        gs.brigades_deployed_last_turn = False
+        messages.append("Brigades stood down — no deployment this turn")
+
+    _save_gs(session_id, gs)
+    return {
+        "deployed": body.deploy,
+        "messages": messages,
+        "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/brigade_aftermath")
+def post_brigade_aftermath(session_id: str, body: AftermathRequest):
+    """
+    FEATURE 3: Brigade aftermath response choices (fired next turn after brigade deployment).
+    choice 1: Suppress coverage  — -$3B personal, +5% stability
+    choice 2: Aid programs       — -$5B budget, +8% approval, +3% stability
+    choice 3: Call in a favor    — highest relation NPC -10, +8% stability, +5% approval
+    Clears brigades_deployed_last_turn flag.
+    """
+    gs = _load_gs(session_id)
+
+    if not gs.brigades_deployed_last_turn:
+        raise HTTPException(status_code=400, detail="No brigade aftermath pending")
+
+    choice = body.choice
+    messages = []
+
+    if choice == 1:
+        # Suppress media coverage using personal wealth
+        cost = 3.0
+        if gs.personal_wealth < cost:
+            raise HTTPException(status_code=400, detail=f"Insufficient personal funds (need $3B, have ${gs.personal_wealth:.1f}B)")
+        gs.personal_wealth = max(0, gs.personal_wealth - cost)
+        gs.update_stability(5)
+        messages.append(f"📰 Media coverage suppressed — -$3B personal | +5% stability")
+        messages.append(f"Personal account: ${gs.personal_wealth:.1f}B remaining")
+
+    elif choice == 2:
+        # Aid programs from national budget
+        cost = 5.0
+        if gs.budget < cost:
+            raise HTTPException(status_code=400, detail=f"Insufficient budget (need $5B, have ${gs.budget:.1f}B)")
+        gs.update_budget(-cost)
+        gs.update_approval(8)
+        gs.update_stability(3)
+        messages.append(f"🏥 Emergency aid programs deployed — -$5B budget | +8% approval | +3% stability")
+
+    elif choice == 3:
+        # Call in a favor from highest-relation NPC
+        highest_npc = max(gs.relations, key=lambda k: gs.relations[k])
+        npc_labels = {'usa': 'Bill Washington', 'arabia': 'Sadam', 'eu': 'Marsha', 'dprg': 'Ji-won'}
+        npc_label = npc_labels.get(highest_npc, highest_npc.upper())
+        old_rel = gs.relations[highest_npc]
+        gs.update_relations(highest_npc, -10)
+        gs.update_stability(8)
+        gs.update_approval(5)
+        messages.append(f"🤝 {npc_label} called in — {highest_npc.upper()}: {old_rel} → {gs.relations[highest_npc]} (-10 leverage)")
+        messages.append(f"+8% stability | +5% approval — favor owed, will be referenced in future dialogue")
+        # Record that the favor was called in so NPC dialogue can reference it
+        gs.action_history.append({
+            'turn': gs.current_turn,
+            'type': 'called_favor',
+            'npc': highest_npc,
+        })
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid aftermath choice '{choice}'")
+
+    # Clear the aftermath flag
+    gs.brigades_deployed_last_turn = False
+    _save_gs(session_id, gs)
+
+    return {
+        "choice": choice,
+        "messages": messages,
+        "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/get_intel")
+def post_get_intel(session_id: str, body: GetIntelRequest):
+    """
+    FEATURE 4: Return (or generate) dynamic intel for a single NPC.
+    Requires Intelligence Apparatus upgrade.
+    Returns { npc_id, tier, tier_label, text }
+    """
+    gs = _load_gs(session_id)
+
+    if not gs.corruption_upgrades.get('intelligence_apparatus'):
+        raise HTTPException(status_code=403, detail="Intelligence Apparatus upgrade required")
+
+    npc_id = body.npc_id.lower()
+    if npc_id not in ('usa', 'arabia', 'eu', 'dprg'):
+        raise HTTPException(status_code=400, detail=f"Invalid npc_id '{npc_id}'")
+
+    intel = npc_engine.generate_intel(gs, npc_id)
+
+    # Cache updated intel back into game_state
+    if not hasattr(gs, 'intel'):
+        gs.intel = {}
+    gs.intel[npc_id] = intel
+    _save_gs(session_id, gs)
+
+    tier_labels = {1: 'Surface', 2: 'Operational', 3: 'Deep'}
+    return {
+        "npc_id": npc_id,
+        "tier": intel["tier"],
+        "tier_label": tier_labels.get(intel["tier"], "Unknown"),
+        "text": intel["text"],
     }
 
 

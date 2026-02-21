@@ -1,8 +1,9 @@
 /**
  * Sticky top status bar — mirrors game_state.get_status_display()
  * Stage 5: shows state identity (regime_type | power_base) below main stats.
+ * Session 2: onShadowCabinet prop opens the Shadow Cabinet drawer.
  */
-export default function StatusBar({ gs }) {
+export default function StatusBar({ gs, onShadowCabinet }) {
   if (!gs) return null
 
   const budgetClass = gs.budget < 5 ? 'bad' : gs.budget < 15 ? 'warn' : 'good'
@@ -51,6 +52,17 @@ export default function StatusBar({ gs }) {
         <span className="stat-label">Oil</span>
         <span className="stat-value mono">${gs.oil_price}/bbl</span>
       </div>
+      {/* FEATURE 1: Shadow Cabinet button — only shown when personal wealth > 0 */}
+      {onShadowCabinet && gs.personal_wealth > 0 && (
+        <button
+          className="shadow-cabinet-btn"
+          onClick={onShadowCabinet}
+          title="Open Shadow Cabinet — corruption upgrades"
+        >
+          🗄️
+        </button>
+      )}
+
       {/* Stage 5: state identity — full width row below the stats */}
       <div className="state-identity-row">
         <span className={`state-identity-regime ${regimeColorClass}`}>{regimeType}</span>

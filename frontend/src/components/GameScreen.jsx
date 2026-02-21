@@ -12,6 +12,7 @@ import EotPanel from './EotPanel'
 import EndingScreen from './EndingScreen'
 import EventBanner from './EventBanner'
 import NegotiationPanel from './NegotiationPanel'
+import ShadowCabinet from './ShadowCabinet'
 
 /**
  * GameScreen manages the full turn lifecycle:
@@ -19,13 +20,16 @@ import NegotiationPanel from './NegotiationPanel'
  * PHASE 0 — dialogue      : show NPC messages + offers panel
  * PHASE 1 — consequences  : show choice result + skim panel
  *                           (or inject panel if Option G)
+ *                         : FEATURE 2 — brigade secondary prompt (if available)
  * PHASE 2 — eot           : show skim/inject result + EOT effects + intercepts
  *                           → then auto-advance to next turn (PHASE 0)
+ *                         : FEATURE 3 — brigade aftermath banner (if flag set)
  */
 
 const PHASE = {
   DIALOGUE: 'dialogue',
   CONSEQUENCES: 'consequences',
+  BRIGADE_PROMPT: 'brigade_prompt',   // FEATURE 2: secondary brigade prompt
   INJECT_PROMPT: 'inject_prompt',
   EOT: 'eot',
   ENDED: 'ended',
@@ -33,9 +37,9 @@ const PHASE = {
 
 const NPC_INFO = {
   usa:    { label: 'Bill Washington', flag: '🇺🇸', letter: 'A' },
-  arabia: { label: 'Sadam',           flag: '🛢️',  letter: 'B' },
-  eu:     { label: 'Marsha',          flag: '🇪🇺', letter: 'C' },
-  dprg:   { label: 'Ji-won Ryang',    flag: '⚡',  letter: 'D' },
+  arabia: { label: 'Sadam',          flag: '🛢️',  letter: 'B' },
+  eu:     { label: 'Marsha',         flag: '🇪🇺', letter: 'C' },
+  dprg:   { label: 'Ji-won Ryang',   flag: '⚡',  letter: 'D' },
 }
 
 export default function GameScreen({ sessionId, initialData, onGameEnd, onRestart }) {
@@ -48,9 +52,17 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  // Stage 5: Corruption Upgrade UI
-  const [upgradeLoading, setUpgradeLoading] = useState(false)
-  const [upgradeMessages, setUpgradeMessages] = useState([])
+  // FEATURE 1: Shadow Cabinet state
+  const [shadowCabinetOpen, setShadowCabinetOpen] = useState(false)
+
+  // FEATURE 2: Brigade secondary prompt
+  const [brigadeAvailable, setBrigadeAvailable] = useState(false)
+  const [brigadeLoading, setBrigadeLoading] = useState(false)
+  const [brigadeResult, setBrigadeResult] = useState(null)
+
+  // FEATURE 3: Brigade aftermath
+  const [aftermathLoading, setAftermathLoading] = useState(false)
+  const [aftermathResult, setAftermathResult] = useState(null)
 
   // Phase 1 data
   const [consequences, setConsequences] = useState([])
@@ -80,7 +92,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   const [negotiatingNpc, setNegotiatingNpc] = useState(null)   // 'usa'|'arabia'|'eu'|'dprg'|null
   // counterOffers: { [letter]: counterOffer } — displayed in OffersPanel
   const [counterOffers, setCounterOffers] = useState({})
-  // BUG 5: per-NPC chat history, keyed by npcKey — survives panel close/reopen within same turn
+  // per-NPC chat history, keyed by npcKey — survives panel close/reopen within same turn
   const [chatHistories, setChatHistories] = useState({})
 
   const scrollRef = useRef(null)
@@ -94,7 +106,6 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
 
   // ── FEATURE 1: Confirmation dialog helpers ────────────────────────────────
   function requestConfirmChoice(letter) {
-    // Find the full offer text to show in the dialog
     const allOffers = offers || []
     const counter = counterOffers[letter]
     const base = allOffers.find(o => o.letter === letter)
@@ -124,7 +135,6 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
 
   // ── PHASE 0 → 1: player picks A-G ───────────────────────────────────────
   async function handleChoice(letter) {
-    // FEATURE 1: Route through confirmation first
     requestConfirmChoice(letter)
   }
 
@@ -156,7 +166,9 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       setConsequences(res.consequences || [])
       setBlackmailResult(res.blackmail_result)
       setSkimOptions(res.skim_options || [])
-      setBlackmailActive(false) // consumed or not fired
+      setBlackmailActive(false)
+      setBrigadeAvailable(res.brigade_available || false)
+      setBrigadeResult(null)
       setPhase(PHASE.CONSEQUENCES)
 
     } catch (e) {
@@ -166,9 +178,25 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     }
   }
 
+  // ── FEATURE 2: Brigade secondary prompt ───────────────────────────────────
+  async function handleBrigadeDeploy(deploy) {
+    clearError()
+    setBrigadeLoading(true)
+    try {
+      const res = await api.deployBrigades(sessionId, deploy)
+      setGs(res.game_state)
+      setBrigadeResult(res.messages?.[0] || (deploy ? 'Brigades deployed.' : 'Brigades stood down.'))
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBrigadeLoading(false)
+      // After brigade decision (either way), move to skim
+      setBrigadeAvailable(false)
+    }
+  }
+
   // ── PHASE 1 → 2: player picks skim option ────────────────────────────────
   async function handleSkim(choice) {
-    // FEATURE 1: Route through confirmation first
     requestConfirmSkim(choice)
   }
 
@@ -184,16 +212,16 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       setIntercepts(res.intercepts || [])
       setEotMessages(res.eot_effects || [])
       setPatriotMessage(null)
+      setAftermathResult(null)
 
       if (res.status !== 'active') {
         setEnding(res.ending)
-        setPhase(PHASE.EOT) // show effects first, then ending on continue
+        setPhase(PHASE.EOT)
         return
       }
 
       setPhase(PHASE.EOT)
 
-      // Stash next-turn data for when player hits continue
       _nextTurnRef.current = {
         dialogue: res.next_dialogue,
         offers: res.next_offers,
@@ -224,6 +252,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       setIntercepts([])
       setEotMessages(res.eot_effects || [])
       setPatriotMessage(res.patriot_message || null)
+      setAftermathResult(null)
 
       if (res.status !== 'active') {
         setEnding(res.ending)
@@ -250,14 +279,28 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     }
   }
 
-  // Stash next-turn data between phases (not in state to avoid re-renders)
+  // ── FEATURE 3: Brigade aftermath handler ──────────────────────────────────
+  async function handleAftermath(choice) {
+    clearError()
+    setAftermathLoading(true)
+    try {
+      const res = await api.brigadeAftermath(sessionId, choice)
+      setGs(res.game_state)
+      setAftermathResult(res.messages?.[0] || 'Crisis managed.')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setAftermathLoading(false)
+    }
+  }
+
+  // Stash next-turn data between phases
   const _nextTurnRef = useRef(null)
 
   // ── PHASE 2 → 0 (or ENDED): player hits "Next Turn" ─────────────────────
   function handleContinue() {
     const next = _nextTurnRef.current
 
-    // Game already ended during EOT
     if (ending) {
       setPhase(PHASE.ENDED)
       onGameEnd && onGameEnd(ending)
@@ -285,20 +328,21 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     setPatriotMessage(null)
     setIntercepts([])
     setEotMessages([])
+    setBrigadeAvailable(false)
+    setBrigadeResult(null)
+    setAftermathResult(null)
     // Stage 4
     setCurrentEvent(next.event || null)
     setNegotiatingNpc(null)
     setCounterOffers({})
-    setChatHistories({})   // BUG 5: clear all per-NPC histories on turn advance
+    setChatHistories({})
     setPhase(PHASE.DIALOGUE)
     _nextTurnRef.current = null
   }
 
   // ── Stage 4: counter-offer handler ────────────────────────────────────────
   async function handleCounterOffer(letter, counterOffer) {
-    // Store in local state for display in OffersPanel
     setCounterOffers(prev => ({ ...prev, [letter]: counterOffer }))
-    // Tell backend to use this override when the player picks that letter
     try {
       await api.acceptCounter(sessionId, letter, counterOffer)
     } catch (e) {
@@ -306,25 +350,13 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     }
   }
 
-  // BUG 5: update per-NPC chat history without clearing other NPCs
   function handleHistoryChange(npcKey, newMessages) {
     setChatHistories(prev => ({ ...prev, [npcKey]: newMessages }))
   }
 
-  // Stage 5: Corruption Upgrade purchase
-  async function handlePurchaseUpgrade(upgradeId) {
-    clearError()
-    setUpgradeLoading(true)
-    setUpgradeMessages([])
-    try {
-      const res = await api.purchaseUpgrade(sessionId, upgradeId)
-      setGs(res.game_state)
-      setUpgradeMessages(res.messages || [])
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setUpgradeLoading(false)
-    }
+  // ── FEATURE 1: Shadow Cabinet upgrade purchased → sync gs ────────────────
+  function handleUpgradePurchased(newGs) {
+    setGs(newGs)
   }
 
   // ── Render: ENDED ────────────────────────────────────────────────────────
@@ -340,7 +372,10 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   // ── Render: GAME ─────────────────────────────────────────────────────────
   return (
     <div className="app-container">
-      <StatusBar gs={gs} />
+      <StatusBar
+        gs={gs}
+        onShadowCabinet={() => setShadowCabinetOpen(true)}
+      />
 
       <div className="game-scroll" ref={scrollRef}>
 
@@ -374,11 +409,58 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
           <>
             <div className="turn-divider">— TURN {gs?.current_turn}/{gs?.max_turns} —</div>
 
-            {/* Stage 5: Per-turn epitaph — historian voice line */}
             {gs?.current_epitaph && (
               <div className="epitaph-line">
                 <em>{gs.current_epitaph}</em>
               </div>
+            )}
+
+            {/* FEATURE 3: Brigade aftermath banner — fires at start of next turn */}
+            {gs?.brigades_deployed_last_turn && !aftermathResult && (
+              <div className="brigade-aftermath-banner">
+                <div className="aftermath-header">
+                  ⚔️ LOYALTY BRIGADE DEPLOYMENT — AFTERMATH
+                </div>
+                <div className="aftermath-desc">
+                  The deployment has made headlines. Street protests have erupted in three districts.
+                  Your press office is demanding a response. How do you proceed?
+                </div>
+                {aftermathLoading ? (
+                  <div className="aftermath-loading">Consulting advisors…</div>
+                ) : (
+                  <div className="aftermath-choices">
+                    <button
+                      className="aftermath-btn aftermath-btn-suppress"
+                      onClick={() => handleAftermath(1)}
+                      disabled={aftermathLoading}
+                    >
+                      <span className="aftermath-btn-label">Suppress Coverage</span>
+                      <span className="aftermath-btn-cost">-$3B personal · +5% stability</span>
+                    </button>
+                    <button
+                      className="aftermath-btn aftermath-btn-aid"
+                      onClick={() => handleAftermath(2)}
+                      disabled={aftermathLoading}
+                    >
+                      <span className="aftermath-btn-label">Launch Aid Programs</span>
+                      <span className="aftermath-btn-cost">-$5B budget · +8% approval · +3% stability</span>
+                    </button>
+                    <button
+                      className="aftermath-btn aftermath-btn-favor"
+                      onClick={() => handleAftermath(3)}
+                      disabled={aftermathLoading}
+                    >
+                      <span className="aftermath-btn-label">Call in a Favor</span>
+                      <span className="aftermath-btn-cost">Highest-relation NPC -10 · +8% stability · +5% approval</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Aftermath resolved message */}
+            {aftermathResult && (
+              <div className="alert alert-success">{aftermathResult}</div>
             )}
 
             {/* World event banner */}
@@ -389,17 +471,17 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               onNegotiate={!loading ? setNegotiatingNpc : null}
               negotiatingNpc={negotiatingNpc}
               intelActive={!!gs?.corruption_upgrades?.intelligence_apparatus}
+              sessionId={sessionId}
+              gs={gs}
             />
 
             {/* Negotiation slide-up panel */}
             {negotiatingNpc && (() => {
               const info = NPC_INFO[negotiatingNpc]
 
-              // FEATURE 2: Build active deal summary for this NPC
               let activeDealSummary = null
               if (gs) {
                 const summaries = []
-                // Oil price lock (arabia is the relevant NPC for oil)
                 if (
                   negotiatingNpc === 'arabia' &&
                   gs.oil_price_locked &&
@@ -409,7 +491,6 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
                     `🔒 Oil locked at $${gs.oil_price_lock_value}/bbl — ${gs.oil_price_lock_turns_remaining} turn(s) remaining`
                   )
                 }
-                // Active trade commitments for this NPC
                 if (Array.isArray(gs.active_trade_commitments)) {
                   for (const c of gs.active_trade_commitments) {
                     if (!c.npc || c.npc === negotiatingNpc) {
@@ -456,73 +537,6 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               disabled={loading}
               counterOffers={counterOffers}
             />
-
-            {/* Stage 5: Corruption Upgrades panel — shown when player has personal wealth */}
-            {gs?.personal_wealth > 0 && (() => {
-              const upgrades = gs.corruption_upgrades || {}
-              const UPGRADES = [
-                {
-                  id: 'intelligence_apparatus',
-                  label: 'Intelligence Apparatus',
-                  cost: 3,
-                  effect: 'Unlock intel tooltips on NPC cards',
-                  icon: '🕵️',
-                },
-                {
-                  id: 'sovereign_wealth_diversion',
-                  label: 'Sovereign Wealth Diversion',
-                  cost: 5,
-                  effect: 'Large skim stability penalty: -6% → -3%',
-                  icon: '💼',
-                },
-                {
-                  id: 'loyalty_brigades',
-                  label: 'Loyalty Brigades',
-                  cost: 8,
-                  effect: 'Unlocks brigade deployment options',
-                  icon: '⚔️',
-                },
-                {
-                  id: 'debt_infrastructure_deal',
-                  label: 'Debt Infrastructure Deal',
-                  cost: 10,
-                  effect: '+$20B national budget, USA -15, EU -15',
-                  icon: '🏗️',
-                },
-              ]
-              const availableUpgrades = UPGRADES.filter(u => !upgrades[u.id])
-              if (availableUpgrades.length === 0) return null
-
-              return (
-                <div className="panel upgrades-panel">
-                  <div className="panel-header">🏦 Corruption Upgrades — Personal Funds: ${gs.personal_wealth.toFixed(1)}B</div>
-                  {upgradeMessages.length > 0 && (
-                    <div className="upgrade-result-msgs">
-                      {upgradeMessages.map((m, i) => <div key={i} className="upgrade-msg">{m}</div>)}
-                    </div>
-                  )}
-                  {availableUpgrades.map(u => {
-                    const canAfford = gs.personal_wealth >= u.cost
-                    return (
-                      <button
-                        key={u.id}
-                        className={`upgrade-btn ${canAfford ? '' : 'upgrade-btn-disabled'}`}
-                        onClick={() => canAfford && !upgradeLoading && handlePurchaseUpgrade(u.id)}
-                        disabled={!canAfford || upgradeLoading}
-                        title={canAfford ? `Cost: $${u.cost}B personal` : `Need $${u.cost}B personal (have $${gs.personal_wealth.toFixed(1)}B)`}
-                      >
-                        <span className="upgrade-icon">{u.icon}</span>
-                        <span className="upgrade-info">
-                          <span className="upgrade-name">{u.label}</span>
-                          <span className="upgrade-effect">{u.effect}</span>
-                        </span>
-                        <span className="upgrade-cost">${u.cost}B</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              )
-            })()}
           </>
         )}
 
@@ -536,10 +550,46 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               blackmailResult={blackmailResult}
             />
 
+            {/* FEATURE 2: Brigade secondary prompt — shown before skim if available */}
+            {brigadeAvailable && !brigadeResult && (
+              <div className="brigade-prompt-panel">
+                <div className="brigade-prompt-header">⚔️ LOYALTY BRIGADE DEPLOYMENT</div>
+                <div className="brigade-prompt-desc">
+                  Deploy Loyalty Brigades this turn?
+                  Costs $2B personal, -5% approval, +10% stability, all relations -3.
+                </div>
+                {brigadeLoading ? (
+                  <div className="brigade-loading">Mobilising forces…</div>
+                ) : (
+                  <div className="brigade-prompt-actions">
+                    <button
+                      className="brigade-btn brigade-btn-yes"
+                      onClick={() => handleBrigadeDeploy(true)}
+                      disabled={brigadeLoading}
+                    >
+                      Deploy — $2B · -5% approval · +10% stability
+                    </button>
+                    <button
+                      className="brigade-btn brigade-btn-no"
+                      onClick={() => handleBrigadeDeploy(false)}
+                      disabled={brigadeLoading}
+                    >
+                      Stand Down
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Brigade result message */}
+            {brigadeResult && (
+              <div className="alert alert-warn">{brigadeResult}</div>
+            )}
+
             <SkimPanel
               skimOptions={skimOptions}
               onSkim={handleSkim}
-              disabled={loading}
+              disabled={loading || brigadeLoading || (brigadeAvailable && !brigadeResult)}
             />
           </>
         )}
@@ -566,7 +616,6 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
           <>
             <div className="turn-divider">— END OF TURN {(gs?.current_turn || 1) - 1}/{gs?.max_turns} —</div>
 
-            {/* Skim / inject result */}
             {skimMessages.length > 0 && (
               <div className="panel">
                 <div className="panel-header">Allocation Result</div>
@@ -614,7 +663,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
 
       </div>
 
-      {/* FEATURE 1: Confirmation modal — intercepts choice and skim commits */}
+      {/* FEATURE 1: Confirmation modal */}
       {pendingConfirm && (
         <div className="confirm-overlay">
           <div className="confirm-dialog">
@@ -640,6 +689,16 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
             </div>
           </div>
         </div>
+      )}
+
+      {/* FEATURE 1: Shadow Cabinet drawer */}
+      {shadowCabinetOpen && (
+        <ShadowCabinet
+          gs={gs}
+          sessionId={sessionId}
+          onClose={() => setShadowCabinetOpen(false)}
+          onUpgradePurchased={handleUpgradePurchased}
+        />
       )}
 
     </div>
