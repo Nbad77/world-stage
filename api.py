@@ -462,6 +462,126 @@ def _build_ending(gs: GameState) -> dict | None:
     return result
 
 
+def _build_escape_ending(gs: GameState) -> dict:
+    """
+    Build the escape ending payload with:
+    - Destination text chosen by highest-relation NPC at time of escape
+    - Wealth modifier applied to tone (>$20B comfortable, $5-20B functional, <$5B desperate)
+    """
+    pw = gs.personal_wealth
+    rels = gs.relations
+
+    # Determine highest-relation NPC
+    npc_order = ['usa', 'arabia', 'eu', 'dprg']
+    highest_npc = max(npc_order, key=lambda n: rels.get(n, 0))
+
+    # Wealth tier: comfortable / functional / desperate
+    if pw >= 20:
+        w_tier = 'comfortable'
+    elif pw >= 5:
+        w_tier = 'functional'
+    else:
+        w_tier = 'desperate'
+
+    # Destination text matrix — (highest_npc, wealth_tier)
+    _ESCAPE_TEXTS = {
+        ('usa', 'comfortable'): (
+            "Langley's Finest Guest",
+            "Langley arranged the plane this time.\n"
+            "You are consulting somewhere warm, at considerable day-rate.\n"
+            "Europa is not."
+        ),
+        ('usa', 'functional'): (
+            "The American Option",
+            "Langley arranged the plane this time.\n"
+            "You are consulting somewhere. The fee is adequate.\n"
+            "Europa is not."
+        ),
+        ('usa', 'desperate'): (
+            "Langley's Charity Case",
+            "Langley arranged the plane. They will remind you of this.\n"
+            "You owe them something. You are not sure what yet.\n"
+            "Europa is not sure either."
+        ),
+        ('arabia', 'comfortable'): (
+            "Sadam's Honoured Guest",
+            "Sadam's people met you at the airstrip before dawn.\n"
+            "The villa has a pool. The pool has a view. The wine is cold.\n"
+            "Europa does not."
+        ),
+        ('arabia', 'functional'): (
+            "The Gulf Arrangement",
+            "Sadam's people met you at the airstrip.\n"
+            "The villa is modest by his standards. Comfortable by yours.\n"
+            "Europa is not."
+        ),
+        ('arabia', 'desperate'): (
+            "The Airstrip Deal",
+            "Sadam's people met you at the airstrip. You did not negotiate the terms.\n"
+            "The accommodation is functional. You are alive, which is the main thing.\n"
+            "Europa is not your problem anymore."
+        ),
+        ('eu', 'comfortable'): (
+            "Brussels' Quiet Guest",
+            "Brussels offered asylum quietly, with a side of paperwork.\n"
+            "You accepted quietly, with a glass of something excellent.\n"
+            "Europa noticed loudly."
+        ),
+        ('eu', 'functional'): (
+            "The Brussels Arrangement",
+            "Brussels offered asylum quietly. The terms were bureaucratic.\n"
+            "You accepted. A small flat in a mid-sized city. Adequate.\n"
+            "Europa noticed. It was not pleased."
+        ),
+        ('eu', 'desperate'): (
+            "Brussels' Provisional Refuge",
+            "Brussels offered asylum, provisionally, pending review.\n"
+            "You accepted anything. The paperwork is still pending.\n"
+            "Europa is glad to be rid of you."
+        ),
+        ('dprg', 'comfortable'): (
+            "The Escaped Architect",
+            "Ji-won arranged the plane. As promised. You are drinking wine somewhere.\n"
+            "The location is undisclosed. The vintage is excellent.\n"
+            "Europa is not."
+        ),
+        ('dprg', 'functional'): (
+            "The Escaped Architect",
+            "Ji-won arranged the plane.\n"
+            "You are somewhere. The wine is drinkable. You are alive.\n"
+            "Europa is not your concern."
+        ),
+        ('dprg', 'desperate'): (
+            "Ji-won's Last Favour",
+            "Ji-won arranged the plane at the last possible moment.\n"
+            "You barely made it. The wine, if there is any, is cheap.\n"
+            "Europa will not miss you. The feeling is mutual."
+        ),
+    }
+
+    title, desc = _ESCAPE_TEXTS.get(
+        (highest_npc, w_tier),
+        ("The Escaped Architect",
+         "You saw the writing on the wall before the wall fell.\n"
+         "Europa will call you a traitor. Interpol will call you a fugitive.\n"
+         "You will call yourself: alive.")
+    )
+
+    return {
+        "cause": "escaped",
+        "nation_survived": False,
+        "personal_title": title,
+        "personal_description": desc,
+        "exile_npc": highest_npc,       # surfaced for potential future UI use
+        "personal_wealth": pw,
+        "final_budget": gs.budget,
+        "final_stability": gs.stability,
+        "final_approval": gs.public_approval,
+        "final_relations": dict(rels),
+        "turn": gs.current_turn,
+    }
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @app.post("/game/new")
@@ -536,23 +656,7 @@ def post_action(session_id: str, body: ActionRequest):
         _save_gs(session_id, gs)
         return {
             "action": "escape",
-            "ending": {
-                "cause": "escaped",
-                "nation_survived": False,
-                "personal_title": "The Escaped Architect",
-                "personal_description": (
-                    "You saw the writing on the wall before the wall fell.\n"
-                    "Europa will call you a traitor. Interpol will call you a fugitive.\n"
-                    "Ji-won will call you a client.\n"
-                    "You will call yourself: alive."
-                ),
-                "personal_wealth": gs.personal_wealth,
-                "final_budget": gs.budget,
-                "final_stability": gs.stability,
-                "final_approval": gs.public_approval,
-                "final_relations": dict(gs.relations),
-                "turn": gs.current_turn,
-            },
+            "ending": _build_escape_ending(gs),
             "game_state": gs.serialize(),
         }
 

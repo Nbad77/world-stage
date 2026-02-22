@@ -15,12 +15,19 @@ export default function EndingScreen({ ending, gs, onRestart }) {
   const gradeLabel = ending.grade_label || (isEscaped ? 'FLIGHT SUCCESSFUL' : 'GAME OVER')
 
   // Cause label
+  // Exile destination label — reflects which NPC arranged the escape
+  const exileNpcLabels = {
+    usa: '🇺🇸 Escaped — Langley Arranged the Plane',
+    arabia: '🛢️ Escaped — Sadam\'s People at the Airstrip',
+    eu: '🇪🇺 Escaped — Brussels Offered Asylum',
+    dprg: '⚡ Escaped — Ji-won Arranged the Plane',
+  }
   const causeMap = {
     bankruptcy: '💸 National Bankruptcy',
     collapse: '🔥 State Collapse',
     revolt: '✊ Popular Revolt',
     victory: '🏛️ 10-Turn Tenure Complete',
-    escaped: '🛫 Escaped with Ji-won',
+    escaped: exileNpcLabels[ending.exile_npc] || '🛫 Escaped',
   }
   const causeLabel = causeMap[ending.cause] || ending.cause
 
@@ -83,7 +90,7 @@ export default function EndingScreen({ ending, gs, onRestart }) {
       </div>
 
       <button className="btn-primary" onClick={onRestart}>
-        Play Again
+        Start New Game
       </button>
     </div>
   )

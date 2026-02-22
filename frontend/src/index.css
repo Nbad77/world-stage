@@ -1773,6 +1773,53 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   }
 }
 
+/* ── Addition 1: Resume session block on TitleScreen ────────────────────── */
+.resume-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface2);
+  max-width: 340px;
+  width: 100%;
+}
+
+.resume-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.resume-label {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.resume-detail {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+.resume-actions {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.resume-new-btn {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
 /* ── Mobile fine-tuning ──────────────────────────────────────────────────── */
 @media (max-width: 400px) {
   .status-bar { font-size: 0.75rem; gap: 0.4rem 0.9rem; }
