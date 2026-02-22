@@ -17,6 +17,7 @@ All game logic lives in Python. Claude generates flavor text only.
 
 import json
 import os
+import re
 import traceback
 from pathlib import Path
 from dotenv import load_dotenv
@@ -255,11 +256,13 @@ def get_token_usage():
 
 # ─── Context Builder ──────────────────────────────────────────────────────────
 
-def _build_context(game_state):
+def _build_context(game_state, npc_id=None):
     """
     Build the game state context dict sent with every NPC call.
     personal_wealth is only included if > $8B (matches intercept threshold).
     player_history is last 3 choices from action_history.
+    If npc_id is provided, broken_deals and active_commitments are filtered
+    to only that NPC's deals (prevents cross-NPC memory bleed).
     """
     history = []
     for action in game_state.action_history[-3:]:
@@ -308,15 +311,21 @@ def _build_context(game_state):
         ctx["personal_wealth_billions"] = round(game_state.personal_wealth, 1)
         ctx["wealth_known_to_intelligence"] = True
 
-    # Session 2: deal history — broken deals as NPC memory
+    # Session 2: deal history — broken deals as NPC memory.
+    # When npc_id is given, only include that NPC's deals so NPCs don't
+    # reference each other's bilateral agreements (cross-NPC memory bleed).
     deal_history = getattr(game_state, 'deal_history', [])
     if deal_history:
-        broken = [d for d in deal_history if d.get('broken')]
-        active = [d for d in deal_history if not d.get('broken') and d.get('expires_turn', 0) >= game_state.current_turn]
+        if npc_id:
+            relevant = [d for d in deal_history if d.get('npc') == npc_id]
+        else:
+            relevant = deal_history
+        broken = [d for d in relevant if d.get('broken')]
+        active = [d for d in relevant if not d.get('broken') and d.get('expires_turn', 0) >= game_state.current_turn]
         if broken:
             ctx["broken_deals"] = [
                 {"npc": d["npc"], "summary": d["summary"], "turn": d["turn_accepted"]}
-                for d in broken[-3:]  # last 3 broken deals
+                for d in broken[-3:]  # last 3 broken deals with this NPC
             ]
         if active:
             ctx["active_commitments"] = [
@@ -497,12 +506,11 @@ def generate_dialogue(game_state):
     Falls back to static strings individually if any API call fails.
     Calls are SEQUENTIAL (one per NPC) — not batched.
     """
-    context = _build_context(game_state)
-
     results = []
 
     # ── USA ──────────────────────────────────────────────────────────
     try:
+        context = _build_context(game_state, npc_id='usa')
         extra = ""
         if game_state.usa_sanctions_active:
             extra = "Sanctions are ACTIVE. Be coercive and reference the ongoing financial damage."
@@ -517,6 +525,7 @@ def generate_dialogue(game_state):
 
     # ── Arabia ───────────────────────────────────────────────────────
     try:
+        context = _build_context(game_state, npc_id='arabia')
         extra = ""
         if game_state.arabia_embargo_active:
             extra = "Embargo is ACTIVE. Be cold and disappointed — a businessman waiting for payment."
@@ -531,6 +540,7 @@ def generate_dialogue(game_state):
 
     # ── EU ───────────────────────────────────────────────────────────
     try:
+        context = _build_context(game_state, npc_id='eu')
         extra = ""
         if game_state.stability < 30:
             extra = "Stability is critically low. Use emergency session language — urgent and procedural."
@@ -545,6 +555,7 @@ def generate_dialogue(game_state):
 
     # ── DPRG (Ji-won) ────────────────────────────────────────────────
     try:
+        context = _build_context(game_state, npc_id='dprg')
         extra = ""
         pw = game_state.personal_wealth
         if pw > 20:
@@ -1104,7 +1115,7 @@ def generate_intel(game_state, npc_id: str) -> dict:
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
             model=MODEL,
-            max_tokens=100,
+            max_tokens=220,
             temperature=0.7,
             system=INTEL_SYSTEM,
             messages=[{"role": "user", "content": prompt}]
@@ -1113,7 +1124,9 @@ def generate_intel(game_state, npc_id: str) -> dict:
         _token_log["input_tokens"] += response.usage.input_tokens
         _token_log["output_tokens"] += response.usage.output_tokens
 
-        text = response.content[0].text.strip()
+        raw = response.content[0].text.strip()
+        # Strip markdown formatting so the UI renders plain prose
+        text = re.sub(r'[#*`_~]', '', raw).strip()
         result = {
             "tier": current_tier,
             "text": text,
@@ -1214,7 +1227,7 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
     if not system_prompt:
         return {"response": "I have nothing to say to that.", "counter_offer": None}
 
-    context = _build_context(game_state)
+    context = _build_context(game_state, npc_id=npc_id)
     # FEATURE 5: inject negotiation cap into context so NPC naturally incorporates it
     negotiation_cap = _get_negotiation_cap(game_state, npc_id)
     context["max_single_deal_budget_billions"] = negotiation_cap

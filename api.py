@@ -227,12 +227,20 @@ def _calc_eot_drain_projection(gs: GameState) -> dict:
     # Fixed government cost
     base_cost = 3.0
     oil_cost = round(projected_oil / 15.0, 1)
-    total_drain = round(base_cost + oil_cost, 1)
+
+    # Active installments — sum this turn's incoming/outgoing payments.
+    # Positive amounts are receipts (reduce net drain); negative are payments (add to drain).
+    installment_net = sum(float(inst.get('amount', 0)) for inst in gs.active_installments)
+    installment_net = round(installment_net, 1)
+
+    # Net drain = costs - installment income (installment_net may be negative if paying out)
+    total_drain = round(base_cost + oil_cost - installment_net, 1)
     budget_after = round(gs.budget - total_drain, 1)
 
     return {
         "projected_drain": total_drain,
         "budget_after_drain": budget_after,
+        "installment_net": installment_net,   # expose for potential future display
     }
 
 

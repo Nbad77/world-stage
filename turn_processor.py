@@ -158,6 +158,11 @@ def apply_end_of_turn_effects(game_state):
             )
         game_state.previous_oil_base = new_base
 
+    # Snapshot relation-based base for breakdown display (before modifiers + embargo)
+    _oil_relation_base = game_state.oil_price
+    # Collect per-modifier breakdown strings for the final summary line
+    _oil_modifier_parts = []  # list of strings like "-$10 Arabia deal"
+
     # Apply persistent oil price modifiers (world events, negotiated discounts)
     # These stack on top of the relation-based price and tick down each EOT.
     if game_state.oil_price_modifiers:
@@ -179,6 +184,8 @@ def apply_end_of_turn_effects(game_state):
                 messages.append(
                     f"🛢️  Oil modifier expired: {sign}${mod['delta']:.0f}/bbl ({desc} — concluded)"
                 )
+            # Collect for breakdown line (include expired ones — they still affect this turn)
+            _oil_modifier_parts.append(f"{sign}${mod['delta']:.0f} {desc}")
         game_state.oil_price_modifiers = still_active
         # Apply the combined modifier to this turn's price, floor at $20
         if total_modifier != 0:
@@ -246,12 +253,12 @@ def apply_end_of_turn_effects(game_state):
     final_oil = game_state.oil_price + _tier_oil_penalty
     game_state.oil_price = max(20, final_oil)   # apply penalty into actual price
 
-    # Build a transparent breakdown so the player can always follow the math.
-    # Format: Oil price: $75 base → -$10 deal → +$10 embargo = $75/bbl
-    _base_oil = game_state.oil_price - _tier_oil_penalty  # price before embargo penalty
-    _oil_parts = [f"${_base_oil:.0f} base (Arabia {arabia_rel})"]
+    # Build a fully transparent breakdown: base → each modifier → embargo = final
+    # e.g. "Oil price: $120 base (Arabia 0) → -$10 Arabia deal → +$20 embargo = $130/bbl"
+    _oil_parts = [f"${_oil_relation_base:.0f} base (Arabia {arabia_rel})"]
+    _oil_parts.extend(_oil_modifier_parts)           # one entry per active/expired modifier
     if _tier_oil_penalty > 0:
-        _oil_parts.append(f"+${_tier_oil_penalty} embargo")
+        _oil_parts.append(f"+${_tier_oil_penalty} embargo (tier {_arabia_effective_tier})")
     messages.append(f"🛢️  Oil price: {' → '.join(_oil_parts)} = ${game_state.oil_price:.0f}/bbl")
 
     # ──────────────────────────────────────────

@@ -166,11 +166,30 @@ class GameState:
             self.took_usa_side_after_arabia_oil = True
 
     def update_relations(self, npc, change):
-        """Update relationship and check crisis thresholds"""
-        self.relations[npc] = max(0, min(100, self.relations[npc] + change))
-        # BUG 4: Arabia relations capped at 90 — Sadam never fully trusts outsiders
-        if npc == 'arabia':
-            self.relations[npc] = min(90, self.relations[npc])
+        """Update relationship with diminishing returns on positive gains, check crisis thresholds.
+
+        Diminishing returns (positive change only — negative is always full):
+          current 0-60  → 100% of change
+          current 61-80 →  75% of change
+          current 81-95 →  40% of change
+          current 96-99 →  10% of change
+          current 100   →   0% (locked — already at cap)
+        """
+        if change > 0:
+            cur = self.relations[npc]
+            if cur >= 100:
+                effective = 0.0
+            elif cur >= 96:
+                effective = change * 0.10
+            elif cur >= 81:
+                effective = change * 0.40
+            elif cur >= 61:
+                effective = change * 0.75
+            else:
+                effective = float(change)
+            self.relations[npc] = max(0, min(100, cur + effective))
+        else:
+            self.relations[npc] = max(0, min(100, self.relations[npc] + change))
 
         # Crisis triggers
         if npc == 'usa':
