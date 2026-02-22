@@ -179,6 +179,63 @@ def _build_skim_options(gs: GameState) -> list[dict]:
     return options
 
 
+def _calc_eot_drain_projection(gs: GameState) -> dict:
+    """
+    Addition 2: Calculate what the passive EOT drain will be this turn,
+    using the current oil price and active modifiers — without applying anything.
+    Returns { projected_drain, budget_after_drain } for display in the skim panel.
+    """
+    # Determine what oil price will be at EOT (best estimate before EOT runs)
+    if gs.oil_price_locked and gs.oil_price_lock_turns_remaining > 0:
+        base_oil = max(20, round(gs.oil_price_lock_value))
+    else:
+        # Simulate set_oil_price_from_relations without mutating state
+        base = 75.0
+        rel = gs.relations['arabia']
+        if rel >= 80:
+            base_oil = max(20, round(base * 0.70))
+        elif rel >= 60:
+            base_oil = max(20, round(base * 0.85))
+        elif rel >= 40:
+            base_oil = max(20, round(base * 1.00))
+        elif rel >= 20:
+            base_oil = max(20, round(base * 1.25))
+        else:
+            base_oil = max(20, round(base * 1.60))
+
+    # Stack active oil price modifiers (they tick this EOT)
+    total_modifier = sum(m.get('delta', 0) for m in gs.oil_price_modifiers)
+    projected_oil = max(20, round(base_oil + total_modifier))
+
+    # Arabia embargo tier penalty (best estimate — tier can ramp +1 max)
+    arabia_rel = gs.relations['arabia']
+    if arabia_rel <= 35:
+        if arabia_rel <= 4:
+            target_tier = 4
+        elif arabia_rel <= 14:
+            target_tier = 3
+        elif arabia_rel <= 24:
+            target_tier = 2
+        else:
+            target_tier = 1
+        effective_tier = min(target_tier, gs.arabia_embargo_tier + 1)
+    else:
+        effective_tier = 0
+    oil_penalty = {0: 0, 1: 10, 2: 20, 3: 35, 4: 50}[effective_tier]
+    projected_oil = max(20, projected_oil + oil_penalty)
+
+    # Fixed government cost
+    base_cost = 3.0
+    oil_cost = round(projected_oil / 15.0, 1)
+    total_drain = round(base_cost + oil_cost, 1)
+    budget_after = round(gs.budget - total_drain, 1)
+
+    return {
+        "projected_drain": total_drain,
+        "budget_after_drain": budget_after,
+    }
+
+
 def _build_inject_options(gs: GameState) -> list[dict]:
     """Return available injection options given current personal_wealth."""
     pw = gs.personal_wealth
@@ -699,6 +756,9 @@ def post_action(session_id: str, body: ActionRequest):
         choice_dict["type"] not in ("escape", "inject_funds", "deploy_brigades")
     )
 
+    # Addition 2: Pre-skim drain projection for display in SkimPanel
+    drain_projection = _calc_eot_drain_projection(gs)
+
     _save_gs(session_id, gs)
 
     return {
@@ -709,6 +769,7 @@ def post_action(session_id: str, body: ActionRequest):
         "blackmail_result": blackmail_result,
         "skim_options": skim_options,
         "brigade_available": brigade_available,
+        "drain_projection": drain_projection,
         "game_state": gs.serialize(),
     }
 

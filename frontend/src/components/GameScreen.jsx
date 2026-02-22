@@ -60,6 +60,9 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   const [brigadeLoading, setBrigadeLoading] = useState(false)
   const [brigadeResult, setBrigadeResult] = useState(null)
 
+  // Addition 2: Pre-skim EOT drain projection
+  const [drainProjection, setDrainProjection] = useState(null)
+
   // FEATURE 3: Brigade aftermath
   const [aftermathLoading, setAftermathLoading] = useState(false)
   const [aftermathResult, setAftermathResult] = useState(null)
@@ -169,6 +172,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       setBlackmailActive(false)
       setBrigadeAvailable(res.brigade_available || false)
       setBrigadeResult(null)
+      setDrainProjection(res.drain_projection || null)
       setPhase(PHASE.CONSEQUENCES)
 
     } catch (e) {
@@ -331,6 +335,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     setBrigadeAvailable(false)
     setBrigadeResult(null)
     setAftermathResult(null)
+    setDrainProjection(null)
     // Stage 4
     setCurrentEvent(next.event || null)
     setNegotiatingNpc(null)
@@ -590,6 +595,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               skimOptions={skimOptions}
               onSkim={handleSkim}
               disabled={loading || brigadeLoading || (brigadeAvailable && !brigadeResult)}
+              drainProjection={drainProjection}
             />
           </>
         )}

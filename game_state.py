@@ -111,6 +111,11 @@ class GameState:
         # Set True after brigades are deployed; cleared after aftermath resolves
         self.brigades_deployed_last_turn = False
 
+        # ── Addition 1: Oil tier change visibility ─────────────────────────────
+        # Stores the relation-based oil base price from last EOT, so we can
+        # detect and log when a tier boundary is crossed.
+        self.previous_oil_base = 75  # matches starting oil_price
+
         # ── Stage 5 Session 2: Dynamic intel cache ────────────────────────────
         # intel: { npc_id: { tier: int, text: str, turn_generated: int, relation_at_generation: int } }
         self.intel = {}
@@ -241,6 +246,7 @@ class GameState:
         else:
             new_price = base * 1.60   # ~$120
         self.oil_price = max(20.0, round(new_price))
+        return int(self.oil_price)
 
     def get_status_display(self):
         """Generate status display"""
@@ -303,6 +309,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'brigades_deployed_last_turn': self.brigades_deployed_last_turn,
             'intel': self.intel,
             'deal_history': self.deal_history,
+            'previous_oil_base': self.previous_oil_base,
         }
 
     @classmethod
@@ -358,4 +365,5 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.brigades_deployed_last_turn = data.get('brigades_deployed_last_turn', False)
         gs.intel = data.get('intel', {})
         gs.deal_history = data.get('deal_history', [])
+        gs.previous_oil_base = data.get('previous_oil_base', 75)
         return gs

@@ -146,7 +146,17 @@ def apply_end_of_turn_effects(game_state):
                 f"({game_state.oil_price_lock_turns_remaining} turn(s) remaining)"
             )
     else:
-        game_state.set_oil_price_from_relations()   # sets base from relations
+        new_base = game_state.set_oil_price_from_relations()   # sets base from relations
+        # Addition 1: log when the relation-based base price changes tier
+        old_base = getattr(game_state, 'previous_oil_base', new_base)
+        if new_base != old_base:
+            arabia_rel = game_state.relations['arabia']
+            direction = "improved" if new_base < old_base else "worsened"
+            messages.append(
+                f"🛢️  Oil tier {direction}: Arabia {arabia_rel} → "
+                f"${new_base} base (was ${old_base})"
+            )
+        game_state.previous_oil_base = new_base
 
     # Apply persistent oil price modifiers (world events, negotiated discounts)
     # These stack on top of the relation-based price and tick down each EOT.

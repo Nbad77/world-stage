@@ -1227,6 +1227,41 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   background: rgba(192,64,64,0.08);
 }
 
+/* ── Addition 2: Pre-skim EOT drain projection ───────────────────────────── */
+.skim-drain-projection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem 0.45rem;
+  background: rgba(74, 158, 255, 0.05);
+  border: 1px solid rgba(74, 158, 255, 0.15);
+  border-radius: 5px;
+  padding: 0.4rem 0.65rem;
+  margin-bottom: 0.65rem;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+}
+
+.skim-drain-label {
+  color: var(--muted);
+}
+
+.skim-drain-sep {
+  color: var(--border);
+}
+
+.skim-drain-amount {
+  font-weight: 700;
+  color: var(--danger);
+}
+
+.skim-drain-budget {
+  font-weight: 700;
+  color: var(--success);
+}
+.skim-drain-budget.skim-drain-warn { color: var(--warning); }
+.skim-drain-budget.skim-drain-bad  { color: var(--danger); }
+
 /* ── Session 2: Shadow Cabinet button in StatusBar ───────────────────────── */
 .shadow-cabinet-btn {
   background: transparent;
