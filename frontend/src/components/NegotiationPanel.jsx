@@ -2,16 +2,17 @@
  * NegotiationPanel — slide-up per-NPC chat panel.
  *
  * Props:
- *   npcKey           : 'usa' | 'arabia' | 'eu' | 'dprg'
- *   npcLabel         : display name (e.g. "Bill Washington")
- *   npcFlag          : emoji flag
- *   sessionId        : game session ID
- *   onClose          : () => void  — called when "Done Negotiating" is clicked
- *   onCounterOffer   : (letter, counterOffer) => void — called when NPC offers new terms
- *   offerLetter      : the letter of this NPC's current offer (e.g. "A")
- *   initialMessages  : [{role, content}]  — history restored from GameScreen (BUG 5)
- *   onHistoryChange  : (messages) => void — notify parent of history updates (BUG 5)
- *   activeDealSummary: string | null — one-line summary of active deals with this NPC (FEATURE 2)
+ *   npcKey              : 'usa' | 'arabia' | 'eu' | 'dprg'
+ *   npcLabel            : display name (e.g. "Bill Washington")
+ *   npcFlag             : emoji flag
+ *   sessionId           : game session ID
+ *   onClose             : () => void  — called when "Done Negotiating" is clicked
+ *   onCounterOffer      : (letter, counterOffer) => void — called when player accepts an offer
+ *   offerLetter         : the letter of this NPC's current offer (e.g. "A")
+ *   initialMessages     : [{role, content}]  — history restored from GameScreen
+ *   initialPendingOffers: [counterOffer, ...]  — all offers made this session, newest last
+ *   onHistoryChange     : (messages, pendingOffers) => void — notify parent of state updates
+ *   activeDealSummary   : string | null — one-line summary of active deals with this NPC
  */
 
 import { useState, useRef, useEffect } from 'react'
@@ -39,18 +40,19 @@ export default function NegotiationPanel({
   onClose,
   onCounterOffer,
   offerLetter,
-  initialMessages = [],   // BUG 5: restored history from GameScreen
-  onHistoryChange,        // BUG 5: notify parent when history changes
-  activeDealSummary = null, // FEATURE 2: one-line summary of active deals
+  initialMessages = [],
+  initialPendingOffers = [],  // all counter-offers made this session, survives minimize
+  onHistoryChange,
+  activeDealSummary = null,
 }) {
-  // BUG 5: seed from initialMessages so closing/reopening restores the conversation
   const [messages, setMessages] = useState(initialMessages)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  // BUG 5: restore any pending counter-offer that was in the last message set
-  const [counterOffer, setCounterOffer] = useState(null)
-  // FEATURE 3: last offer persists in footer after player clicks "Keep Negotiating"
-  const [lastOffer, setLastOffer] = useState(null)
+
+  // All counter-offers made in this session with this NPC, newest last.
+  // Seeded from initialPendingOffers so they survive minimize/reopen.
+  const [pendingOffers, setPendingOffers] = useState(initialPendingOffers)
+
   const scrollRef = useRef(null)
 
   useEffect(() => {
@@ -59,10 +61,11 @@ export default function NegotiationPanel({
     }
   }, [messages])
 
-  // BUG 5: helper that sets messages AND notifies parent of new history
-  function pushMessages(newMessages) {
+  // Helper: update messages + pendingOffers and notify parent together
+  function pushState(newMessages, newPendingOffers) {
     setMessages(newMessages)
-    onHistoryChange && onHistoryChange(newMessages)
+    setPendingOffers(newPendingOffers)
+    onHistoryChange && onHistoryChange(newMessages, newPendingOffers)
   }
 
   async function handleSend() {
@@ -71,12 +74,13 @@ export default function NegotiationPanel({
 
     const userMsg = { role: 'user', content: text }
     const withUser = [...messages, userMsg]
-    pushMessages(withUser)
+    // Optimistically update messages (keep current pendingOffers)
+    setMessages(withUser)
+    onHistoryChange && onHistoryChange(withUser, pendingOffers)
     setInput('')
     setLoading(true)
 
     try {
-      // Convert to API history format (exclude the just-added user message — it's passed as `message`)
       const history = messages.map(m => ({
         role: m.role === 'user' ? 'user' : 'assistant',
         content: m.content,
@@ -85,17 +89,19 @@ export default function NegotiationPanel({
       const res = await api.negotiate(sessionId, npcKey, text, history)
 
       const withNpc = [...withUser, { role: 'npc', content: res.response }]
-      pushMessages(withNpc)
 
-      if (res.counter_offer) {
-        setCounterOffer(res.counter_offer)
-      }
+      // If a new counter-offer arrived, append it to the stack
+      const newPendingOffers = res.counter_offer
+        ? [...pendingOffers, res.counter_offer]
+        : pendingOffers
+
+      pushState(withNpc, newPendingOffers)
     } catch (e) {
       const withErr = [...withUser, {
         role: 'npc',
         content: '… [Transmission error. Try again.]'
       }]
-      pushMessages(withErr)
+      pushState(withErr, pendingOffers)
     } finally {
       setLoading(false)
     }
@@ -108,49 +114,45 @@ export default function NegotiationPanel({
     }
   }
 
-  function handleAcceptCounterOffer(offerToAccept) {
-    const target = offerToAccept || counterOffer
-    if (target && onCounterOffer) {
-      onCounterOffer(offerLetter, target)
+  function handleAcceptOffer(offer) {
+    if (offer && onCounterOffer) {
+      onCounterOffer(offerLetter, offer)
     }
     onClose()
   }
 
-  // Stage 4 Polish: when closing via "Done Negotiating", persist any staged offer
-  // so the NEGOTIATED badge remains visible in OffersPanel.
+  // When closing via "Done Negotiating", persist the most recent offer to OffersPanel
+  // so the NEGOTIATED badge stays visible even without accepting.
   function handleDoneNegotiating() {
-    const stagedOffer = counterOffer || lastOffer
-    if (stagedOffer && onCounterOffer) {
-      onCounterOffer(offerLetter, stagedOffer)
+    const latestOffer = pendingOffers.length > 0
+      ? pendingOffers[pendingOffers.length - 1]
+      : null
+    if (latestOffer && onCounterOffer) {
+      onCounterOffer(offerLetter, latestOffer)
     }
     onClose()
   }
 
-  // FEATURE 3: dismiss the banner but keep the offer accessible in the footer
-  function handleKeepNegotiating() {
-    setLastOffer(counterOffer)
-    setCounterOffer(null)
+  // Remove an offer from the stack (player explicitly dismisses it)
+  function handleDismissOffer(idx) {
+    const newOffers = pendingOffers.filter((_, i) => i !== idx)
+    pushState(messages, newOffers)
   }
 
   // FEATURE: parse a counter-offer's consequences and return a money direction label.
-  // Returns { label: string, isPositive: bool } | null if no money involved.
-  // All values use player-perspective sign: positive = Europa receives, negative = Europa pays.
   function getMoneyDirection(offer) {
     if (!offer || !offer.consequences) return null
     const c = offer.consequences
 
-    // Immediate budget payment (one-time this turn)
     const national = (c.budget ?? 0) + (c.budget_delta ?? 0)
     const personal = c.personal_wealth_delta ?? 0
 
-    // Installment streams — new array format takes priority over legacy single fields
     const installmentStreams = Array.isArray(c.installments)
       ? c.installments
       : (c.installment_amount != null && c.installment_turns != null)
         ? [{ amount: c.installment_amount, turns: c.installment_turns }]
         : []
 
-    // Build annotated parts with sign-aware value and display label
     const parts = []
     if (national !== 0) {
       parts.push({ value: national, label: `$${Math.abs(national).toFixed(1)}B national treasury` })
@@ -160,7 +162,6 @@ export default function NegotiationPanel({
       const turns = s.turns ?? 0
       if (amt !== 0 && turns > 0) {
         const desc = s.description ? ` (${s.description})` : ''
-        // Human-readable: "next turn" for 1 EOT payment, "$/turn × N turns" for more
         const label = turns === 1
           ? `$${Math.abs(amt).toFixed(1)}B next turn${desc}`
           : `$${Math.abs(amt).toFixed(1)}B/turn × ${turns} turns${desc}`
@@ -173,7 +174,6 @@ export default function NegotiationPanel({
 
     if (parts.length === 0) return null
 
-    // Separate receive / pay buckets so mixed deals show both lines
     const receive = parts.filter(p => p.value > 0)
     const pay = parts.filter(p => p.value < 0)
     const netTotal = parts.reduce((sum, p) => sum + p.value, 0)
@@ -196,6 +196,10 @@ export default function NegotiationPanel({
     dprg:   'dprg',
   }[npcKey] || 'usa'
 
+  // Separate newest offer (full banner) from older ones (compact rows)
+  const latestOffer = pendingOffers.length > 0 ? pendingOffers[pendingOffers.length - 1] : null
+  const olderOffers = pendingOffers.length > 1 ? pendingOffers.slice(0, -1) : []
+
   return (
     <div className="negotiation-overlay">
       <div className="negotiation-panel">
@@ -208,7 +212,7 @@ export default function NegotiationPanel({
           <button className="negotiation-close-btn" onClick={onClose}>✕</button>
         </div>
 
-        {/* FEATURE 2: Active deal summary — one line shown only when a deal is active */}
+        {/* Active deal summary */}
         {activeDealSummary && (
           <div className="negotiation-active-deal">
             Active: {activeDealSummary}
@@ -238,14 +242,48 @@ export default function NegotiationPanel({
           )}
         </div>
 
-        {/* Counter-offer banner — FEATURE 3: two-button layout */}
-        {counterOffer && (() => {
-          const moneyDir = getMoneyDirection(counterOffer)
+        {/* Older offers — compact rows above the latest banner */}
+        {olderOffers.length > 0 && (
+          <div className="older-offers-stack">
+            <div className="older-offers-label">Earlier offers on the table:</div>
+            {olderOffers.map((offer, idx) => {
+              const moneyDir = getMoneyDirection(offer)
+              return (
+                <div key={idx} className="older-offer-row">
+                  <span className="older-offer-text" title={offer.text}>{offer.text}</span>
+                  {moneyDir && (
+                    <span className={`older-offer-money ${moneyDir.isMixed ? 'money-mixed' : moneyDir.isPositive ? 'money-receive' : 'money-pay'}`}>
+                      {moneyDir.label}
+                    </span>
+                  )}
+                  <div className="older-offer-actions">
+                    <button
+                      className="btn-accept-counter"
+                      onClick={() => handleAcceptOffer(offer)}
+                    >
+                      Accept
+                    </button>
+                    <button
+                      className="btn-ghost older-offer-dismiss"
+                      onClick={() => handleDismissOffer(idx)}
+                      title="Remove this offer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Latest offer — full banner */}
+        {latestOffer && (() => {
+          const moneyDir = getMoneyDirection(latestOffer)
           return (
             <div className="counter-offer-banner">
               <div className="counter-offer-label">⚡ Counter-Offer on the Table</div>
-              <div className="counter-offer-text">{counterOffer.text}</div>
-              {/* FEATURE: money direction clarity label — mixed deals show both lines */}
+              <div className="counter-offer-text">{latestOffer.text}</div>
               {moneyDir && (
                 <div className={`counter-offer-money-dir ${moneyDir.isMixed ? 'money-mixed' : moneyDir.isPositive ? 'money-receive' : 'money-pay'}`}>
                   {moneyDir.label}
@@ -254,39 +292,17 @@ export default function NegotiationPanel({
               <div className="counter-offer-actions">
                 <button
                   className="btn-accept-counter"
-                  onClick={() => handleAcceptCounterOffer(counterOffer)}
+                  onClick={() => handleAcceptOffer(latestOffer)}
                 >
                   Accept & Close
                 </button>
                 <button
                   className="btn-keep-negotiating"
-                  onClick={handleKeepNegotiating}
+                  onClick={() => handleDismissOffer(pendingOffers.length - 1)}
                 >
                   Keep Negotiating
                 </button>
               </div>
-            </div>
-          )
-        })()}
-
-        {/* FEATURE 3: Persistent last-offer footer — visible after "Keep Negotiating" */}
-        {!counterOffer && lastOffer && (() => {
-          const moneyDir = getMoneyDirection(lastOffer)
-          return (
-            <div className="last-offer-bar">
-              <span className="last-offer-label">Last offer:</span>
-              <span className="last-offer-text" title={lastOffer.text}>{lastOffer.text}</span>
-              {moneyDir && (
-                <span className={`last-offer-money-dir ${moneyDir.isMixed ? 'money-mixed' : moneyDir.isPositive ? 'money-receive' : 'money-pay'}`}>
-                  {moneyDir.label}
-                </span>
-              )}
-              <button
-                className="btn-accept-last-offer"
-                onClick={() => handleAcceptCounterOffer(lastOffer)}
-              >
-                Accept
-              </button>
             </div>
           )
         })()}

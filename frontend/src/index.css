@@ -1002,48 +1002,62 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   letter-spacing: 0.02em;
 }
 
-/* ── Last-offer footer in NegotiationPanel (FEATURE 3) ───────────────────── */
-.last-offer-bar {
+/* ── Older offers stack in NegotiationPanel ──────────────────────────────── */
+.older-offers-stack {
+  border-top: 1px solid var(--border);
+  background: rgba(74, 158, 255, 0.04);
+  padding: 0.5rem 1rem 0.25rem;
+}
+
+.older-offers-label {
+  font-size: 0.68rem;
+  font-family: var(--mono);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.4rem;
+}
+
+.older-offer-row {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.45rem 1rem;
-  border-top: 1px solid var(--border);
-  background: rgba(74, 158, 255, 0.05);
-  font-size: 0.78rem;
-  color: var(--muted);
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
   flex-wrap: wrap;
+  font-size: 0.78rem;
+}
+.older-offer-row:last-child {
+  border-bottom: none;
 }
 
-.last-offer-label {
-  font-weight: 600;
-  color: var(--accent);
-  flex-shrink: 0;
-}
-
-.last-offer-text {
+.older-offer-text {
   flex: 1;
   min-width: 0;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.btn-accept-last-offer {
-  background: transparent;
-  color: var(--accent);
-  border: 1px solid var(--accent);
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 0.25rem 0.7rem;
-  border-radius: var(--radius);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background 0.15s, color 0.15s;
+.older-offer-money {
+  font-size: 0.72rem;
+  white-space: pre-line;
 }
-.btn-accept-last-offer:hover {
-  background: var(--accent);
-  color: #fff;
+
+.older-offer-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.older-offer-dismiss {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.4rem;
+  opacity: 0.5;
+}
+.older-offer-dismiss:hover {
+  opacity: 1;
 }
 
 /* ── Counter-offer keep-negotiating layout (FEATURE 3) ───────────────────── */

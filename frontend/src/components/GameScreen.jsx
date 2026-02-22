@@ -96,6 +96,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   // counterOffers: { [letter]: counterOffer } — displayed in OffersPanel
   const [counterOffers, setCounterOffers] = useState({})
   // per-NPC chat history, keyed by npcKey — survives panel close/reopen within same turn
+  // shape: { [npcKey]: { messages: [], pendingOffers: [] } }
   const [chatHistories, setChatHistories] = useState({})
 
   const scrollRef = useRef(null)
@@ -355,8 +356,11 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     }
   }
 
-  function handleHistoryChange(npcKey, newMessages) {
-    setChatHistories(prev => ({ ...prev, [npcKey]: newMessages }))
+  function handleHistoryChange(npcKey, newMessages, newPendingOffers) {
+    setChatHistories(prev => ({
+      ...prev,
+      [npcKey]: { messages: newMessages, pendingOffers: newPendingOffers || [] },
+    }))
   }
 
   // ── FEATURE 1: Shadow Cabinet upgrade purchased → sync gs ────────────────
@@ -643,6 +647,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
                 }
               }
 
+              const savedHistory = chatHistories[negotiatingNpc] || {}
               return (
                 <NegotiationPanel
                   key={negotiatingNpc}
@@ -653,8 +658,9 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
                   offerLetter={info.letter}
                   onClose={() => setNegotiatingNpc(null)}
                   onCounterOffer={handleCounterOffer}
-                  initialMessages={chatHistories[negotiatingNpc] || []}
-                  onHistoryChange={(msgs) => handleHistoryChange(negotiatingNpc, msgs)}
+                  initialMessages={savedHistory.messages || []}
+                  initialPendingOffers={savedHistory.pendingOffers || []}
+                  onHistoryChange={(msgs, offers) => handleHistoryChange(negotiatingNpc, msgs, offers)}
                   activeDealSummary={activeDealSummary}
                 />
               )
