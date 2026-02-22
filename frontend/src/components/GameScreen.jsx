@@ -364,6 +364,139 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     setGs(newGs)
   }
 
+  // # DEV FEATURE — remove before public launch
+  // ── Addition 1: Export Debug Log ─────────────────────────────────────────
+  function handleExportDebugLog() {
+    if (!gs) return
+    const now = new Date()
+    const ts = now.toISOString().replace('T', ' ').slice(0, 19)
+    const tsFile = now.toISOString().replace(/[:.]/g, '-').slice(0, 19)
+
+    const lines = []
+    lines.push('=== WORLD STAGE — SESSION EXPORT ===')
+    lines.push(`Generated: ${ts}`)
+    lines.push('')
+
+    // ── CURRENT STATE ─────────────────────────────────────────────────────
+    lines.push('CURRENT STATE')
+    lines.push('─────────────')
+    lines.push(`Turn: ${gs.current_turn}/${gs.max_turns}`)
+    lines.push(`Budget: $${gs.budget?.toFixed(1)}B`)
+    lines.push(`Personal Wealth: $${gs.personal_wealth?.toFixed(1)}B`)
+    lines.push(`Stability: ${gs.stability}%`)
+    lines.push(`Approval: ${gs.public_approval}%`)
+    lines.push(`Oil: $${gs.oil_price}/bbl`)
+    const regime = gs.state_identity
+    lines.push(`Regime: ${regime?.regime_type || '—'} · ${regime?.power_base || '—'}`)
+    const rel = gs.relations || {}
+    lines.push(`Relations: USA ${rel.usa ?? '—'} | Arabia ${rel.arabia ?? '—'} | EU ${rel.eu ?? '—'} | DPRG ${rel.dprg ?? '—'}`)
+
+    // Active deals
+    const activeDeals = (gs.deal_history || []).filter(
+      d => !d.broken && (d.expires_turn ?? 0) >= gs.current_turn
+    )
+    if (activeDeals.length > 0) {
+      lines.push('Active Deals:')
+      activeDeals.forEach(d => lines.push(`  · [${d.npc?.toUpperCase()}] ${d.summary} (expires turn ${d.expires_turn})`))
+    } else {
+      lines.push('Active Deals: none')
+    }
+
+    // Active world events
+    const worldEvents = gs.active_world_events || gs.world_events || []
+    if (worldEvents.length > 0) {
+      lines.push('Active World Events:')
+      worldEvents.forEach(e => lines.push(`  · ${e.name || e.description || JSON.stringify(e)}`))
+    } else {
+      lines.push('Active World Events: none')
+    }
+
+    // Active upgrades (Shadow Cabinet)
+    const upgrades = gs.corruption_upgrades || {}
+    const activeUpgrades = Object.entries(upgrades).filter(([, v]) => v).map(([k]) => k.replace(/_/g, ' '))
+    lines.push(`Active Upgrades: ${activeUpgrades.length > 0 ? activeUpgrades.join(', ') : 'none'}`)
+
+    // Active embargoes / sanctions
+    const penalties = []
+    if (gs.usa_sanctions_active) penalties.push(`USA Sanctions (tier ${gs.usa_sanctions_tier})`)
+    if (gs.arabia_embargo_active) penalties.push(`Arabia Embargo (tier ${gs.arabia_embargo_tier})`)
+    lines.push(`Active Embargoes: ${penalties.length > 0 ? penalties.join(', ') : 'none'}`)
+    lines.push('')
+
+    // ── TURN HISTORY ──────────────────────────────────────────────────────
+    lines.push('TURN HISTORY')
+    lines.push('─────────────')
+    const history = gs.action_history || []
+    if (history.length === 0) {
+      lines.push('(no turns completed yet)')
+    } else {
+      history.forEach((action, idx) => {
+        lines.push(`Turn ${idx + 1}:`)
+        lines.push(`  Choice: ${action.choice || action.type || '—'}`)
+        if (action.consequences?.length > 0) {
+          lines.push('  Consequences:')
+          action.consequences.forEach(c => lines.push(`    - ${c}`))
+        }
+        if (action.skim) lines.push(`  Skim: ${action.skim}`)
+        if (action.eot_effects?.length > 0) {
+          lines.push('  EOT Effects:')
+          action.eot_effects.forEach(e => lines.push(`    - ${e}`))
+        }
+        if (action.epitaph) lines.push(`  Epitaph: "${action.epitaph}"`)
+      })
+    }
+    lines.push('')
+
+    // ── NEGOTIATION LOG ───────────────────────────────────────────────────
+    lines.push('NEGOTIATION LOG')
+    lines.push('─────────────')
+    const negLog = gs.negotiation_log || []
+    if (negLog.length === 0) {
+      lines.push('(no negotiations recorded)')
+    } else {
+      negLog.forEach(entry => {
+        const npcLabel = NPC_INFO[entry.npc]?.label || entry.npc
+        lines.push(`Turn ${entry.turn} — ${npcLabel}:`)
+        if (entry.player_message) lines.push(`  Player: "${entry.player_message}"`)
+        if (entry.npc_response)   lines.push(`  NPC: "${entry.npc_response}"`)
+        if (entry.counter_offer)  lines.push(`  Counter-offer: ${JSON.stringify(entry.counter_offer)}`)
+        else                       lines.push('  Counter-offer: none')
+        lines.push(`  Outcome: ${entry.outcome || '—'}`)
+      })
+    }
+    lines.push('')
+
+    // ── DEAL HISTORY ──────────────────────────────────────────────────────
+    lines.push('DEAL HISTORY')
+    lines.push('─────────────')
+    const allDeals = gs.deal_history || []
+    if (allDeals.length === 0) {
+      lines.push('(no deals recorded)')
+    } else {
+      allDeals.forEach(d => {
+        const npcLabel = NPC_INFO[d.npc]?.label || d.npc
+        const status = d.broken
+          ? 'BROKEN'
+          : (d.expires_turn ?? 0) >= gs.current_turn
+            ? 'ACTIVE'
+            : 'EXPIRED'
+        lines.push(`Turn ${d.turn_accepted} — ${npcLabel} [${status}]:`)
+        lines.push(`  Terms: ${d.summary}`)
+        if (d.expires_turn) lines.push(`  Expires: turn ${d.expires_turn}`)
+      })
+    }
+    lines.push('')
+    lines.push('=== END OF EXPORT ===')
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `worldstage-turn${gs.current_turn}-${tsFile}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   // ── Render: ENDED ────────────────────────────────────────────────────────
   if (phase === PHASE.ENDED) {
     return (
@@ -706,6 +839,18 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
           onUpgradePurchased={handleUpgradePurchased}
         />
       )}
+
+      {/* # DEV FEATURE — remove before public launch */}
+      {/* Addition 1: Export Debug Log — desktop only (hidden on mobile via CSS) */}
+      <div className="dev-export-footer">
+        <button
+          className="dev-export-btn"
+          onClick={handleExportDebugLog}
+          title="Export full game state as .txt debug log"
+        >
+          ⬇ Export Debug Log
+        </button>
+      </div>
 
     </div>
   )

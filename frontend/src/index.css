@@ -1684,6 +1684,95 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   font-family: var(--mono);
 }
 
+/* ── Addition 2: Compact relations mini-row in StatusBar ─────────────────── */
+.sb-relations-row {
+  width: 100%;
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  padding: 0.2rem 0 0.05rem;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+  row-gap: 0.2rem;
+}
+
+.sb-rel-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.sb-rel-sep {
+  color: var(--border);
+  margin: 0 0.45rem;
+  font-size: 0.7rem;
+}
+
+.sb-rel-label {
+  color: var(--muted);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sb-rel-val {
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+
+/* NPC colour tints on the value */
+.sb-rel-usa    .sb-rel-val { color: var(--usa); }
+.sb-rel-arabia .sb-rel-val { color: var(--arabia); }
+.sb-rel-eu     .sb-rel-val { color: var(--eu); }
+.sb-rel-dprg   .sb-rel-val { color: var(--dprg); }
+
+/* Threshold colouring overrides */
+.sb-rel-item.sb-rel-low      .sb-rel-val { color: var(--warning); }
+.sb-rel-item.sb-rel-critical .sb-rel-val { color: var(--danger); }
+
+.sb-rel-alert {
+  font-size: 0.65rem;
+  line-height: 1;
+}
+
+/* ── Addition 1: Dev export footer — desktop only ────────────────────────── */
+/* # DEV FEATURE — remove before public launch */
+.dev-export-footer {
+  display: none; /* hidden on mobile by default */
+  padding: 0.4rem 1rem 0.5rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface2);
+  text-align: right;
+}
+
+.dev-export-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 4px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.dev-export-btn:hover {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+/* Show export footer only on desktop */
+@media (min-width: 1024px) {
+  .dev-export-footer {
+    display: block;
+  }
+}
+
 /* ── Mobile fine-tuning ──────────────────────────────────────────────────── */
 @media (max-width: 400px) {
   .status-bar { font-size: 0.75rem; gap: 0.4rem 0.9rem; }
