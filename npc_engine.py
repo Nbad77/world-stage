@@ -22,11 +22,13 @@ import traceback
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load API key from .env for local dev — override=False means Railway's injected
-# environment variables always take precedence over anything in the .env file.
-# On Railway there is no .env file; the key is injected directly into the environment.
+# Load API key from .env for local dev.
+# override=True only when the env var is absent or empty — this lets Railway's
+# injected key win on the server while still loading a local .env that
+# overrides a stale empty Windows system env var during local development.
 _ENV_PATH = Path(__file__).parent / ".env"
-load_dotenv(dotenv_path=_ENV_PATH, override=False)
+_override_env = not bool(os.getenv("ANTHROPIC_API_KEY"))
+load_dotenv(dotenv_path=_ENV_PATH, override=_override_env)
 
 # ─── NPC System Prompts ────────────────────────────────────────────────────────
 
