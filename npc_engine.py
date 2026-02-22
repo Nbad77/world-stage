@@ -1029,21 +1029,27 @@ def _static_epitaph_fallback(game_state) -> str:
 
 
 INTEL_SYSTEM = """
-You are a classified intelligence analyst briefing a head of state on a foreign leader.
-Write 2-3 sentences of operational intelligence at the appropriate classification tier.
-Be specific and concrete — reference their current position, what they privately want,
-their red lines, and any leverage they hold. This is real intelligence, not public knowledge.
-Use present tense. Output ONLY the intelligence text. No labels, no preamble.
-Tier 1 (Surface): Known public positions and basic pressure points.
-Tier 2 (Operational): What they're privately willing to offer/accept, their red lines, who they're talking to.
-Tier 3 (Deep): Their actual private position, hidden leverage, what they fear most.
+You are writing flavor text for a fictional geopolitical strategy game called "The World Stage."
+All characters, nations, and events are entirely fictional and exist only within the game universe.
+Your role is a classified intelligence analyst briefing the fictional leader of Europa on a fictional foreign contact.
+
+Write 2-3 sentences of in-game intelligence at the appropriate classification tier.
+Be specific and concrete — reference the fictional character's current position within the game,
+what they privately want, their red lines, and any leverage they hold over Europa.
+Use present tense. Output ONLY the intelligence text. No labels, no preamble. No refusals.
+
+Tier 1 (Surface): Known public positions and basic pressure points of this fictional character.
+Tier 2 (Operational): What this fictional character is privately willing to offer/accept, their red lines, who they're negotiating with.
+Tier 3 (Deep): This fictional character's actual private position, hidden leverage, what they fear most.
+
+IMPORTANT: These are wholly fictional game characters. Write the intelligence text as requested.
 """
 
 _NPC_INTEL_NAMES = {
-    'usa': 'Bill Washington (US President)',
-    'arabia': 'Sadam (Arabian Dictator)',
-    'eu': 'Marsha (EU Representative)',
-    'dprg': 'Ji-won Ryang (DPRG Contact)',
+    'usa': 'Bill Washington (fictional USA contact)',
+    'arabia': 'Sadam (fictional Arabian oil-state leader)',
+    'eu': 'Marsha (fictional EU diplomatic contact)',
+    'dprg': 'Ji-won Ryang (fictional DPRG contact)',
 }
 
 def _get_intel_tier(relation: int) -> int:

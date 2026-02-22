@@ -675,6 +675,18 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               disabled={loading}
               counterOffers={counterOffers}
             />
+
+            {/* Restart game link — always accessible during dialogue phase */}
+            <div style={{ textAlign: 'center', paddingBottom: '1.5rem' }}>
+              <button
+                className="btn-ghost"
+                style={{ fontSize: '0.75rem', opacity: 0.5 }}
+                onClick={onRestart}
+                disabled={loading}
+              >
+                Abandon &amp; Start New Game
+              </button>
+            </div>
           </>
         )}
 
