@@ -52,23 +52,25 @@ export default function StatusBar({ gs, onShadowCabinet }) {
         <span className="stat-label">Oil</span>
         <span className="stat-value mono">${gs.oil_price}/bbl</span>
       </div>
-      {/* FEATURE 1: Shadow Cabinet button — only shown when personal wealth > 0 */}
-      {onShadowCabinet && gs.personal_wealth > 0 && (
-        <button
-          className="shadow-cabinet-btn"
-          onClick={onShadowCabinet}
-          title="Open Shadow Cabinet — corruption upgrades"
-        >
-          🗄️
-        </button>
-      )}
-
       {/* Stage 5: state identity — full width row below the stats */}
       <div className="state-identity-row">
         <span className={`state-identity-regime ${regimeColorClass}`}>{regimeType}</span>
         <span className="state-identity-sep">·</span>
         <span className="state-identity-power">{powerBase}</span>
       </div>
+
+      {/* Shadow Cabinet row — full width, only shown when personal wealth > 0 */}
+      {onShadowCabinet && gs.personal_wealth > 0 && (
+        <button
+          className="shadow-cabinet-row-btn"
+          onClick={onShadowCabinet}
+        >
+          <span className="sc-row-icon">🗄️</span>
+          <span className="sc-row-label">SHADOW CABINET</span>
+          <span className="sc-row-funds">${gs.personal_wealth.toFixed(1)}B available</span>
+          <span className="sc-row-arrow">›</span>
+        </button>
+      )}
     </div>
   )
 }

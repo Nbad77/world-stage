@@ -1262,23 +1262,52 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .skim-drain-budget.skim-drain-warn { color: var(--warning); }
 .skim-drain-budget.skim-drain-bad  { color: var(--danger); }
 
-/* ── Session 2: Shadow Cabinet button in StatusBar ───────────────────────── */
-.shadow-cabinet-btn {
-  background: transparent;
-  border: 1px solid rgba(200, 168, 75, 0.35);
-  border-radius: 6px;
-  color: rgba(200, 168, 75, 0.7);
-  font-size: 0.9rem;
-  padding: 0.1rem 0.45rem;
+/* ── Session 2: Shadow Cabinet row button in StatusBar ───────────────────── */
+.shadow-cabinet-row-btn {
+  /* Full-width row, sits below the regime identity row */
+  width: 100%;
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(200, 168, 75, 0.06);
+  border: 1px solid rgba(200, 168, 75, 0.25);
+  border-radius: 5px;
+  padding: 0.3rem 0.6rem;
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
-  flex-shrink: 0;
-  line-height: 1.4;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+  font-family: var(--mono);
 }
-.shadow-cabinet-btn:hover {
-  border-color: var(--arabia);
+.shadow-cabinet-row-btn:hover {
+  background: rgba(200, 168, 75, 0.12);
+  border-color: rgba(200, 168, 75, 0.5);
+}
+
+.sc-row-icon {
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.sc-row-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
   color: var(--arabia);
-  background: rgba(200, 168, 75, 0.08);
+  flex-shrink: 0;
+}
+
+.sc-row-funds {
+  font-size: 0.65rem;
+  color: rgba(200, 168, 75, 0.6);
+  flex: 1;
+}
+
+.sc-row-arrow {
+  font-size: 0.9rem;
+  color: rgba(200, 168, 75, 0.4);
+  flex-shrink: 0;
+  line-height: 1;
 }
 
 /* ── Session 2: Shadow Cabinet drawer ───────────────────────────────────── */
