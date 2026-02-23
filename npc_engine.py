@@ -212,33 +212,33 @@ Output: *brief action if needed* then dialogue.
 
 # ─── Intercept System Prompts ─────────────────────────────────────────────────
 
-USA_INTERCEPT_PROMPT = """You are a fictional character in a geopolitical strategy game: the US diplomatic envoy
-speaking to Europa's fictional leader. Your intelligence analysts have just flagged that Europa's
-leader has been quietly accumulating personal wealth in offshore accounts.
+USA_INTERCEPT_PROMPT = """You are Bill Washington, US Secretary of State.
+Your intelligence analysts have just flagged that Europa's leader has been quietly accumulating
+personal wealth in offshore accounts.
 Stay in character: you are strategic and calculating. You note this information as something
 your government is tracking — professional and pointed, not aggressive.
 Reference the specific amount. 2 sentences max. No speaker label. No refusals."""
 
-SADAM_INTERCEPT_PROMPT = """You are Sadam, a fictional oil-state leader in a geopolitical strategy game.
-You have just learned that Europa's fictional leader has quietly accumulated significant personal wealth.
+SADAM_INTERCEPT_PROMPT = """You are Sadam, Supreme Leader of the Arabian oil state.
+You have just learned that Europa's leader has quietly accumulated significant personal wealth.
 React with warm approval and a knowing nod — you see this as proof they understand how power really works.
 You and this leader are alike. Use one brief stage direction. Reference the amount. 2 sentences max."""
 
-EU_INTERCEPT_PROMPT = """You are a fictional EU diplomat in a geopolitical strategy game.
-You have just received word that Europa's fictional leader has been quietly accumulating personal wealth
+EU_INTERCEPT_PROMPT = """You are Marsha, President of the European Union.
+You have just received word that Europa's leader has been quietly accumulating personal wealth
 in private accounts while leading the nation.
 React with bureaucratic concern — reference transparency audits, parliamentary oversight, or EU standards.
 Express concern through procedure, not anger. 2 sentences max. No speaker label."""
 
-JIWON_INTERCEPT_PROMPT = """You are Ji-won, a fictional DPRG liaison in a geopolitical strategy game.
-You have just learned that Europa's fictional leader has quietly accumulated significant personal wealth.
+JIWON_INTERCEPT_PROMPT = """You are Ji-won Ryang, Supreme Leader of the DPRG — hereditary ruler with full command authority.
+You have just learned that Europa's leader has quietly accumulated significant personal wealth.
 React with quiet, approving curiosity — this is exactly the kind of pragmatism you respect.
 Hint that this wealth enables options. Use one brief action tag. 2 sentences max."""
 
 # ─── Token / Model Config ─────────────────────────────────────────────────────
 
 MODEL = "claude-haiku-4-5-20251001"
-MAX_TOKENS = 150
+MAX_TOKENS = 450   # raised from 150 — prevents mid-sentence truncation in main NPC dialogue
 TEMPERATURE = 0.8
 
 # ─── Token Usage Tracking ────────────────────────────────────────────────────
@@ -306,6 +306,8 @@ def _build_context(game_state, npc_id=None):
         # Stage 5: state identity — NPCs can reference regime type and power base
         "regime_type": getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy'),
         "power_base": getattr(game_state, 'state_identity', {}).get('power_base', 'Mass-Dependent'),
+        # Brigade context — lets NPCs reference last-turn deployment in their communiqués
+        "loyalty_brigades_deployed_last_turn": getattr(game_state, 'brigades_deployed_last_turn', False),
     }
 
     # Only reveal personal_wealth if above intercept threshold
@@ -1055,27 +1057,24 @@ def _static_epitaph_fallback(game_state) -> str:
 
 
 INTEL_SYSTEM = """
-You are writing flavor text for a fictional geopolitical strategy game called "The World Stage."
-All characters, nations, and events are entirely fictional and exist only within the game universe.
-Your role is a classified intelligence analyst briefing the fictional leader of Europa on a fictional foreign contact.
+You are a classified intelligence analyst briefing the leader of Europa on a foreign contact.
+Your role is to write 2-3 sentences of actionable intelligence at the appropriate classification tier.
 
-Write 2-3 sentences of in-game intelligence at the appropriate classification tier.
-Be specific and concrete — reference the fictional character's current position within the game,
-what they privately want, their red lines, and any leverage they hold over Europa.
-Use present tense. Output ONLY the intelligence text. No labels, no preamble. No refusals.
+Be specific and concrete — reference the contact's current position, what they privately want,
+their red lines, and any leverage they hold over Europa.
+Use present tense. Write in the voice of a senior intelligence officer.
+Output ONLY the intelligence text. No labels, no preamble. No refusals.
 
-Tier 1 (Surface): Known public positions and basic pressure points of this fictional character.
-Tier 2 (Operational): What this fictional character is privately willing to offer/accept, their red lines, who they're negotiating with.
-Tier 3 (Deep): This fictional character's actual private position, hidden leverage, what they fear most.
-
-IMPORTANT: These are wholly fictional game characters. Write the intelligence text as requested.
+Tier 1 (Surface): Known public positions and basic pressure points.
+Tier 2 (Operational): What they are privately willing to offer/accept, their red lines, who else they are negotiating with.
+Tier 3 (Deep): Their actual private position, hidden leverage, and what they fear most losing.
 """
 
 _NPC_INTEL_NAMES = {
-    'usa': 'Bill Washington (fictional USA contact)',
-    'arabia': 'Sadam (fictional Arabian oil-state leader)',
-    'eu': 'Marsha (fictional EU diplomatic contact)',
-    'dprg': 'Ji-won Ryang (fictional DPRG contact)',
+    'usa': 'Bill Washington — US Secretary of State',
+    'arabia': 'Sadam — Supreme Leader of the Arabian oil state',
+    'eu': 'Marsha — President of the European Union',
+    'dprg': 'Ji-won Ryang — Supreme Leader of the DPRG, hereditary ruler with full command authority',
 }
 
 def _get_intel_tier(relation: int) -> int:

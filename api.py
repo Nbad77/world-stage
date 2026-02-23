@@ -1158,6 +1158,7 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
     )
 
     counter_offer = result.get("counter_offer", None)
+    npc_response = result.get("response", "…")
 
     # Fallback: if the model returned null but the player is signalling acceptance
     # and the frontend provided the last counter_offer it saw, re-emit it so the
@@ -1171,9 +1172,22 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
         if is_accepting:
             counter_offer = body.last_counter_offer
 
+    # Session 3: Record this exchange in negotiation_log for export auditing.
+    if not hasattr(gs, 'negotiation_log'):
+        gs.negotiation_log = []
+    gs.negotiation_log.append({
+        "turn": gs.current_turn,
+        "npc": npc_id,
+        "player_message": body.message,
+        "npc_response": npc_response,
+        "counter_offer": counter_offer,
+        "outcome": "ongoing",  # updated to 'accepted' by accept_counter endpoint
+    })
+    _save_gs(session_id, gs)
+
     return {
         "npc_id": npc_id,
-        "response": result.get("response", "…"),
+        "response": npc_response,
         "counter_offer": counter_offer,
     }
 
@@ -1255,10 +1269,10 @@ def post_deploy_brigades(session_id: str, body: BrigadeRequest):
     FEATURE 2: Secondary brigade deployment action, separate from diplomatic choice.
     Supports 4 tiered operations (operation 1-4) or stand-down (operation 0 / deploy=False).
 
-    Operation 1 — Domestic Suppression   ($2B personal): +10% stability, -5% approval, all relations -3
-    Operation 2 — Propaganda Campaign    ($3B personal): +8% approval, -3% stability, -$2B national
-    Operation 3 — Foreign Influence Ops  ($4B personal): target NPC relations -8, stability +5%
-    Operation 4 — Covert Security Apparatus ($6B personal): +15% stability, -10% approval, relations -5, regime shifts right
+    Operation 1 — Domestic Suppression   ($2B personal): +15% stability, -5% approval, all relations -3
+    Operation 2 — Propaganda Campaign    ($2B personal): +10% approval, -2% stability, -$2B national
+    Operation 3 — Foreign Influence Ops  ($3B personal): target NPC relations -15, stability +8%
+    Operation 4 — Covert Security Apparatus ($5B personal): +20% stability, -10% approval, relations -5, regime shifts right
     Operation 0 / deploy=False — Stand Down: no effect
     """
     gs = _load_gs(session_id)
@@ -1276,57 +1290,57 @@ def post_deploy_brigades(session_id: str, body: BrigadeRequest):
         messages.append("Brigades stood down — no deployment this turn")
 
     elif op == 1:
-        # Domestic Suppression — $2B personal
+        # Domestic Suppression — $2B personal (rebalanced: +15% stability)
         cost = 2.0
         if gs.personal_wealth < cost:
             raise HTTPException(status_code=400, detail=f"Insufficient personal funds ($2B needed, have ${gs.personal_wealth:.1f}B)")
         gs.personal_wealth = max(0, gs.personal_wealth - cost)
-        gs.update_stability(10)
+        gs.update_stability(15)
         gs.update_approval(-5)
         for npc in ['usa', 'arabia', 'eu', 'dprg']:
             gs.update_relations(npc, -3)
         gs.brigades_deployed_last_turn = True
         messages.append("⚔️ Domestic Suppression deployed — unrest suppressed")
-        messages.append(f"💰 -$2B personal | 🛡️ +10% stability | 📊 -5% approval | All relations -3")
+        messages.append(f"💰 -$2B personal | 🛡️ +15% stability | 📊 -5% approval | All relations -3")
 
     elif op == 2:
-        # Propaganda Campaign — $3B personal, -$2B national
-        personal_cost = 3.0
+        # Propaganda Campaign — $2B personal (rebalanced: cost down, +10% approval, -2% stability)
+        personal_cost = 2.0
         national_cost = 2.0
         if gs.personal_wealth < personal_cost:
-            raise HTTPException(status_code=400, detail=f"Insufficient personal funds ($3B needed, have ${gs.personal_wealth:.1f}B)")
+            raise HTTPException(status_code=400, detail=f"Insufficient personal funds ($2B needed, have ${gs.personal_wealth:.1f}B)")
         gs.personal_wealth = max(0, gs.personal_wealth - personal_cost)
         gs.update_budget(-national_cost)
-        gs.update_approval(8)
-        gs.update_stability(-3)
+        gs.update_approval(10)
+        gs.update_stability(-2)
         gs.brigades_deployed_last_turn = True
         messages.append("📢 Propaganda Campaign launched — public messaging saturated")
-        messages.append(f"💰 -$3B personal | -$2B national | 📊 +8% approval | 🛡️ -3% stability")
+        messages.append(f"💰 -$2B personal | -$2B national | 📊 +10% approval | 🛡️ -2% stability")
 
     elif op == 3:
-        # Foreign Influence Ops — $4B personal, target NPC relations -8
+        # Foreign Influence Ops — $3B personal (rebalanced: cost down, relations -15, stability +8)
         target = body.target_npc.lower() if body.target_npc else ''
         if target not in ('usa', 'arabia', 'eu', 'dprg'):
             raise HTTPException(status_code=400, detail=f"Invalid target_npc '{target}' for foreign influence operation")
-        cost = 4.0
+        cost = 3.0
         if gs.personal_wealth < cost:
-            raise HTTPException(status_code=400, detail=f"Insufficient personal funds ($4B needed, have ${gs.personal_wealth:.1f}B)")
+            raise HTTPException(status_code=400, detail=f"Insufficient personal funds ($3B needed, have ${gs.personal_wealth:.1f}B)")
         gs.personal_wealth = max(0, gs.personal_wealth - cost)
-        gs.update_relations(target, -8)
-        gs.update_stability(5)
+        gs.update_relations(target, -15)
+        gs.update_stability(8)
         gs.brigades_deployed_last_turn = True
         npc_labels = {'usa': 'USA', 'arabia': 'Arabia', 'eu': 'EU', 'dprg': 'DPRG'}
         messages.append(f"🕵️ Foreign Influence Ops launched against {npc_labels.get(target, target.upper())}")
-        messages.append(f"💰 -$4B personal | {target.upper()} relations -8 | 🛡️ +5% stability")
+        messages.append(f"💰 -$3B personal | {target.upper()} relations -15 | 🛡️ +8% stability")
         messages.append("⚠️ Espionage allegations expected next turn")
 
     elif op == 4:
-        # Covert Security Apparatus — $6B personal
-        cost = 6.0
+        # Covert Security Apparatus — $5B personal (rebalanced: cost down, +20% stability)
+        cost = 5.0
         if gs.personal_wealth < cost:
-            raise HTTPException(status_code=400, detail=f"Insufficient personal funds ($6B needed, have ${gs.personal_wealth:.1f}B)")
+            raise HTTPException(status_code=400, detail=f"Insufficient personal funds ($5B needed, have ${gs.personal_wealth:.1f}B)")
         gs.personal_wealth = max(0, gs.personal_wealth - cost)
-        gs.update_stability(15)
+        gs.update_stability(20)
         gs.update_approval(-10)
         for npc in ['usa', 'arabia', 'eu', 'dprg']:
             gs.update_relations(npc, -5)
@@ -1341,7 +1355,7 @@ def post_deploy_brigades(session_id: str, body: BrigadeRequest):
             messages.append(f"🔒 Covert Security Apparatus activated — regime hardened to {si['regime_type']}")
         else:
             messages.append("🔒 Covert Security Apparatus activated — regime at maximum hardness")
-        messages.append(f"💰 -$6B personal | 🛡️ +15% stability | 📊 -10% approval | All relations -5")
+        messages.append(f"💰 -$5B personal | 🛡️ +20% stability | 📊 -10% approval | All relations -5")
         messages.append("⚠️ International condemnation incoming")
 
     else:
@@ -1480,6 +1494,14 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
     gs.options_override = [o for o in gs.options_override if o.get("letter") != letter]
     counter["letter"] = letter
     gs.options_override.append(counter)
+
+    # Session 3: Mark the most recent negotiation_log entry for this NPC as accepted
+    npc_id = (counter.get("npc") or "").lower()
+    if hasattr(gs, 'negotiation_log') and npc_id:
+        for entry in reversed(gs.negotiation_log):
+            if entry.get("npc") == npc_id and entry.get("turn") == gs.current_turn:
+                entry["outcome"] = "accepted"
+                break
 
     _save_gs(session_id, gs)
     return {"status": "ok", "letter": letter}

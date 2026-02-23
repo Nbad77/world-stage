@@ -8,14 +8,22 @@ echo.
 
 cd /d "%~dp0"
 
-echo  [1/2] Starting FastAPI backend on port 8000...
-start "API Server" cmd /k "cd /d "%~dp0" && uvicorn api:app --reload --port 8000"
+echo  [0/3] Killing any stale python/node processes on ports 8000 and 5173...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000 "') do (
+    taskkill /PID %%a /F >nul 2>&1
+)
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5173 "') do (
+    taskkill /PID %%a /F >nul 2>&1
+)
+timeout /t 1 /nobreak >nul
 
-echo  [2/2] Starting React frontend on port 5173...
+echo  [1/3] Starting FastAPI backend on port 8000...
+start "API Server" cmd /k "cd /d "%~dp0" && python -m uvicorn api:app --port 8000"
+
+echo  [2/3] Starting React frontend on port 5173...
 timeout /t 2 /nobreak >nul
 start "Frontend" cmd /k "cd /d "%~dp0frontend" && npm run dev"
 
-echo.
 echo  [3/3] Opening browser in 5 seconds...
 timeout /t 5 /nobreak >nul
 start http://localhost:5173

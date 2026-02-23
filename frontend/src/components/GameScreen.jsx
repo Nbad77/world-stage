@@ -104,6 +104,22 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
 
   const scrollRef = useRef(null)
 
+  // Session log ref — accumulates rich per-turn data for export log auditing.
+  // Each entry: { turn, choiceText, npcSided, consequences, brigadeOp, skimLabel,
+  //               skimNational, skimPersonal, eotEffects, budgetStart, budgetEnd,
+  //               personalStart, personalEnd, stabilityStart, stabilityEnd,
+  //               approvalStart, approvalEnd, epitaph }
+  const sessionLogRef = useRef([])
+  // Track start-of-turn snapshot for delta calculation
+  const turnStartRef = useRef({
+    budget: initialData.game_state?.budget ?? 0,
+    personal: initialData.game_state?.personal_wealth ?? 0,
+    stability: initialData.game_state?.stability ?? 0,
+    approval: initialData.game_state?.public_approval ?? 0,
+  })
+  // Accumulator for current turn being built
+  const currentTurnEntryRef = useRef({})
+
   // Scroll to top of game area whenever phase changes
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0
@@ -149,6 +165,16 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     clearError()
     setLoading(true)
     try {
+      // Snapshot start-of-turn values for export log delta calculations
+      if (gs) {
+        turnStartRef.current = {
+          budget:    gs.budget ?? 0,
+          personal:  gs.personal_wealth ?? 0,
+          stability: gs.stability ?? 0,
+          approval:  gs.public_approval ?? 0,
+        }
+      }
+
       const res = await api.postAction(sessionId, letter)
 
       // Option F — escape
@@ -168,7 +194,34 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         return
       }
 
-      // Normal A-E choice
+      // Normal A-E choice — capture choice text for session log
+      const allOffers = offers || []
+      const counter = counterOffers[letter]
+      const base = allOffers.find(o => o.letter === letter)
+      const choiceText = counter
+        ? `[NEGOTIATED] ${counter.text}`
+        : base?.text || `Option ${letter}`
+      const npcSided = counter?.npc || base?.npc || null
+
+      currentTurnEntryRef.current = {
+        turn: gs?.current_turn ?? '?',
+        choiceText,
+        npcSided,
+        consequences: res.consequences || [],
+        brigadeOp: null,
+        skimLabel: null, skimNational: 0, skimPersonal: 0,
+        eotEffects: [],
+        budgetStart:    turnStartRef.current.budget,
+        budgetEnd:      null,
+        personalStart:  turnStartRef.current.personal,
+        personalEnd:    null,
+        stabilityStart: turnStartRef.current.stability,
+        stabilityEnd:   null,
+        approvalStart:  turnStartRef.current.approval,
+        approvalEnd:    null,
+        epitaph: null,
+      }
+
       setGs(res.game_state)
       setConsequences(res.consequences || [])
       setBlackmailResult(res.blackmail_result)
@@ -195,6 +248,12 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     try {
       const res = await api.deployBrigades(sessionId, operation > 0, operation, targetNpc)
       setGs(res.game_state)
+      const opNames = { 0: 'Stand Down', 1: 'Domestic Suppression', 2: 'Propaganda Campaign', 3: 'Foreign Influence Ops', 4: 'Covert Security Apparatus' }
+      const opLabel = opNames[operation] || `Op ${operation}`
+      const brigadeLabel = operation > 0
+        ? `${opLabel}${targetNpc ? ` (target: ${targetNpc.toUpperCase()})` : ''}`
+        : 'Stand Down — not deployed'
+      currentTurnEntryRef.current.brigadeOp = brigadeLabel
       setBrigadeResult(res.messages?.join(' · ') || (operation > 0 ? 'Brigades deployed.' : 'Brigades stood down.'))
     } catch (e) {
       setError(e.message)
@@ -227,6 +286,20 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       if (brokenDeals.length > 0) setDipCrisisMessages(brokenDeals)
       setPatriotMessage(null)
       setAftermathResult(null)
+
+      // Session log: capture skim + EOT data and finalize turn entry
+      const skimOpt = skimOptions.find(o => o.choice === choice)
+      const entry = currentTurnEntryRef.current
+      entry.skimLabel   = skimOpt?.label || `Skim option ${choice}`
+      entry.skimNational = skimOpt?.national_cost ?? 0
+      entry.skimPersonal = skimOpt?.personal_gain ?? 0
+      entry.eotEffects  = eotMsgs
+      entry.budgetEnd    = res.game_state?.budget ?? null
+      entry.personalEnd  = res.game_state?.personal_wealth ?? null
+      entry.stabilityEnd = res.game_state?.stability ?? null
+      entry.approvalEnd  = res.game_state?.public_approval ?? null
+      entry.epitaph      = res.game_state?.current_epitaph ?? null
+      if (entry.turn) sessionLogRef.current.push({ ...entry })
 
       if (res.status !== 'active') {
         setEnding(res.ending)
@@ -270,6 +343,17 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       if (brokenDealsInject.length > 0) setDipCrisisMessages(brokenDealsInject)
       setPatriotMessage(res.patriot_message || null)
       setAftermathResult(null)
+
+      // Session log: finalize inject turn entry
+      const entry = currentTurnEntryRef.current
+      entry.skimLabel   = `Emergency Inject (option ${choice})`
+      entry.eotEffects  = eotMsgsInject
+      entry.budgetEnd    = res.game_state?.budget ?? null
+      entry.personalEnd  = res.game_state?.personal_wealth ?? null
+      entry.stabilityEnd = res.game_state?.stability ?? null
+      entry.approvalEnd  = res.game_state?.public_approval ?? null
+      entry.epitaph      = res.game_state?.current_epitaph ?? null
+      if (entry.turn) sessionLogRef.current.push({ ...entry })
 
       if (res.status !== 'active') {
         setEnding(res.ending)
@@ -387,6 +471,9 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     const now = new Date()
     const ts = now.toISOString().replace('T', ' ').slice(0, 19)
     const tsFile = now.toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const rr = (v) => typeof v === 'number' ? Math.round(v) : (v ?? '—')
+    const fm = (v) => typeof v === 'number' ? `$${v.toFixed(1)}B` : '—'
+    const sep = '─────────────────────────────────'
 
     const lines = []
     lines.push('=== WORLD STAGE — SESSION EXPORT ===')
@@ -395,20 +482,27 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
 
     // ── CURRENT STATE ─────────────────────────────────────────────────────
     lines.push('CURRENT STATE')
-    lines.push('─────────────')
-    lines.push(`Turn: ${gs.current_turn}/${gs.max_turns}`)
-    lines.push(`Budget: $${gs.budget?.toFixed(1)}B`)
-    lines.push(`Personal Wealth: $${gs.personal_wealth?.toFixed(1)}B`)
-    lines.push(`Stability: ${gs.stability}%`)
-    lines.push(`Approval: ${gs.public_approval}%`)
-    lines.push(`Oil: $${gs.oil_price}/bbl`)
+    lines.push(sep)
+    lines.push(`Turn:          ${gs.current_turn}/${gs.max_turns}`)
+    lines.push(`Budget:        ${fm(gs.budget)}`)
+    lines.push(`Personal:      ${fm(gs.personal_wealth)}`)
+    lines.push(`Stability:     ${gs.stability}%`)
+    lines.push(`Approval:      ${gs.public_approval}%`)
+    lines.push(`Oil:           $${gs.oil_price}/bbl`)
     const regime = gs.state_identity
-    lines.push(`Regime: ${regime?.regime_type || '—'} · ${regime?.power_base || '—'}`)
+    lines.push(`Regime:        ${regime?.regime_type || '—'} · ${regime?.power_base || '—'}`)
     const rel = gs.relations || {}
-    const rr = (v) => typeof v === 'number' ? Math.round(v) : (v ?? '—')
-    lines.push(`Relations: USA ${rr(rel.usa)} | Arabia ${rr(rel.arabia)} | EU ${rr(rel.eu)} | DPRG ${rr(rel.dprg)}`)
+    lines.push(`Relations:     USA ${rr(rel.usa)} | Arabia ${rr(rel.arabia)} | EU ${rr(rel.eu)} | DPRG ${rr(rel.dprg)}`)
 
-    // Active deals
+    const upgrades = gs.corruption_upgrades || {}
+    const activeUpgrades = Object.entries(upgrades).filter(([, v]) => v).map(([k]) => k.replace(/_/g, ' '))
+    lines.push(`Upgrades:      ${activeUpgrades.length > 0 ? activeUpgrades.join(', ') : 'none'}`)
+
+    const penalties = []
+    if (gs.usa_sanctions_active) penalties.push(`USA Sanctions (tier ${gs.usa_sanctions_tier})`)
+    if (gs.arabia_embargo_active) penalties.push(`Arabia Embargo (tier ${gs.arabia_embargo_tier})`)
+    lines.push(`Penalties:     ${penalties.length > 0 ? penalties.join(', ') : 'none'}`)
+
     const activeDeals = (gs.deal_history || []).filter(
       d => !d.broken && (d.expires_turn ?? 0) >= gs.current_turn
     )
@@ -416,76 +510,86 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       lines.push('Active Deals:')
       activeDeals.forEach(d => lines.push(`  · [${d.npc?.toUpperCase()}] ${d.summary} (expires turn ${d.expires_turn})`))
     } else {
-      lines.push('Active Deals: none')
+      lines.push('Active Deals:  none')
     }
-
-    // Active world events
-    const worldEvents = gs.active_world_events || gs.world_events || []
-    if (worldEvents.length > 0) {
-      lines.push('Active World Events:')
-      worldEvents.forEach(e => lines.push(`  · ${e.name || e.description || JSON.stringify(e)}`))
-    } else {
-      lines.push('Active World Events: none')
-    }
-
-    // Active upgrades (Shadow Cabinet)
-    const upgrades = gs.corruption_upgrades || {}
-    const activeUpgrades = Object.entries(upgrades).filter(([, v]) => v).map(([k]) => k.replace(/_/g, ' '))
-    lines.push(`Active Upgrades: ${activeUpgrades.length > 0 ? activeUpgrades.join(', ') : 'none'}`)
-
-    // Active embargoes / sanctions
-    const penalties = []
-    if (gs.usa_sanctions_active) penalties.push(`USA Sanctions (tier ${gs.usa_sanctions_tier})`)
-    if (gs.arabia_embargo_active) penalties.push(`Arabia Embargo (tier ${gs.arabia_embargo_tier})`)
-    lines.push(`Active Embargoes: ${penalties.length > 0 ? penalties.join(', ') : 'none'}`)
     lines.push('')
 
-    // ── TURN HISTORY ──────────────────────────────────────────────────────
+    // ── TURN HISTORY (rich, from sessionLogRef) ───────────────────────────
     lines.push('TURN HISTORY')
-    lines.push('─────────────')
-    const history = gs.action_history || []
-    if (history.length === 0) {
-      lines.push('(no turns completed yet)')
+    lines.push(sep)
+    const richLog = sessionLogRef.current
+    if (richLog.length === 0) {
+      lines.push('(no completed turns recorded this session)')
     } else {
-      history.forEach((action, idx) => {
-        lines.push(`Turn ${idx + 1}:`)
-        lines.push(`  Choice: ${action.choice || action.type || '—'}`)
-        if (action.consequences?.length > 0) {
+      richLog.forEach(entry => {
+        const npcName = entry.npcSided ? (NPC_INFO[entry.npcSided]?.label || entry.npcSided) : 'none'
+        lines.push(`Turn ${entry.turn}:`)
+        lines.push(`  Choice:        ${entry.choiceText || '—'}`)
+        lines.push(`  NPC sided:     ${npcName}`)
+        if (entry.consequences?.length > 0) {
           lines.push('  Consequences:')
-          action.consequences.forEach(c => lines.push(`    - ${c}`))
+          entry.consequences.forEach(c => lines.push(`    · ${c}`))
         }
-        if (action.skim) lines.push(`  Skim: ${action.skim}`)
-        if (action.eot_effects?.length > 0) {
+        lines.push(`  Brigade:       ${entry.brigadeOp || 'not deployed / n/a'}`)
+        if (entry.skimLabel) {
+          lines.push(`  Skim:          ${entry.skimLabel}`)
+          if (entry.skimNational) lines.push(`    National cost:   -${fm(entry.skimNational)}`)
+          if (entry.skimPersonal) lines.push(`    Personal gain:   +${fm(entry.skimPersonal)}`)
+        }
+        if (entry.eotEffects?.length > 0) {
           lines.push('  EOT Effects:')
-          action.eot_effects.forEach(e => lines.push(`    - ${e}`))
+          entry.eotEffects.forEach(e => lines.push(`    · ${e}`))
         }
-        if (action.epitaph) lines.push(`  Epitaph: "${action.epitaph}"`)
+        const bS = entry.budgetStart, bE = entry.budgetEnd
+        const pS = entry.personalStart, pE = entry.personalEnd
+        const sS = entry.stabilityStart, sE = entry.stabilityEnd
+        const aS = entry.approvalStart, aE = entry.approvalEnd
+        if (bS != null && bE != null) lines.push(`  Budget:        ${fm(bS)} → ${fm(bE)}`)
+        if (pS != null && pE != null) lines.push(`  Personal:      ${fm(pS)} → ${fm(pE)}`)
+        if (sS != null && sE != null) lines.push(`  Stability:     ${sS}% → ${sE}%`)
+        if (aS != null && aE != null) lines.push(`  Approval:      ${aS}% → ${aE}%`)
+        if (entry.epitaph) lines.push(`  Epitaph:       "${entry.epitaph}"`)
+        lines.push('')
       })
     }
-    lines.push('')
 
     // ── NEGOTIATION LOG ───────────────────────────────────────────────────
     lines.push('NEGOTIATION LOG')
-    lines.push('─────────────')
+    lines.push(sep)
     const negLog = gs.negotiation_log || []
     if (negLog.length === 0) {
       lines.push('(no negotiations recorded)')
     } else {
-      negLog.forEach(entry => {
+      negLog.forEach((entry, i) => {
         const npcLabel = NPC_INFO[entry.npc]?.label || entry.npc
-        lines.push(`Turn ${entry.turn} — ${npcLabel}:`)
-        if (entry.player_message) lines.push(`  Player: "${entry.player_message}"`)
-        if (entry.npc_response)   lines.push(`  NPC: "${entry.npc_response}"`)
-        if (entry.counter_offer)  lines.push(`  Counter-offer: ${JSON.stringify(entry.counter_offer)}`)
-        else                       lines.push('  Counter-offer: none')
-        lines.push(`  Outcome: ${entry.outcome || '—'}`)
+        lines.push(`[${i + 1}] Turn ${entry.turn} — ${npcLabel}:`)
+        if (entry.player_message) lines.push(`  Player:        "${entry.player_message}"`)
+        if (entry.npc_response)   lines.push(`  NPC:           "${entry.npc_response}"`)
+        if (entry.counter_offer) {
+          const co = entry.counter_offer
+          lines.push(`  Counter-offer: ${co.text || JSON.stringify(co)}`)
+          if (co.consequences) {
+            const c = co.consequences
+            const parts = []
+            if (c.budget)  parts.push(`budget ${c.budget > 0 ? '+' : ''}${fm(c.budget)}`)
+            if (c.oil_price) parts.push(`oil $${c.oil_price}/bbl`)
+            if (c.usa)  parts.push(`USA ${c.usa > 0 ? '+' : ''}${c.usa}`)
+            if (c.arabia) parts.push(`Arabia ${c.arabia > 0 ? '+' : ''}${c.arabia}`)
+            if (c.eu)   parts.push(`EU ${c.eu > 0 ? '+' : ''}${c.eu}`)
+            if (c.dprg) parts.push(`DPRG ${c.dprg > 0 ? '+' : ''}${c.dprg}`)
+            if (parts.length > 0) lines.push(`    Mechanics:   ${parts.join(' · ')}`)
+          }
+        } else {
+          lines.push('  Counter-offer: none')
+        }
+        lines.push(`  Outcome:       ${entry.outcome || '—'}`)
+        lines.push('')
       })
     }
-    lines.push('')
 
     // ── DEAL HISTORY ──────────────────────────────────────────────────────
     lines.push('DEAL HISTORY')
-    lines.push('─────────────')
+    lines.push(sep)
     const allDeals = gs.deal_history || []
     if (allDeals.length === 0) {
       lines.push('(no deals recorded)')
@@ -498,11 +602,12 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
             ? 'ACTIVE'
             : 'EXPIRED'
         lines.push(`Turn ${d.turn_accepted} — ${npcLabel} [${status}]:`)
-        lines.push(`  Terms: ${d.summary}`)
-        if (d.expires_turn) lines.push(`  Expires: turn ${d.expires_turn}`)
+        lines.push(`  Terms:         ${d.summary}`)   // no truncation
+        if (d.expires_turn) lines.push(`  Expires:       turn ${d.expires_turn}`)
+        lines.push('')
       })
     }
-    lines.push('')
+
     lines.push('=== END OF EXPORT ===')
 
     const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
@@ -520,6 +625,15 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       <div className="app-container">
         <StatusBar gs={gs} />
         <EndingScreen ending={ending} gs={gs} onRestart={onRestart} onExportLog={handleExportDebugLog} />
+        <div className="dev-export-footer">
+          <button
+            className="dev-export-btn"
+            onClick={handleExportDebugLog}
+            title="Export full game state as .txt debug log"
+          >
+            ⬇ Export Debug Log
+          </button>
+        </div>
       </div>
     )
   }
@@ -568,54 +682,6 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               <div className="epitaph-line">
                 <em>{gs.current_epitaph}</em>
               </div>
-            )}
-
-            {/* FEATURE 3: Brigade aftermath banner — fires at start of next turn */}
-            {gs?.brigades_deployed_last_turn && !aftermathResult && (
-              <div className="brigade-aftermath-banner">
-                <div className="aftermath-header">
-                  ⚔️ LOYALTY BRIGADE DEPLOYMENT — AFTERMATH
-                </div>
-                <div className="aftermath-desc">
-                  The deployment has made headlines. Street protests have erupted in three districts.
-                  Your press office is demanding a response. How do you proceed?
-                </div>
-                {aftermathLoading ? (
-                  <div className="aftermath-loading">Consulting advisors…</div>
-                ) : (
-                  <div className="aftermath-choices">
-                    <button
-                      className="aftermath-btn aftermath-btn-suppress"
-                      onClick={() => handleAftermath(1)}
-                      disabled={aftermathLoading}
-                    >
-                      <span className="aftermath-btn-label">Suppress Coverage</span>
-                      <span className="aftermath-btn-cost">-$3B personal · +5% stability</span>
-                    </button>
-                    <button
-                      className="aftermath-btn aftermath-btn-aid"
-                      onClick={() => handleAftermath(2)}
-                      disabled={aftermathLoading}
-                    >
-                      <span className="aftermath-btn-label">Launch Aid Programs</span>
-                      <span className="aftermath-btn-cost">-$5B budget · +8% approval · +3% stability</span>
-                    </button>
-                    <button
-                      className="aftermath-btn aftermath-btn-favor"
-                      onClick={() => handleAftermath(3)}
-                      disabled={aftermathLoading}
-                    >
-                      <span className="aftermath-btn-label">Call in a Favor</span>
-                      <span className="aftermath-btn-cost">Highest-relation NPC -10 · +8% stability · +5% approval</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Aftermath resolved message */}
-            {aftermathResult && (
-              <div className="alert alert-success">{aftermathResult}</div>
             )}
 
             {/* World event banner */}
@@ -679,6 +745,54 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               )
             })()}
 
+            {/* FEATURE 3: Brigade aftermath banner — AFTER communiqués, BEFORE choices */}
+            {gs?.brigades_deployed_last_turn && !aftermathResult && (
+              <div className="brigade-aftermath-banner">
+                <div className="aftermath-header">
+                  ⚔️ LOYALTY BRIGADE DEPLOYMENT — AFTERMATH
+                </div>
+                <div className="aftermath-desc">
+                  The deployment has made headlines. Street protests have erupted in three districts.
+                  Your press office is demanding a response. How do you proceed?
+                </div>
+                {aftermathLoading ? (
+                  <div className="aftermath-loading">Consulting advisors…</div>
+                ) : (
+                  <div className="aftermath-choices">
+                    <button
+                      className="aftermath-btn aftermath-btn-suppress"
+                      onClick={() => handleAftermath(1)}
+                      disabled={aftermathLoading}
+                    >
+                      <span className="aftermath-btn-label">Suppress Coverage</span>
+                      <span className="aftermath-btn-cost">-$3B personal · +5% stability</span>
+                    </button>
+                    <button
+                      className="aftermath-btn aftermath-btn-aid"
+                      onClick={() => handleAftermath(2)}
+                      disabled={aftermathLoading}
+                    >
+                      <span className="aftermath-btn-label">Launch Aid Programs</span>
+                      <span className="aftermath-btn-cost">-$5B budget · +8% approval · +3% stability</span>
+                    </button>
+                    <button
+                      className="aftermath-btn aftermath-btn-favor"
+                      onClick={() => handleAftermath(3)}
+                      disabled={aftermathLoading}
+                    >
+                      <span className="aftermath-btn-label">Call in a Favor</span>
+                      <span className="aftermath-btn-cost">Highest-relation NPC -10 · +8% stability · +5% approval</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Aftermath resolved message */}
+            {aftermathResult && (
+              <div className="alert alert-success">{aftermathResult}</div>
+            )}
+
             <div className="panel" style={{ paddingBottom: '0.5rem' }}>
               <div className="panel-header">Relations</div>
               <RelationBadges
@@ -691,21 +805,11 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
             <OffersPanel
               offers={offers}
               onChoice={handleChoice}
-              disabled={loading}
+              disabled={loading || (gs?.brigades_deployed_last_turn && !aftermathResult)}
               counterOffers={counterOffers}
             />
 
-            {/* Restart game link — always accessible during dialogue phase */}
-            <div style={{ textAlign: 'center', paddingBottom: '1.5rem' }}>
-              <button
-                className="btn-ghost"
-                style={{ fontSize: '0.75rem', opacity: 0.5 }}
-                onClick={onRestart}
-                disabled={loading}
-              >
-                Abandon &amp; Start New Game
-              </button>
-            </div>
+            {/* Abandon moved into Shadow Cabinet drawer (with confirmation) */}
           </>
         )}
 
@@ -725,24 +829,24 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               const brigadeOps = [
                 {
                   op: 1, cost: 2, label: 'Domestic Suppression',
-                  desc: '+10% stability · -5% approval · All relations -3',
+                  desc: '+15% stability · -5% approval · All relations -3',
                   canAfford: pw >= 2,
                 },
                 {
-                  op: 2, cost: 3, label: 'Propaganda Campaign',
-                  desc: '+8% approval · -3% stability · -$2B national',
-                  canAfford: pw >= 3,
+                  op: 2, cost: 2, label: 'Propaganda Campaign',
+                  desc: '+10% approval · -2% stability · -$2B national',
+                  canAfford: pw >= 2,
                 },
                 {
-                  op: 3, cost: 4, label: 'Foreign Influence Ops',
-                  desc: 'Target NPC relations -8 · +5% stability',
-                  canAfford: pw >= 4,
+                  op: 3, cost: 3, label: 'Foreign Influence Ops',
+                  desc: 'Target NPC relations -15 · +8% stability',
+                  canAfford: pw >= 3,
                   hasTarget: true,
                 },
                 {
-                  op: 4, cost: 6, label: 'Covert Security Apparatus',
-                  desc: '+15% stability · -10% approval · All relations -5 · Regime shifts right',
-                  canAfford: pw >= 6,
+                  op: 4, cost: 5, label: 'Covert Security Apparatus',
+                  desc: '+20% stability · -10% approval · All relations -5 · Regime shifts right',
+                  canAfford: pw >= 5,
                 },
               ]
               return (
@@ -940,6 +1044,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
           sessionId={sessionId}
           onClose={() => setShadowCabinetOpen(false)}
           onUpgradePurchased={handleUpgradePurchased}
+          onRestart={onRestart}
         />
       )}
 

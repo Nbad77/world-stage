@@ -180,12 +180,20 @@ export default function NegotiationPanel({
   }
 
   // FEATURE: parse a counter-offer's consequences and return a money direction label.
+  // Normalize a value to billions. The model sometimes emits raw dollar integers
+  // (e.g. 3000000000) instead of billions (3.0). Any absolute value ≥ 1 000 000
+  // is assumed to be in raw dollars and is divided by 1e9.
+  function normB(v) {
+    if (typeof v !== 'number') return 0
+    return Math.abs(v) >= 1_000_000 ? v / 1e9 : v
+  }
+
   function getMoneyDirection(offer) {
     if (!offer || !offer.consequences) return null
     const c = offer.consequences
 
-    const national = (c.budget ?? 0) + (c.budget_delta ?? 0)
-    const personal = c.personal_wealth_delta ?? 0
+    const national = normB((c.budget ?? 0) + (c.budget_delta ?? 0))
+    const personal = normB(c.personal_wealth_delta ?? 0)
 
     const installmentStreams = Array.isArray(c.installments)
       ? c.installments
@@ -198,7 +206,7 @@ export default function NegotiationPanel({
       parts.push({ value: national, label: `$${Math.abs(national).toFixed(1)}B national treasury` })
     }
     for (const s of installmentStreams) {
-      const amt = s.amount ?? 0
+      const amt = normB(s.amount ?? 0)
       const turns = s.turns ?? 0
       if (amt !== 0 && turns > 0) {
         const desc = s.description ? ` (${s.description})` : ''

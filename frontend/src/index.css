@@ -1655,8 +1655,66 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   color: rgba(200, 168, 75, 0.3);
   letter-spacing: 0.06em;
   text-align: center;
-  margin-top: auto;
   border-top: 1px solid rgba(200, 168, 75, 0.1);
+}
+
+/* ── Shadow Cabinet: Abandon section ─────────────────────────────────────── */
+.sc-abandon-section {
+  padding: 0.6rem 1rem 0.8rem;
+  margin-top: auto;
+  border-top: 1px solid rgba(229, 74, 74, 0.12);
+}
+.sc-abandon-btn {
+  background: transparent;
+  border: 1px solid rgba(229, 74, 74, 0.25);
+  color: rgba(229, 74, 74, 0.45);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  width: 100%;
+  letter-spacing: 0.04em;
+  transition: color 0.2s, border-color 0.2s;
+}
+.sc-abandon-btn:hover {
+  color: var(--danger);
+  border-color: rgba(229, 74, 74, 0.55);
+}
+.sc-abandon-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.sc-abandon-warning {
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--danger);
+  text-align: center;
+  padding: 0.3rem 0;
+}
+.sc-abandon-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+.sc-abandon-cancel {
+  font-size: 0.75rem;
+  padding: 0.3rem 0.8rem;
+}
+.sc-abandon-confirm-btn {
+  background: rgba(229, 74, 74, 0.15);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  font-family: var(--mono);
+  font-size: 0.73rem;
+  padding: 0.3rem 0.85rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.sc-abandon-confirm-btn:hover {
+  background: rgba(229, 74, 74, 0.28);
 }
 
 /* ── Session 2: Brigade secondary prompt (CONSEQUENCES phase) ────────────── */

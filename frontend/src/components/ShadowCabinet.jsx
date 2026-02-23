@@ -62,10 +62,11 @@ const POWER_DESCRIPTIONS = {
   'Elite-Captured': 'Oligarchs keep you in power. You keep them profitable.',
 }
 
-export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchased }) {
+export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchased, onRestart }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [successMsg, setSuccessMsg] = useState(null)
+  const [confirmAbandon, setConfirmAbandon] = useState(false)
 
   const upgrades = gs?.corruption_upgrades || {}
   const personalWealth = gs?.personal_wealth || 0
@@ -161,6 +162,39 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
         <div className="sc-footer">
           All transactions are off-book. No public record.
         </div>
+
+        {/* Abandon session — tucked at the very bottom, behind a confirmation */}
+        <div className="sc-abandon-section">
+          {!confirmAbandon ? (
+            <button
+              className="sc-abandon-btn"
+              onClick={() => setConfirmAbandon(true)}
+            >
+              Abandon &amp; Start New Game
+            </button>
+          ) : (
+            <div className="sc-abandon-confirm">
+              <div className="sc-abandon-warning">
+                Are you sure? All progress will be lost.
+              </div>
+              <div className="sc-abandon-actions">
+                <button
+                  className="btn-ghost sc-abandon-cancel"
+                  onClick={() => setConfirmAbandon(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="sc-abandon-confirm-btn"
+                  onClick={() => { onClose(); onRestart && onRestart() }}
+                >
+                  Confirm — End Tenure
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
   )

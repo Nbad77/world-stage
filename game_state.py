@@ -124,6 +124,12 @@ class GameState:
         # list of { npc, summary, turn_accepted, expires_turn, broken }
         self.deal_history = []
 
+        # ── Session 3: Negotiation log ────────────────────────────────────────
+        # Full record of every negotiation exchange for export log auditing.
+        # list of { turn, npc, player_message, npc_response, counter_offer, outcome }
+        # outcome: 'accepted' | 'rejected' | 'ongoing' | 'walked_away'
+        self.negotiation_log = []
+
     def record_action(self, choice_type, npc_target=None):
         """
         Record player action with full context
@@ -329,6 +335,8 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'intel': self.intel,
             'deal_history': self.deal_history,
             'previous_oil_base': self.previous_oil_base,
+            # Session 3
+            'negotiation_log': self.negotiation_log,
         }
 
     @classmethod
@@ -385,4 +393,5 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.intel = data.get('intel', {})
         gs.deal_history = data.get('deal_history', [])
         gs.previous_oil_base = data.get('previous_oil_base', 75)
+        gs.negotiation_log = data.get('negotiation_log', [])
         return gs
