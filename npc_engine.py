@@ -1313,13 +1313,41 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
 
         raw = response.content[0].text.strip()
 
-        # Strip markdown code fences
-        clean = raw
-        if clean.startswith("```"):
-            clean = clean.split("```")[1]
-            if clean.startswith("json"):
-                clean = clean[4:]
-        clean = clean.strip()
+        # Robust JSON extraction: find the last {...} block in the output.
+        # The model sometimes emits dialogue first, then the JSON block at the end,
+        # which means the text doesn't start with ``` so the old fence-strip failed
+        # and the entire raw string (including JSON) was returned as plain text.
+        import re as _re
+        clean = None
+
+        # 1. Try to find a ```json ... ``` fence anywhere in the response
+        fence_match = _re.search(r"```json\s*([\s\S]*?)```", raw)
+        if fence_match:
+            clean = fence_match.group(1).strip()
+
+        # 2. Fall back: find the last top-level { ... } block
+        if not clean:
+            brace_matches = list(_re.finditer(r"\{", raw))
+            for m in reversed(brace_matches):
+                candidate = raw[m.start():]
+                # Walk forward to find the matching closing brace
+                depth = 0
+                end = -1
+                for ci, ch in enumerate(candidate):
+                    if ch == '{':
+                        depth += 1
+                    elif ch == '}':
+                        depth -= 1
+                        if depth == 0:
+                            end = ci
+                            break
+                if end != -1:
+                    clean = candidate[:end + 1].strip()
+                    break
+
+        if not clean:
+            # No JSON found at all — treat whole raw text as plain response
+            return {"response": raw, "counter_offer": None}
 
         result = json.loads(clean)
         return {
@@ -1332,7 +1360,11 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
         print(f"  [npc_engine] Negotiation error for {npc_id}: {type(e).__name__}: {e}")
         # If we got a raw response but JSON parse failed, use it as plain text
         if raw:
-            return {"response": raw, "counter_offer": None}
+            # Still try to strip any trailing JSON block before showing as plain text
+            import re as _re2
+            stripped = _re2.sub(r"```json[\s\S]*?```", "", raw).strip()
+            stripped = _re2.sub(r"\{[\s\S]*\}\s*$", "", stripped).strip()
+            return {"response": stripped if stripped else raw, "counter_offer": None}
         fallbacks = {
             'usa': "I need time to consult with the team. Don't take that as encouragement.",
             'arabia': "*adjusts cufflinks* We will speak again when you are ready to be serious.",

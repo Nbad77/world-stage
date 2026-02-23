@@ -1130,6 +1130,40 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   color: var(--text);
 }
 
+/* ── Held offer pill (after "Keep Negotiating") ──────────────────────────── */
+.held-offer-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  background: rgba(255,200,50,0.07);
+  border-top: 1px solid rgba(255,200,50,0.2);
+  border-bottom: 1px solid rgba(255,200,50,0.2);
+  font-size: 0.8rem;
+}
+.held-offer-icon {
+  color: #ffcc33;
+  flex-shrink: 0;
+}
+.held-offer-text {
+  flex: 1;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.held-offer-accept {
+  flex-shrink: 0;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.78rem;
+}
+.held-offer-dismiss {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.4rem;
+  color: var(--muted);
+}
+
 /* ── Stage 5: State Identity row in StatusBar ────────────────────────────── */
 .state-identity-row {
   width: 100%;

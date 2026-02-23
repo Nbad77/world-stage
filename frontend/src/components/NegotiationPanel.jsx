@@ -53,6 +53,11 @@ export default function NegotiationPanel({
   // Seeded from initialPendingOffers so they survive minimize/reopen.
   const [pendingOffers, setPendingOffers] = useState(initialPendingOffers)
 
+  // When "Keep Negotiating" is clicked we hide the banner but hold the offer here.
+  // If the NPC's next reply has no new counter_offer, we restore it automatically
+  // so the Accept button stays reachable.
+  const [heldOffer, setHeldOffer] = useState(null)
+
   const scrollRef = useRef(null)
 
   useEffect(() => {
@@ -86,17 +91,20 @@ export default function NegotiationPanel({
         content: m.content,
       }))
 
-      // Pass the most recent pending offer so the backend can re-emit it
+      // Pass the most recent pending offer (or held offer) so the backend can re-emit it
       // if the model returns null while the player is signalling acceptance.
-      const lastKnownOffer = pendingOffers.length > 0 ? pendingOffers[pendingOffers.length - 1] : null
+      const lastKnownOffer = pendingOffers.length > 0
+        ? pendingOffers[pendingOffers.length - 1]
+        : (heldOffer ?? null)
       const res = await api.negotiate(sessionId, npcKey, text, history, lastKnownOffer)
 
       const withNpc = [...withUser, { role: 'npc', content: res.response }]
 
-      // If a new counter-offer arrived, append it to the stack.
+      // If a new counter-offer arrived, append it to the stack and clear held offer.
       // Dedup: if the backend re-emitted the same offer as the fallback
       // (identical text), don't push a second copy.
       let newPendingOffers = pendingOffers
+      let newHeldOffer = heldOffer
       if (res.counter_offer) {
         const lastText = pendingOffers.length > 0
           ? pendingOffers[pendingOffers.length - 1]?.text
@@ -104,8 +112,19 @@ export default function NegotiationPanel({
         if (res.counter_offer.text !== lastText) {
           newPendingOffers = [...pendingOffers, res.counter_offer]
         }
+        newHeldOffer = null  // new offer supersedes held offer
+      } else if (heldOffer) {
+        // No new offer — restore the held offer back into the banner
+        const lastText = pendingOffers.length > 0
+          ? pendingOffers[pendingOffers.length - 1]?.text
+          : null
+        if (heldOffer.text !== lastText) {
+          newPendingOffers = [...pendingOffers, heldOffer]
+        }
+        newHeldOffer = null
       }
 
+      setHeldOffer(newHeldOffer)
       pushState(withNpc, newPendingOffers)
     } catch (e) {
       const withErr = [...withUser, {
@@ -132,19 +151,29 @@ export default function NegotiationPanel({
     onClose()
   }
 
-  // When closing via "Done Negotiating", persist the most recent offer to OffersPanel
-  // so the NEGOTIATED badge stays visible even without accepting.
+  // When closing via "Done Negotiating", persist the most recent offer (or held offer)
+  // to OffersPanel so the NEGOTIATED badge stays visible even without accepting.
   function handleDoneNegotiating() {
     const latestOffer = pendingOffers.length > 0
       ? pendingOffers[pendingOffers.length - 1]
-      : null
+      : (heldOffer ?? null)
     if (latestOffer && onCounterOffer) {
       onCounterOffer(offerLetter, latestOffer)
     }
     onClose()
   }
 
-  // Remove an offer from the stack (player explicitly dismisses it)
+  // "Keep Negotiating" on the latest offer: move it to heldOffer so the banner
+  // hides but the offer can be restored after the next NPC reply.
+  // For older offer rows the X button still permanently dismisses them.
+  function handleKeepNegotiating(idx) {
+    const offer = pendingOffers[idx]
+    const newOffers = pendingOffers.filter((_, i) => i !== idx)
+    setHeldOffer(offer)
+    pushState(messages, newOffers)
+  }
+
+  // Remove an older offer from the stack permanently (player explicitly dismisses it)
   function handleDismissOffer(idx) {
     const newOffers = pendingOffers.filter((_, i) => i !== idx)
     pushState(messages, newOffers)
@@ -309,7 +338,7 @@ export default function NegotiationPanel({
                 </button>
                 <button
                   className="btn-keep-negotiating"
-                  onClick={() => handleDismissOffer(pendingOffers.length - 1)}
+                  onClick={() => handleKeepNegotiating(pendingOffers.length - 1)}
                 >
                   Keep Negotiating
                 </button>
@@ -317,6 +346,27 @@ export default function NegotiationPanel({
             </div>
           )
         })()}
+
+        {/* Held offer pill — shown when player clicked "Keep Negotiating" */}
+        {heldOffer && !latestOffer && (
+          <div className="held-offer-pill">
+            <span className="held-offer-icon">⏸</span>
+            <span className="held-offer-text" title={heldOffer.text}>Offer held: {heldOffer.text}</span>
+            <button
+              className="btn-accept-counter held-offer-accept"
+              onClick={() => handleAcceptOffer(heldOffer)}
+            >
+              Accept
+            </button>
+            <button
+              className="btn-ghost held-offer-dismiss"
+              onClick={() => setHeldOffer(null)}
+              title="Discard this offer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Input row */}
         <div className="negotiation-input-row">
