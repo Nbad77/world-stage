@@ -15,7 +15,7 @@ export default function RelationBadges({ relations, sanctions, embargo }) {
     <div className="rel-row">
       {npcs.map(({ key, label }) => (
         <span key={key} className={`rel-badge ${key}`}>
-          {label} {relations[key]}
+          {label} {typeof relations[key] === 'number' ? Math.round(relations[key]) : (relations[key] ?? '—')}
           {key === 'usa' && sanctions ? ' ⚠️' : ''}
           {key === 'arabia' && embargo ? ' ⚠️' : ''}
         </span>

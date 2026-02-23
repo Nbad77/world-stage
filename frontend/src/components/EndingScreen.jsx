@@ -1,7 +1,7 @@
 /**
  * Ending / legacy screen — shown when game ends (won, lost, or escaped).
  */
-export default function EndingScreen({ ending, gs, onRestart }) {
+export default function EndingScreen({ ending, gs, onRestart, onExportLog }) {
   if (!ending) return null
 
   const isWon = ending.cause === 'victory'
@@ -78,7 +78,10 @@ export default function EndingScreen({ ending, gs, onRestart }) {
             <div>Personal wealth: ${ending.personal_wealth.toFixed(1)}B</div>
           )}
           <div style={{ marginTop: '0.5rem' }}>
-            USA: {rels.usa ?? '—'} | Arabia: {rels.arabia ?? '—'} | EU: {rels.eu ?? '—'} | DPRG: {rels.dprg ?? '—'}
+            {(() => {
+              const r = (v) => typeof v === 'number' ? Math.round(v) : (v ?? '—')
+              return `USA: ${r(rels.usa)} | Arabia: ${r(rels.arabia)} | EU: ${r(rels.eu)} | DPRG: ${r(rels.dprg)}`
+            })()}
           </div>
           {ending.usa_sanctions_active && (
             <div style={{ color: 'var(--danger)' }}>⚠️ USA Sanctions were active</div>
@@ -92,6 +95,19 @@ export default function EndingScreen({ ending, gs, onRestart }) {
       <button className="btn-primary" onClick={onRestart}>
         Start New Game
       </button>
+
+      {/* Export Debug Log — same dev feature as in-game footer */}
+      {onExportLog && (
+        <div className="dev-export-footer" style={{ display: 'block', textAlign: 'center' }}>
+          <button
+            className="dev-export-btn"
+            onClick={onExportLog}
+            title="Export full session log as .txt"
+          >
+            ⬇ Export Session Log
+          </button>
+        </div>
+      )}
     </div>
   )
 }

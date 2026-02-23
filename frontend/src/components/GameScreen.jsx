@@ -84,6 +84,9 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   // Ending
   const [ending, setEnding] = useState(null)
 
+  // Session 2 Item 6: Diplomatic crisis modal — broken deal messages
+  const [dipCrisisMessages, setDipCrisisMessages] = useState([])
+
   // FEATURE 1: Confirmation dialog — intercepts choice + skim before committing
   // { type: 'choice'|'skim', value: letter|choiceNum, text: string } | null
   const [pendingConfirm, setPendingConfirm] = useState(null)
@@ -184,18 +187,20 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   }
 
   // ── FEATURE 2: Brigade secondary prompt ───────────────────────────────────
-  async function handleBrigadeDeploy(deploy) {
+  const [brigadeTargetNpc, setBrigadeTargetNpc] = useState('usa')   // for op 3
+
+  async function handleBrigadeDeploy(operation, targetNpc = '') {
     clearError()
     setBrigadeLoading(true)
     try {
-      const res = await api.deployBrigades(sessionId, deploy)
+      const res = await api.deployBrigades(sessionId, operation > 0, operation, targetNpc)
       setGs(res.game_state)
-      setBrigadeResult(res.messages?.[0] || (deploy ? 'Brigades deployed.' : 'Brigades stood down.'))
+      setBrigadeResult(res.messages?.join(' · ') || (operation > 0 ? 'Brigades deployed.' : 'Brigades stood down.'))
     } catch (e) {
       setError(e.message)
     } finally {
       setBrigadeLoading(false)
-      // After brigade decision (either way), move to skim
+      // After brigade decision (either way), hide the prompt
       setBrigadeAvailable(false)
     }
   }
@@ -215,7 +220,11 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       setSkimMessages(res.skim_messages || [])
       setCorruptionAlert(res.corruption_alert || null)
       setIntercepts(res.intercepts || [])
-      setEotMessages(res.eot_effects || [])
+      const eotMsgs = res.eot_effects || []
+      setEotMessages(eotMsgs)
+      // Session 2 Item 6: surface broken deal messages as diplomatic crisis modal
+      const brokenDeals = eotMsgs.filter(m => m.startsWith('💔'))
+      if (brokenDeals.length > 0) setDipCrisisMessages(brokenDeals)
       setPatriotMessage(null)
       setAftermathResult(null)
 
@@ -255,7 +264,10 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       setSkimMessages(res.inject_messages || [])
       setCorruptionAlert(null)
       setIntercepts([])
-      setEotMessages(res.eot_effects || [])
+      const eotMsgsInject = res.eot_effects || []
+      setEotMessages(eotMsgsInject)
+      const brokenDealsInject = eotMsgsInject.filter(m => m.startsWith('💔'))
+      if (brokenDealsInject.length > 0) setDipCrisisMessages(brokenDealsInject)
       setPatriotMessage(res.patriot_message || null)
       setAftermathResult(null)
 
@@ -393,7 +405,8 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     const regime = gs.state_identity
     lines.push(`Regime: ${regime?.regime_type || '—'} · ${regime?.power_base || '—'}`)
     const rel = gs.relations || {}
-    lines.push(`Relations: USA ${rel.usa ?? '—'} | Arabia ${rel.arabia ?? '—'} | EU ${rel.eu ?? '—'} | DPRG ${rel.dprg ?? '—'}`)
+    const rr = (v) => typeof v === 'number' ? Math.round(v) : (v ?? '—')
+    lines.push(`Relations: USA ${rr(rel.usa)} | Arabia ${rr(rel.arabia)} | EU ${rr(rel.eu)} | DPRG ${rr(rel.dprg)}`)
 
     // Active deals
     const activeDeals = (gs.deal_history || []).filter(
@@ -506,7 +519,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     return (
       <div className="app-container">
         <StatusBar gs={gs} />
-        <EndingScreen ending={ending} gs={gs} onRestart={onRestart} />
+        <EndingScreen ending={ending} gs={gs} onRestart={onRestart} onExportLog={handleExportDebugLog} />
       </div>
     )
   }
@@ -706,36 +719,82 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               blackmailResult={blackmailResult}
             />
 
-            {/* FEATURE 2: Brigade secondary prompt — shown before skim if available */}
-            {brigadeAvailable && !brigadeResult && (
-              <div className="brigade-prompt-panel">
-                <div className="brigade-prompt-header">⚔️ LOYALTY BRIGADE DEPLOYMENT</div>
-                <div className="brigade-prompt-desc">
-                  Deploy Loyalty Brigades this turn?
-                  Costs $2B personal, -5% approval, +10% stability, all relations -3.
-                </div>
-                {brigadeLoading ? (
-                  <div className="brigade-loading">Mobilising forces…</div>
-                ) : (
-                  <div className="brigade-prompt-actions">
-                    <button
-                      className="brigade-btn brigade-btn-yes"
-                      onClick={() => handleBrigadeDeploy(true)}
-                      disabled={brigadeLoading}
-                    >
-                      Deploy — $2B · -5% approval · +10% stability
-                    </button>
-                    <button
-                      className="brigade-btn brigade-btn-no"
-                      onClick={() => handleBrigadeDeploy(false)}
-                      disabled={brigadeLoading}
-                    >
-                      Stand Down
-                    </button>
+            {/* FEATURE 2: Brigade tiered deployment — shown before skim if available */}
+            {brigadeAvailable && !brigadeResult && (() => {
+              const pw = gs?.personal_wealth ?? 0
+              const brigadeOps = [
+                {
+                  op: 1, cost: 2, label: 'Domestic Suppression',
+                  desc: '+10% stability · -5% approval · All relations -3',
+                  canAfford: pw >= 2,
+                },
+                {
+                  op: 2, cost: 3, label: 'Propaganda Campaign',
+                  desc: '+8% approval · -3% stability · -$2B national',
+                  canAfford: pw >= 3,
+                },
+                {
+                  op: 3, cost: 4, label: 'Foreign Influence Ops',
+                  desc: 'Target NPC relations -8 · +5% stability',
+                  canAfford: pw >= 4,
+                  hasTarget: true,
+                },
+                {
+                  op: 4, cost: 6, label: 'Covert Security Apparatus',
+                  desc: '+15% stability · -10% approval · All relations -5 · Regime shifts right',
+                  canAfford: pw >= 6,
+                },
+              ]
+              return (
+                <div className="brigade-prompt-panel">
+                  <div className="brigade-prompt-header">⚔️ LOYALTY BRIGADE DEPLOYMENT</div>
+                  <div className="brigade-prompt-desc">
+                    Choose an operation or stand down. Cost deducted from personal funds.
                   </div>
-                )}
-              </div>
-            )}
+                  {brigadeLoading ? (
+                    <div className="brigade-loading">Mobilising forces…</div>
+                  ) : (
+                    <div className="brigade-tiered-ops">
+                      {brigadeOps.map(({ op, cost, label, desc, canAfford, hasTarget }) => (
+                        <div key={op} className={`brigade-op-row${canAfford ? '' : ' brigade-op-disabled'}`}>
+                          <div className="brigade-op-info">
+                            <span className="brigade-op-label">{label}</span>
+                            <span className="brigade-op-desc">{desc}</span>
+                          </div>
+                          {hasTarget && canAfford && (
+                            <select
+                              className="brigade-target-select"
+                              value={brigadeTargetNpc}
+                              onChange={e => setBrigadeTargetNpc(e.target.value)}
+                            >
+                              <option value="usa">🇺🇸 USA</option>
+                              <option value="arabia">🛢️ Arabia</option>
+                              <option value="eu">🇪🇺 EU</option>
+                              <option value="dprg">⚡ DPRG</option>
+                            </select>
+                          )}
+                          <button
+                            className="brigade-btn brigade-btn-yes"
+                            onClick={() => handleBrigadeDeploy(op, hasTarget ? brigadeTargetNpc : '')}
+                            disabled={!canAfford || brigadeLoading}
+                          >
+                            {canAfford ? `$${cost}B` : `Need $${cost}B`}
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        className="brigade-btn brigade-btn-no"
+                        style={{ marginTop: '0.4rem', width: '100%' }}
+                        onClick={() => handleBrigadeDeploy(0)}
+                        disabled={brigadeLoading}
+                      >
+                        Stand Down — no deployment
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* Brigade result message */}
             {brigadeResult && (
@@ -842,6 +901,32 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
                 onClick={handleConfirmExecute}
               >
                 Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Session 2 Item 6: Diplomatic Crisis modal — broken deals */}
+      {dipCrisisMessages.length > 0 && (
+        <div className="confirm-overlay" style={{ zIndex: 350 }}>
+          <div className="confirm-dialog" style={{ borderColor: 'var(--danger)', borderWidth: 2 }}>
+            <div className="confirm-header" style={{ color: 'var(--danger)', background: 'rgba(229,74,74,0.08)' }}>
+              ⚠️ DIPLOMATIC CRISIS
+            </div>
+            <div className="confirm-body">
+              {dipCrisisMessages.map((msg, i) => (
+                <p key={i} style={{ marginBottom: i < dipCrisisMessages.length - 1 ? '0.5rem' : 0, color: 'var(--danger)', fontFamily: 'var(--mono)', fontSize: '0.86rem' }}>
+                  {msg.replace(/^💔\s*Deal broken:\s*/i, '')}
+                </p>
+              ))}
+              <p style={{ marginTop: '0.75rem', fontSize: '0.84rem', color: 'var(--muted)' }}>
+                Expect consequences in upcoming turns.
+              </p>
+            </div>
+            <div className="confirm-actions">
+              <button className="btn-primary" onClick={() => setDipCrisisMessages([])}>
+                Dismiss
               </button>
             </div>
           </div>

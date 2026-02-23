@@ -55,9 +55,9 @@ export const api = {
   purchaseUpgrade: (id, upgrade_id) =>
     request('POST', `/game/${id}/purchase_upgrade`, { upgrade_id }),
 
-  /** POST /game/{id}/deploy_brigades — body: { deploy: bool } */
-  deployBrigades: (id, deploy) =>
-    request('POST', `/game/${id}/deploy_brigades`, { deploy }),
+  /** POST /game/{id}/deploy_brigades — body: { deploy, operation, target_npc } */
+  deployBrigades: (id, deploy, operation = 0, target_npc = '') =>
+    request('POST', `/game/${id}/deploy_brigades`, { deploy, operation, target_npc }),
 
   /** POST /game/{id}/brigade_aftermath — body: { choice: 1|2|3 } */
   brigadeAftermath: (id, choice) =>

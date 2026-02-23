@@ -76,7 +76,7 @@ export default function StatusBar({ gs, onShadowCabinet }) {
           <span key={key} className={`sb-rel-item sb-rel-${key}${val < 25 ? ' sb-rel-critical' : val < 45 ? ' sb-rel-low' : ''}`}>
             {i > 0 && <span className="sb-rel-sep">|</span>}
             <span className="sb-rel-label">{label}</span>
-            <span className="sb-rel-val">{val ?? '—'}</span>
+            <span className="sb-rel-val">{typeof val === 'number' ? Math.round(val) : (val ?? '—')}</span>
             {warn && <span className="sb-rel-alert">⚠️</span>}
           </span>
         ))}

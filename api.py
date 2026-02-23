@@ -82,7 +82,9 @@ class PurchaseUpgradeRequest(BaseModel):
     upgrade_id: str  # 'intelligence_apparatus' | 'sovereign_wealth_diversion' | 'loyalty_brigades' | 'debt_infrastructure_deal'
 
 class BrigadeRequest(BaseModel):
-    deploy: bool  # True = deploy brigades this turn
+    deploy: bool           # True = deploy brigades this turn (legacy single-deploy)
+    operation: int = 0     # 0=stand_down, 1=domestic_suppression, 2=propaganda, 3=foreign_influence, 4=covert_apparatus
+    target_npc: str = ''   # for operation 3 (foreign influence): 'usa'|'arabia'|'eu'|'dprg'
 
 class AftermathRequest(BaseModel):
     choice: int  # 1=suppress_coverage, 2=aid_programs, 3=call_in_favor
@@ -241,7 +243,17 @@ def _calc_eot_drain_projection(gs: GameState) -> dict:
     return {
         "projected_drain": total_drain,
         "budget_after_drain": budget_after,
-        "installment_net": installment_net,   # expose for potential future display
+        "installment_net": installment_net,
+        "base_cost": base_cost,
+        "oil_cost": oil_cost,
+        "installment_streams": [
+            {
+                "description": inst.get("description", "Deal payment"),
+                "amount": float(inst.get("amount", 0)),
+                "turns_remaining": inst.get("turns_remaining", 1),
+            }
+            for inst in gs.active_installments
+        ],
     }
 
 
@@ -1241,9 +1253,13 @@ def post_purchase_upgrade(session_id: str, body: PurchaseUpgradeRequest):
 def post_deploy_brigades(session_id: str, body: BrigadeRequest):
     """
     FEATURE 2: Secondary brigade deployment action, separate from diplomatic choice.
-    Called after /action if the player opts to deploy brigades this turn.
-    deploy=True: -$2B, -5% approval, +10% stability, all relations -3, sets brigades_deployed_last_turn
-    deploy=False: no-op, clears brigades_deployed_last_turn (already False)
+    Supports 4 tiered operations (operation 1-4) or stand-down (operation 0 / deploy=False).
+
+    Operation 1 — Domestic Suppression   ($2B personal): +10% stability, -5% approval, all relations -3
+    Operation 2 — Propaganda Campaign    ($3B personal): +8% approval, -3% stability, -$2B national
+    Operation 3 — Foreign Influence Ops  ($4B personal): target NPC relations -8, stability +5%
+    Operation 4 — Covert Security Apparatus ($6B personal): +15% stability, -10% approval, relations -5, regime shifts right
+    Operation 0 / deploy=False — Stand Down: no effect
     """
     gs = _load_gs(session_id)
 
@@ -1251,24 +1267,90 @@ def post_deploy_brigades(session_id: str, body: BrigadeRequest):
         raise HTTPException(status_code=400, detail="Loyalty Brigades upgrade not purchased")
 
     messages = []
-    if body.deploy:
-        if gs.budget < 2.0:
-            raise HTTPException(status_code=400, detail="Insufficient budget for brigade deployment ($2B needed)")
-        gs.update_budget(-2.0)
-        gs.update_approval(-5)
-        gs.update_stability(10)
-        for npc in ['usa', 'arabia', 'eu', 'dprg']:
-            gs.update_relations(npc, -3)
-        gs.brigades_deployed_last_turn = True
-        messages.append("⚔️  Loyalty Brigades deployed — domestic unrest suppressed")
-        messages.append(f"💰 -$2B budget | 📊 -5% approval | 🛡️  +10% stability | All relations -3")
-    else:
+
+    # Determine operation: prefer explicit `operation` field; fall back to legacy deploy bool
+    op = body.operation if body.operation else (1 if body.deploy else 0)
+
+    if op == 0:
         gs.brigades_deployed_last_turn = False
         messages.append("Brigades stood down — no deployment this turn")
 
+    elif op == 1:
+        # Domestic Suppression — $2B personal
+        cost = 2.0
+        if gs.personal_wealth < cost:
+            raise HTTPException(status_code=400, detail=f"Insufficient personal funds ($2B needed, have ${gs.personal_wealth:.1f}B)")
+        gs.personal_wealth = max(0, gs.personal_wealth - cost)
+        gs.update_stability(10)
+        gs.update_approval(-5)
+        for npc in ['usa', 'arabia', 'eu', 'dprg']:
+            gs.update_relations(npc, -3)
+        gs.brigades_deployed_last_turn = True
+        messages.append("⚔️ Domestic Suppression deployed — unrest suppressed")
+        messages.append(f"💰 -$2B personal | 🛡️ +10% stability | 📊 -5% approval | All relations -3")
+
+    elif op == 2:
+        # Propaganda Campaign — $3B personal, -$2B national
+        personal_cost = 3.0
+        national_cost = 2.0
+        if gs.personal_wealth < personal_cost:
+            raise HTTPException(status_code=400, detail=f"Insufficient personal funds ($3B needed, have ${gs.personal_wealth:.1f}B)")
+        gs.personal_wealth = max(0, gs.personal_wealth - personal_cost)
+        gs.update_budget(-national_cost)
+        gs.update_approval(8)
+        gs.update_stability(-3)
+        gs.brigades_deployed_last_turn = True
+        messages.append("📢 Propaganda Campaign launched — public messaging saturated")
+        messages.append(f"💰 -$3B personal | -$2B national | 📊 +8% approval | 🛡️ -3% stability")
+
+    elif op == 3:
+        # Foreign Influence Ops — $4B personal, target NPC relations -8
+        target = body.target_npc.lower() if body.target_npc else ''
+        if target not in ('usa', 'arabia', 'eu', 'dprg'):
+            raise HTTPException(status_code=400, detail=f"Invalid target_npc '{target}' for foreign influence operation")
+        cost = 4.0
+        if gs.personal_wealth < cost:
+            raise HTTPException(status_code=400, detail=f"Insufficient personal funds ($4B needed, have ${gs.personal_wealth:.1f}B)")
+        gs.personal_wealth = max(0, gs.personal_wealth - cost)
+        gs.update_relations(target, -8)
+        gs.update_stability(5)
+        gs.brigades_deployed_last_turn = True
+        npc_labels = {'usa': 'USA', 'arabia': 'Arabia', 'eu': 'EU', 'dprg': 'DPRG'}
+        messages.append(f"🕵️ Foreign Influence Ops launched against {npc_labels.get(target, target.upper())}")
+        messages.append(f"💰 -$4B personal | {target.upper()} relations -8 | 🛡️ +5% stability")
+        messages.append("⚠️ Espionage allegations expected next turn")
+
+    elif op == 4:
+        # Covert Security Apparatus — $6B personal
+        cost = 6.0
+        if gs.personal_wealth < cost:
+            raise HTTPException(status_code=400, detail=f"Insufficient personal funds ($6B needed, have ${gs.personal_wealth:.1f}B)")
+        gs.personal_wealth = max(0, gs.personal_wealth - cost)
+        gs.update_stability(15)
+        gs.update_approval(-10)
+        for npc in ['usa', 'arabia', 'eu', 'dprg']:
+            gs.update_relations(npc, -5)
+        gs.brigades_deployed_last_turn = True
+        # Regime shift right by one stage
+        _regime_order = ['Managed Democracy', 'Soft Authoritarianism', 'Patronage State', 'Kleptocracy', 'Totalitarian Regime']
+        si = gs.state_identity
+        current = si.get('regime_type', 'Managed Democracy')
+        idx = _regime_order.index(current) if current in _regime_order else 0
+        if idx < len(_regime_order) - 1:
+            si['regime_type'] = _regime_order[idx + 1]
+            messages.append(f"🔒 Covert Security Apparatus activated — regime hardened to {si['regime_type']}")
+        else:
+            messages.append("🔒 Covert Security Apparatus activated — regime at maximum hardness")
+        messages.append(f"💰 -$6B personal | 🛡️ +15% stability | 📊 -10% approval | All relations -5")
+        messages.append("⚠️ International condemnation incoming")
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid brigade operation '{op}'")
+
     _save_gs(session_id, gs)
     return {
-        "deployed": body.deploy,
+        "deployed": op > 0,
+        "operation": op,
         "messages": messages,
         "game_state": gs.serialize(),
     }
