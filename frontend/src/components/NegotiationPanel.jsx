@@ -93,10 +93,18 @@ export default function NegotiationPanel({
 
       const withNpc = [...withUser, { role: 'npc', content: res.response }]
 
-      // If a new counter-offer arrived, append it to the stack
-      const newPendingOffers = res.counter_offer
-        ? [...pendingOffers, res.counter_offer]
-        : pendingOffers
+      // If a new counter-offer arrived, append it to the stack.
+      // Dedup: if the backend re-emitted the same offer as the fallback
+      // (identical text), don't push a second copy.
+      let newPendingOffers = pendingOffers
+      if (res.counter_offer) {
+        const lastText = pendingOffers.length > 0
+          ? pendingOffers[pendingOffers.length - 1]?.text
+          : null
+        if (res.counter_offer.text !== lastText) {
+          newPendingOffers = [...pendingOffers, res.counter_offer]
+        }
+      }
 
       pushState(withNpc, newPendingOffers)
     } catch (e) {
