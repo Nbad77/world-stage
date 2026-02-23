@@ -9,16 +9,22 @@ echo.
 cd /d "%~dp0"
 
 echo  [0/3] Killing any stale python/node processes on ports 8000 and 5173...
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000 "') do (
-    taskkill /PID %%a /F >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr /R ":8000 " ^| findstr "LISTEN"') do (
+    taskkill /PID %%a /F /T >nul 2>&1
 )
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5173 "') do (
-    taskkill /PID %%a /F >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr /R ":5173 " ^| findstr "LISTEN"') do (
+    taskkill /PID %%a /F /T >nul 2>&1
 )
-timeout /t 1 /nobreak >nul
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr /R ":8000 "') do (
+    taskkill /PID %%a /F /T >nul 2>&1
+)
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr /R ":5173 "') do (
+    taskkill /PID %%a /F /T >nul 2>&1
+)
+timeout /t 2 /nobreak >nul
 
 echo  [1/3] Starting FastAPI backend on port 8000...
-start "API Server" cmd /k "cd /d "%~dp0" && python -m uvicorn api:app --port 8000"
+start "API Server" cmd /k "cd /d "%~dp0" && python -m uvicorn api:app --host 0.0.0.0 --port 8000"
 
 echo  [2/3] Starting React frontend on port 5173...
 timeout /t 2 /nobreak >nul
