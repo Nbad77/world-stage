@@ -350,32 +350,47 @@ def _maybe_generate_world_event(gs: GameState, last_action_type: str = "") -> Op
     return event
 
 
-def _apply_world_event(gs: GameState, event: dict):
-    """Apply a world event's numeric effects to game state."""
+def _apply_world_event(gs: GameState, event: dict) -> list:
+    """Apply a world event's numeric effects to game state.
+    Returns a list of log strings for every numeric change made,
+    so callers can append them to eot_messages (BUG 1 fix — no silent changes).
+    """
     if not event:
-        return
+        return []
     effects = event.get("effects", {})
     oil_delta = effects.get("oil_price_delta", 0)
     stability_delta = effects.get("stability_delta", 0)
     rels = effects.get("relations_delta", {})
+    event_title = event.get("title", "world event")
+    log = []
 
     if oil_delta:
         # Register as a persistent modifier so EOT recalculation doesn't wipe it.
-        # World event oil effects last for the duration specified, defaulting to 2 turns.
         duration = effects.get("oil_price_duration", 2)
-        desc = event.get("title", "world event")
         gs.oil_price_modifiers.append({
             "delta": float(oil_delta),
             "turns_remaining": int(duration),
-            "description": desc,
+            "description": event_title,
         })
         # Also apply immediately so the current turn's display shows the new price
         gs.oil_price = max(20, round(gs.oil_price + oil_delta))
+        sign = '+' if oil_delta > 0 else ''
+        log.append(f"🌍 World event '{event_title}': oil {sign}${oil_delta:.0f}/bbl for {duration} turns")
+
     if stability_delta:
+        old = gs.stability
         gs.update_stability(stability_delta)
+        sign = '+' if stability_delta > 0 else ''
+        log.append(f"🌍 World event '{event_title}': stability {sign}{stability_delta}% ({old}% → {gs.stability}%)")
+
     for npc, delta in rels.items():
         if npc in gs.relations and delta:
+            old = gs.relations[npc]
             gs.update_relations(npc, delta)
+            sign = '+' if delta > 0 else ''
+            log.append(f"🌍 World event '{event_title}': {npc.upper()} {sign}{delta} ({old} → {gs.relations[npc]})")
+
+    return log
 
 
 def _game_status(gs: GameState) -> str:
@@ -992,7 +1007,8 @@ def post_skim(session_id: str, body: SkimRequest):
             last_action = gs.action_history[-1] if gs.action_history else {}
             next_event = _maybe_generate_world_event(gs, last_action.get("type", ""))
             if next_event:
-                _apply_world_event(gs, next_event)
+                event_log = _apply_world_event(gs, next_event)
+                eot_messages.extend(event_log)  # BUG 1: surface world event changes
                 gs.current_event = next_event
         except Exception as _evt_err:
             print(f"  [api] World event generation error (non-fatal): {_evt_err}")
@@ -1093,7 +1109,8 @@ def post_inject(session_id: str, body: InjectRequest):
             last_action = gs.action_history[-1] if gs.action_history else {}
             next_event = _maybe_generate_world_event(gs, last_action.get("type", ""))
             if next_event:
-                _apply_world_event(gs, next_event)
+                event_log = _apply_world_event(gs, next_event)
+                eot_messages.extend(event_log)  # BUG 1: surface world event changes
                 gs.current_event = next_event
         except Exception as _evt_err:
             print(f"  [api] World event generation error (non-fatal): {_evt_err}")

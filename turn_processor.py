@@ -170,22 +170,23 @@ def apply_end_of_turn_effects(game_state):
         total_modifier = 0
         for mod in game_state.oil_price_modifiers:
             mod['turns_remaining'] -= 1
-            total_modifier += mod['delta']
             remaining = mod['turns_remaining']
             desc = mod.get('description', 'oil modifier')
             sign = '+' if mod['delta'] > 0 else ''
             if remaining > 0:
+                # Still active — count in this turn's price
                 still_active.append(mod)
+                total_modifier += mod['delta']
                 messages.append(
                     f"🛢️  Oil modifier active: {sign}${mod['delta']:.0f}/bbl ({desc}, "
                     f"{remaining} turn(s) remaining)"
                 )
+                _oil_modifier_parts.append(f"{sign}${mod['delta']:.0f} {desc}")
             else:
+                # Expired this turn — does NOT apply to this turn's price
                 messages.append(
                     f"🛢️  Oil modifier expired: {sign}${mod['delta']:.0f}/bbl ({desc} — concluded)"
                 )
-            # Collect for breakdown line (include expired ones — they still affect this turn)
-            _oil_modifier_parts.append(f"{sign}${mod['delta']:.0f} {desc}")
         game_state.oil_price_modifiers = still_active
         # Apply the combined modifier to this turn's price, floor at $20
         if total_modifier != 0:
@@ -444,7 +445,7 @@ def apply_end_of_turn_effects(game_state):
         old_stab = game_state.stability
         game_state.update_stability(drift)
         direction = "↑" if drift > 0 else "↓"
-        messages.append(f"📈 Approval drift: stability {old_stab}% → {game_state.stability}% ({direction}{abs(drift)}%)")
+        messages.append(f"📊 Stability drift (approval gap): {old_stab}% → {game_state.stability}% ({direction}{abs(drift)}%)")
 
     # ──────────────────────────────────────────
     # 9. LOW BUDGET CRISIS

@@ -999,17 +999,23 @@ def generate_epitaph(game_state) -> str:
     elif last_type == 'do_nothing':
         action_summary = "declined all overtures"
 
+    # current_turn has already been advanced by the time epitaph is called,
+    # so the completed turn is current_turn - 1 (floor at 1).
+    completed_turn = max(1, game_state.current_turn - 1)
     prompt = (
-        f"Turn {game_state.current_turn} of {game_state.max_turns}. "
-        f"The leader {action_summary}. "
+        f"Turn {completed_turn} of {game_state.max_turns}. "
+        f"The leader just {action_summary}. "
         f"Regime: {context.get('regime_type', 'Managed Democracy')}. "
         f"Power base: {context.get('power_base', 'Mass-Dependent')}. "
         f"Approval: {game_state.public_approval}%. "
         f"Budget: ${game_state.budget:.0f}B. "
         f"Personal wealth: ${game_state.personal_wealth:.1f}B. "
         + (f"Active crisis: sanctions + embargo." if game_state.usa_sanctions_active and game_state.arabia_embargo_active
-           else f"Sanctions: {game_state.usa_sanctions_active}. Embargo: {game_state.arabia_embargo_active}.")
-        + "\n\nWrite the historian's one-sentence epitaph for this turn."
+           else f"Sanctions: {'active' if game_state.usa_sanctions_active else 'none'}. "
+                f"Embargo: {'active' if game_state.arabia_embargo_active else 'none'}.")
+        + f" Relations — USA: {game_state.relations['usa']}, Arabia: {game_state.relations['arabia']},"
+          f" EU: {game_state.relations['eu']}, DPRG: {game_state.relations['dprg']}."
+        + "\n\nWrite the historian's one-sentence epitaph for this specific turn."
     )
 
     try:

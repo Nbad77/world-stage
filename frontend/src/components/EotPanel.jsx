@@ -73,9 +73,11 @@ export default function EotPanel({ messages }) {
     ? drainLine.replace(/^💰\s*/, '').replace(/Passive drain this turn:\s*/i, '').trim()
     : `${financeAll.length} item${financeAll.length !== 1 ? 's' : ''}`
 
-  // Oil summary — grab price value
-  const oilLine = oil.find(m => /\$\d+\/bbl/.test(m)) || oil[0] || ''
-  const oilMatch = oilLine.match(/\$(\d+)\/bbl/)
+  // Oil summary — grab final price from the summary line ("= $X/bbl" at end of line)
+  // The summary line format is: "🛢️  Oil price: $120 base → ... = $206/bbl"
+  // Prefer that over modifier lines like "🛢️  Oil modifier active: +$18/bbl ..."
+  const oilSummaryLine = oil.find(m => /=\s*\$\d+\/bbl/.test(m)) || oil.find(m => /\$\d+\/bbl/.test(m)) || oil[0] || ''
+  const oilMatch = oilSummaryLine.match(/=\s*\$(\d+)\/bbl/) || oilSummaryLine.match(/\$(\d+)\/bbl/)
   const oilSummary = oilMatch ? `$${oilMatch[1]}/bbl` : `${oil.length} item${oil.length !== 1 ? 's' : ''}`
 
   return (
