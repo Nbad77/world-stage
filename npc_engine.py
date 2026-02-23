@@ -1361,8 +1361,18 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
             return {"response": raw, "counter_offer": None}
 
         result = json.loads(clean)
+
+        # Sanitise the response string: the model sometimes embeds the full
+        # ```json...``` block inside the "response" value itself.
+        # Strip any fence block, trailing raw JSON, and excess whitespace.
+        resp_text = result.get("response", "…")
+        resp_text = _re.sub(r"```json[\s\S]*?```", "", resp_text).strip()
+        resp_text = _re.sub(r"\{[\s\S]*\}\s*$", "", resp_text).strip()
+        if not resp_text:
+            resp_text = "…"
+
         return {
-            "response": result.get("response", "…"),
+            "response": resp_text,
             "counter_offer": result.get("counter_offer", None),
         }
 
@@ -1371,9 +1381,10 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
         print(f"  [npc_engine] Negotiation error for {npc_id}: {type(e).__name__}: {e}")
         # If we got a raw response but JSON parse failed, use it as plain text
         if raw:
-            # Still try to strip any trailing JSON block before showing as plain text
+            # Strip any JSON block before showing as plain text
             import re as _re2
             stripped = _re2.sub(r"```json[\s\S]*?```", "", raw).strip()
+            stripped = _re2.sub(r"```[\s\S]*?```", "", stripped).strip()
             stripped = _re2.sub(r"\{[\s\S]*\}\s*$", "", stripped).strip()
             return {"response": stripped if stripped else raw, "counter_offer": None}
         fallbacks = {
