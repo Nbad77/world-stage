@@ -43,6 +43,7 @@ export default function NegotiationPanel({
   initialMessages = [],
   initialPendingOffers = [],  // all counter-offers made this session, survives minimize
   onHistoryChange,
+  onGsUpdate = null,  // BUG 6: callback to sync updated game_state (incl. negotiation_log) to parent
   activeDealSummary = null,
 }) {
   const [messages, setMessages] = useState(initialMessages)
@@ -65,6 +66,15 @@ export default function NegotiationPanel({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [messages])
+
+  // BUG 5: Sync current messages + offers to parent whenever they change,
+  // so the full conversation survives minimize/reopen regardless of whether
+  // a counter-offer is present. Also fires on mount (with initialMessages)
+  // so even a panel opened-then-immediately-closed saves its initial state.
+  useEffect(() => {
+    onHistoryChange && onHistoryChange(messages, pendingOffers)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, pendingOffers])
 
   // Helper: update messages + pendingOffers and notify parent together
   function pushState(newMessages, newPendingOffers) {
@@ -97,6 +107,9 @@ export default function NegotiationPanel({
         ? pendingOffers[pendingOffers.length - 1]
         : (heldOffer ?? null)
       const res = await api.negotiate(sessionId, npcKey, text, history, lastKnownOffer)
+
+      // BUG 6: sync updated game_state (with fresh negotiation_log) to parent
+      if (res.game_state && onGsUpdate) onGsUpdate(res.game_state)
 
       const withNpc = [...withUser, { role: 'npc', content: res.response }]
 

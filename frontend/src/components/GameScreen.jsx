@@ -299,7 +299,10 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       entry.stabilityEnd = res.game_state?.stability ?? null
       entry.approvalEnd  = res.game_state?.public_approval ?? null
       entry.epitaph      = res.game_state?.current_epitaph ?? null
-      if (entry.turn) sessionLogRef.current.push({ ...entry })
+      if (entry.turn) {
+        sessionLogRef.current.push({ ...entry })
+        currentTurnEntryRef.current = {}  // prevent duplicate push on double-click / re-trigger
+      }
 
       if (res.status !== 'active') {
         setEnding(res.ending)
@@ -353,7 +356,10 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       entry.stabilityEnd = res.game_state?.stability ?? null
       entry.approvalEnd  = res.game_state?.public_approval ?? null
       entry.epitaph      = res.game_state?.current_epitaph ?? null
-      if (entry.turn) sessionLogRef.current.push({ ...entry })
+      if (entry.turn) {
+        sessionLogRef.current.push({ ...entry })
+        currentTurnEntryRef.current = {}  // prevent duplicate push on double-click / re-trigger
+      }
 
       if (res.status !== 'active') {
         setEnding(res.ending)
@@ -740,6 +746,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
                   initialMessages={savedHistory.messages || []}
                   initialPendingOffers={savedHistory.pendingOffers || []}
                   onHistoryChange={(msgs, offers) => handleHistoryChange(negotiatingNpc, msgs, offers)}
+                  onGsUpdate={(newGs) => setGs(newGs)}
                   activeDealSummary={activeDealSummary}
                 />
               )

@@ -131,8 +131,11 @@ def apply_end_of_turn_effects(game_state):
     # Tier 0: +$0  Tier 1: +$10  Tier 2: +$20  Tier 3: +$35  Tier 4: +$50
     # ──────────────────────────────────────────
 
-    # BUG 3: Check for a negotiated oil price lock before recalculating from relations
-    if game_state.oil_price_locked and game_state.oil_price_lock_turns_remaining > 0:
+    # CRITICAL 1: Check for a negotiated oil price lock before recalculating from relations.
+    # When a lock is active, it sets oil_price DIRECTLY — no relation-based recalc,
+    # no additive modifiers applied on top. The lock IS the price for that turn.
+    _oil_lock_active = game_state.oil_price_locked and game_state.oil_price_lock_turns_remaining > 0
+    if _oil_lock_active:
         game_state.oil_price = max(20, round(game_state.oil_price_lock_value))
         game_state.oil_price_lock_turns_remaining -= 1
         if game_state.oil_price_lock_turns_remaining <= 0:
@@ -164,8 +167,17 @@ def apply_end_of_turn_effects(game_state):
     _oil_modifier_parts = []  # list of strings like "-$10 Arabia deal"
 
     # Apply persistent oil price modifiers (world events, negotiated discounts)
-    # These stack on top of the relation-based price and tick down each EOT.
-    if game_state.oil_price_modifiers:
+    # CRITICAL 1: When a price lock is active, tick modifiers down (so they expire correctly)
+    # but do NOT apply their delta to oil_price — the lock IS the final price.
+    if game_state.oil_price_modifiers and _oil_lock_active:
+        # Lock active: just tick down and prune, don't apply to price
+        still_active = []
+        for mod in game_state.oil_price_modifiers:
+            mod['turns_remaining'] -= 1
+            if mod['turns_remaining'] > 0:
+                still_active.append(mod)
+        game_state.oil_price_modifiers = still_active
+    elif game_state.oil_price_modifiers:
         still_active = []
         total_modifier = 0
         for mod in game_state.oil_price_modifiers:

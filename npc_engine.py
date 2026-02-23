@@ -212,11 +212,11 @@ Output: *brief action if needed* then dialogue.
 
 # ─── Intercept System Prompts ─────────────────────────────────────────────────
 
-USA_INTERCEPT_PROMPT = """You are Bill Washington, US Secretary of State.
+USA_INTERCEPT_PROMPT = """You are Bill Washington, President of the United States.
 Your intelligence analysts have just flagged that Europa's leader has been quietly accumulating
 personal wealth in offshore accounts.
 Stay in character: you are strategic and calculating. You note this information as something
-your government is tracking — professional and pointed, not aggressive.
+your administration is tracking — professional and pointed, not aggressive.
 Reference the specific amount. 2 sentences max. No speaker label. No refusals."""
 
 SADAM_INTERCEPT_PROMPT = """You are Sadam, Supreme Leader of the Arabian oil state.
@@ -962,7 +962,7 @@ Return ONLY valid JSON. No extra text.
 
 
 EPITAPH_SYSTEM = """
-You are a sardonic historian writing a one-sentence verdict on a fictional leader's turn in power.
+You are a sardonic historian writing a one-sentence verdict on a leader's turn in power.
 Write in third person. Max 20 words. Dry wit preferred — like a historian a century from now
 reading the footnotes. Reference the specific action taken, the regime type, or the mood of the nation.
 Output ONLY the single sentence. No quotes. No attribution. No extra text.
@@ -1077,8 +1077,8 @@ Tier 3 (Deep): Their actual private position, hidden leverage, and what they fea
 """
 
 _NPC_INTEL_NAMES = {
-    'usa': 'Bill Washington — US Secretary of State',
-    'arabia': 'Sadam — Supreme Leader of the Arabian oil state',
+    'usa': 'Bill Washington — President of the United States',
+    'arabia': 'Sadam — Supreme Leader of Arabia',
     'eu': 'Marsha — President of the European Union',
     'dprg': 'Ji-won Ryang — Supreme Leader of the DPRG, hereditary ruler with full command authority',
 }
@@ -1107,14 +1107,15 @@ def generate_intel(game_state, npc_id: str) -> dict:
     current_tier = _get_intel_tier(relation)
     current_turn = game_state.current_turn
 
-    # Check cache
+    # Check cache — reuse only within the same turn (same turn_generated) and same tier.
+    # BUG 4: Do NOT reuse across turns — approval/budget in the generated text would be stale.
     intel_cache = getattr(game_state, 'intel', {})
     cached = intel_cache.get(npc_id)
     if cached:
         cached_tier = _get_intel_tier(cached.get('relation_at_generation', 0))
-        turns_since = current_turn - cached.get('turn_generated', 0)
-        if cached_tier == current_tier and turns_since < 2:
-            return cached  # use cache
+        same_turn = cached.get('turn_generated', -1) == current_turn
+        if cached_tier == current_tier and same_turn:
+            return cached  # use cache — same turn, same tier
 
     # Generate new intel
     api_key = os.getenv("ANTHROPIC_API_KEY")

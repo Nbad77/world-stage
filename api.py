@@ -789,6 +789,11 @@ def post_action(session_id: str, body: ActionRequest):
             gs.oil_price_locked = True
             gs.oil_price_lock_value = float(oil_lock_value)
             gs.oil_price_lock_turns_remaining = int(oil_lock_turns)
+            # CRITICAL 1: Remove oil_price from merged consequences so process_choice_consequences
+            # does NOT also register it as an additive oil_price_modifier.
+            # The lock replaces the normal "oil_price delta" mechanic entirely.
+            merged.pop("oil_price", None)
+            merged.pop("oil_price_turns", None)
             extra_msgs.append(
                 f"🛢️  Oil price locked at ${oil_lock_value:.0f}/bbl for {oil_lock_turns} turns (negotiated)"
             )
@@ -877,9 +882,7 @@ def post_action(session_id: str, body: ActionRequest):
     # FEATURE 6: Register accepted counter-offer (negotiated deal) into deal_history
     if is_negotiated:
         deal_summary = effective_offer.get("text", "Negotiated agreement")
-        # Trim the summary to a clean phrase
-        if len(deal_summary) > 80:
-            deal_summary = deal_summary[:77] + "…"
+        # BUG 7: No truncation — full deal text preserved for export log
         npc_name = effective_offer.get("npc") or letter
         gs.deal_history.append({
             "npc": npc_name,
@@ -1206,6 +1209,8 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
         "npc_id": npc_id,
         "response": npc_response,
         "counter_offer": counter_offer,
+        # BUG 6: Return updated game_state so frontend gs.negotiation_log stays current
+        "game_state": gs.serialize(),
     }
 
 
