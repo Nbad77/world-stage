@@ -771,7 +771,13 @@ NEGOTIATION MODE:
 You are now in a direct private channel with Europa's leader.
 They are trying to negotiate the terms of your offer.
 Keep your character's voice and agenda. You may adjust your offer — but only for genuine strategic gain.
-If you offer modified terms, include a "counter_offer" key in your JSON response.
+
+MANDATORY RULE — counter_offer field:
+You MUST include a counter_offer object (not null) in your JSON whenever:
+  1. You are naming specific dollar amounts or terms in this response, OR
+  2. The player has said anything like "ok", "deal", "agreed", "yes", "I can do that", "let's do it", or otherwise signaled acceptance of terms previously discussed.
+Use counter_offer: null ONLY if you have not proposed any concrete terms yet AND the player has not accepted anything yet.
+When in doubt, include the counter_offer. Missing it breaks the game UI.
 
 SIGN CONVENTION: positive = Europa receives money, negative = Europa pays money.
   "budget": one-time immediate payment applied the turn the deal is accepted.
@@ -793,11 +799,11 @@ Return a JSON object:
   "response": "your in-character dialogue (2-3 sentences max)",
   "counter_offer": null
 }}
-OR if you want to propose modified deal terms:
+OR (required whenever terms are named or accepted):
 {{
   "response": "your in-character dialogue",
   "counter_offer": {{
-    "text": "Modified offer description (shown as option in game)",
+    "text": "Deal description (shown as option in game)",
     "type": "accept_deal",
     "npc": "usa",
     "consequences": {{
@@ -817,7 +823,13 @@ Return ONLY valid JSON. No extra text.
 NEGOTIATION MODE:
 You are now in a private back-channel with Europa's leader.
 Stay fully in character as Sadam. You enjoy deal-making and may sweeten offers for loyalty.
-If you offer new terms, include a "counter_offer" in your JSON.
+
+MANDATORY RULE — counter_offer field:
+You MUST include a counter_offer object (not null) in your JSON whenever:
+  1. You are naming specific dollar amounts or terms in this response, OR
+  2. The player has said anything like "ok", "deal", "agreed", "yes", "I can do that", "let's do it", or otherwise signaled acceptance of terms previously discussed.
+Use counter_offer: null ONLY if you have not proposed any concrete terms yet AND the player has not accepted anything yet.
+When in doubt, include the counter_offer. Missing it breaks the game UI.
 
 SIGN CONVENTION: positive = Europa receives money, negative = Europa pays money.
   "budget": one-time immediate payment applied the turn the deal is accepted.
@@ -833,11 +845,11 @@ Return a JSON object:
   "response": "*stage direction* your in-character dialogue (2-3 sentences)",
   "counter_offer": null
 }}
-OR with a deal offer:
+OR (required whenever terms are named or accepted):
 {{
   "response": "*stage direction* dialogue",
   "counter_offer": {{
-    "text": "Modified offer description",
+    "text": "Deal description",
     "type": "accept_deal",
     "npc": "arabia",
     "consequences": {{
@@ -858,6 +870,13 @@ You are in a private session with Europa's leader.
 Stay fully in character as Marsha — skeptical, procedural, demanding specifics.
 You don't do backroom deals. If you adjust terms, it is because they earned it with specifics.
 
+MANDATORY RULE — counter_offer field:
+You MUST include a counter_offer object (not null) in your JSON whenever:
+  1. You are naming specific dollar amounts or terms in this response, OR
+  2. The player has said anything like "ok", "deal", "agreed", "yes", "I can do that", "let's do it", or otherwise signaled acceptance of terms previously discussed.
+Use counter_offer: null ONLY if you have not proposed any concrete terms yet AND the player has not accepted anything yet.
+When in doubt, include the counter_offer. Missing it breaks the game UI.
+
 SIGN CONVENTION: positive = Europa receives money, negative = Europa pays money.
   "budget": one-time immediate payment applied the turn the deal is accepted.
   "installments": recurring payments applied at end-of-turn, starting NEXT turn.
@@ -872,11 +891,11 @@ Return a JSON object:
   "response": "your in-character dialogue (2-3 sentences)",
   "counter_offer": null
 }}
-OR if they have genuinely convinced you:
+OR (required whenever terms are named or accepted):
 {{
   "response": "dialogue",
   "counter_offer": {{
-    "text": "Modified offer description",
+    "text": "Deal description",
     "type": "accept_deal",
     "npc": "eu",
     "consequences": {{
@@ -897,6 +916,13 @@ You are in a secure encrypted channel with Europa's leader.
 Stay fully in character as Ji-won — cryptic, precise, occasionally warm.
 You offer real intelligence or capabilities that other NPCs cannot.
 
+MANDATORY RULE — counter_offer field:
+You MUST include a counter_offer object (not null) in your JSON whenever:
+  1. You are naming specific dollar amounts or terms in this response, OR
+  2. The player has said anything like "ok", "deal", "agreed", "yes", "I can do that", "let's do it", or otherwise signaled acceptance of terms previously discussed.
+Use counter_offer: null ONLY if you have not proposed any concrete terms yet AND the player has not accepted anything yet.
+When in doubt, include the counter_offer. Missing it breaks the game UI.
+
 SIGN CONVENTION FOR budget: positive = Europa receives money, negative = Europa pays money.
 Example: "budget": 3.0 means DPRG channels $3B to Europa.
 
@@ -914,11 +940,11 @@ Return a JSON object:
   "response": "your in-character dialogue (2-3 sentences)",
   "counter_offer": null
 }}
-OR with a modified deal:
+OR (required whenever terms are named or accepted):
 {{
   "response": "dialogue",
   "counter_offer": {{
-    "text": "Modified offer description",
+    "text": "Deal description",
     "type": "accept_deal",
     "npc": "dprg",
     "consequences": {{
@@ -1275,7 +1301,7 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
 
         response = client.messages.create(
             model=MODEL,
-            max_tokens=350,
+            max_tokens=500,
             temperature=0.8,
             system=system_prompt,
             messages=messages

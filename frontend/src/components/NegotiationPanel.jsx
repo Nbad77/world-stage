@@ -86,7 +86,10 @@ export default function NegotiationPanel({
         content: m.content,
       }))
 
-      const res = await api.negotiate(sessionId, npcKey, text, history)
+      // Pass the most recent pending offer so the backend can re-emit it
+      // if the model returns null while the player is signalling acceptance.
+      const lastKnownOffer = pendingOffers.length > 0 ? pendingOffers[pendingOffers.length - 1] : null
+      const res = await api.negotiate(sessionId, npcKey, text, history, lastKnownOffer)
 
       const withNpc = [...withUser, { role: 'npc', content: res.response }]
 

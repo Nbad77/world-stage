@@ -72,6 +72,7 @@ class NegotiateRequest(BaseModel):
     npc_id: str          # "usa" | "arabia" | "eu" | "dprg"
     message: str         # player's latest message
     history: List[Any] = []  # list of {role, content} prior messages
+    last_counter_offer: Any = None  # most recent counter_offer the frontend has seen (for re-emit fallback)
 
 class AcceptCounterRequest(BaseModel):
     letter: str           # "A"-"D"
@@ -1144,10 +1145,24 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
         history=body.history,
     )
 
+    counter_offer = result.get("counter_offer", None)
+
+    # Fallback: if the model returned null but the player is signalling acceptance
+    # and the frontend provided the last counter_offer it saw, re-emit it so the
+    # Accept banner stays visible.
+    if counter_offer is None and body.last_counter_offer is not None:
+        _acceptance_signals = {"ok", "deal", "agreed", "yes", "sure", "fine", "done",
+                               "accept", "let's do it", "sounds good", "i can do that",
+                               "i'll do it", "we have a deal", "works for me"}
+        msg_lower = body.message.lower().strip()
+        is_accepting = any(sig in msg_lower for sig in _acceptance_signals)
+        if is_accepting:
+            counter_offer = body.last_counter_offer
+
     return {
         "npc_id": npc_id,
         "response": result.get("response", "…"),
-        "counter_offer": result.get("counter_offer", None),
+        "counter_offer": counter_offer,
     }
 
 
