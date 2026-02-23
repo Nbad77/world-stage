@@ -750,6 +750,21 @@ def post_action(session_id: str, body: ActionRequest):
         pw_delta = counter_consequences.pop("personal_wealth_delta", None)
         oil_lock_value = counter_consequences.pop("oil_price_lock", None)
         oil_lock_turns = counter_consequences.pop("oil_price_lock_turns", None)
+        # CRITICAL 1: If a price lock key is present in the counter-offer, also strip
+        # oil_price and oil_price_turns from BOTH counter_consequences and base_consequences
+        # BEFORE merging, so process_choice_consequences never sees them as an additive modifier.
+        if oil_lock_value is not None:
+            counter_consequences.pop("oil_price", None)
+            counter_consequences.pop("oil_price_turns", None)
+            base_consequences.pop("oil_price", None)
+            base_consequences.pop("oil_price_turns", None)
+        # Sanity check: oil_price in a counter-offer should always be negative (discount).
+        # If the NPC hallucinated a positive value (surcharge), strip it — nonsensical for a deal.
+        if "oil_price" in counter_consequences:
+            op = counter_consequences["oil_price"]
+            if isinstance(op, (int, float)) and op > 0:
+                counter_consequences.pop("oil_price")  # strip hallucinated surcharge
+
         # BUG 2: installment payments — supports both legacy single-stream and new multi-stream array.
         # New format: "installments": [{"amount": float, "turns": int, "description": str}, ...]
         # Legacy format: "installment_amount" + "installment_turns" + "installment_description"

@@ -840,6 +840,11 @@ SIGN CONVENTION: positive = Europa receives money, negative = Europa pays money.
     "turns" = number of end-of-turn payments (NOT counting the current turn).
     A deal CAN have multiple streams (e.g. oil revenue inbound + equipment payment outbound).
     DO NOT mix budget + installments for the same payment; use one or the other.
+OIL PRICE DISCOUNT:
+  "oil_price": a NEGATIVE integer only (e.g. -10 means $10/bbl cheaper for Europa).
+  Arabia offering cheaper oil = negative value. NEVER use a positive oil_price value.
+  Typical range: -5 to -20. Omit entirely if no oil discount is part of the deal.
+  DO NOT use oil_price_lock — that field is not supported. Use oil_price (negative) for discounts.
 IMPORTANT: your dialogue text must exactly match your JSON numbers and turns.
 
 Return a JSON object:
@@ -858,7 +863,7 @@ OR (required whenever terms are named or accepted):
       "arabia": <int>,
       "budget": <float or omit>,
       "installments": [<array of streams, or omit>],
-      "oil_price": <int or omit>
+      "oil_price": <negative int or omit>
     }}
   }}
 }}
