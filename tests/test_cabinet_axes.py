@@ -187,23 +187,38 @@ def test_serialize_deserialize_axes():
 
 
 def test_serialize_deserialize_advisors():
-    """Advisor list should survive serialize/deserialize round-trip."""
+    """Session 7C: Advisor dict should survive serialize/deserialize round-trip."""
     gs = _fresh_gs()
-    gs.advisors = [
-        {'id': 'abc', 'archetype': 'technocrat', 'name': 'Viktor', 'loyalty': 70,
-         'competence': 80, 'specialty': 'economic', 'bias_stat': None, 'bias_direction': 0,
-         'nefarious': False, 'eliminated': False, 'icon': '📊', 'label': 'Technocrat',
-         'description': 'Data-driven.', 'hired_turn': 2},
-    ]
-    gs.advisors_eliminated = ['xyz']
+    gs.advisors = {
+        "finance_minister": {"name": "Finance Minister", "trust": 60, "assigned_this_turn": True, "defection_triggered": False},
+        "security_chief": {"name": "Security Chief", "trust": 75, "assigned_this_turn": False, "defection_triggered": False},
+        "diplomatic_aide": {"name": "Diplomatic Aide", "trust": 30, "assigned_this_turn": False, "defection_triggered": True},
+    }
+    gs.advisor_slots_available = 3
 
     data = gs.serialize()
     gs2 = GameState.deserialize(data)
 
-    assert len(gs2.advisors) == 1, f"Expected 1 advisor, got {len(gs2.advisors)}"
-    assert gs2.advisors[0]['id'] == 'abc', "Advisor ID mismatch"
-    assert gs2.advisors_eliminated == ['xyz'], "Eliminated list mismatch"
-    print("  PASS: advisors survive serialize/deserialize")
+    assert isinstance(gs2.advisors, dict), f"Expected dict, got {type(gs2.advisors)}"
+    assert gs2.advisors['finance_minister']['trust'] == 60, "Finance minister trust mismatch"
+    assert gs2.advisors['diplomatic_aide']['defection_triggered'] is True, "Defection flag mismatch"
+    assert gs2.advisor_slots_available == 3, "Slots mismatch"
+    print("  PASS: advisors (dict) survive serialize/deserialize")
+
+
+def test_serialize_deserialize_advisors_legacy_migration():
+    """Old list-based advisor saves should migrate to new dict format."""
+    gs = _fresh_gs()
+    # Simulate old save data
+    data = gs.serialize()
+    data['advisors'] = [{'id': 'abc', 'archetype': 'technocrat'}]  # old list format
+
+    gs2 = GameState.deserialize(data)
+
+    assert isinstance(gs2.advisors, dict), f"Expected dict after migration, got {type(gs2.advisors)}"
+    assert 'finance_minister' in gs2.advisors, "Missing finance_minister after migration"
+    assert gs2.advisors['finance_minister']['trust'] == 75, "Default trust should be 75"
+    print("  PASS: legacy list advisors migrate to dict")
 
 
 def test_serialize_deserialize_tax_rates():
@@ -264,6 +279,7 @@ if __name__ == '__main__':
     test_migration_from_binary_upgrades()
     test_serialize_deserialize_axes()
     test_serialize_deserialize_advisors()
+    test_serialize_deserialize_advisors_legacy_migration()
     test_serialize_deserialize_tax_rates()
     test_security_split_migration()
     test_security_split_odd_value()

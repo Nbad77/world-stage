@@ -21,6 +21,7 @@ import re
 import traceback
 from pathlib import Path
 from dotenv import load_dotenv
+from gm_engine import is_energy_proposal, run_gm_inference
 
 # Load API key from .env for local dev.
 # override=True only when the env var is absent or empty — this lets Railway's
@@ -1112,6 +1113,18 @@ def generate_world_event(game_state, last_action_type: str = ""):
         hints.append("Domestic stability is critically low — internal unrest is possible.")
     if game_state.relations['dprg'] > 65:
         hints.append("DPRG relations are suspiciously high — Western reaction is plausible.")
+    # Session 7C Step 4: Russia/China flavor based on passive relations
+    _russia_rel = getattr(game_state, 'russia_relations', 35.0)
+    _china_rel = getattr(game_state, 'china_relations', 35.0)
+    if _russia_rel > 60:
+        hints.append("Russia is supportive of Europa — could be mentioned as backing Europa in international forums.")
+    elif _russia_rel < 20:
+        hints.append("Russia is hostile toward Europa — could be mentioned as blocking Europa's interests.")
+    if _china_rel > 60:
+        hints.append("China is offering Europa infrastructure deals — could be mentioned as a willing economic partner.")
+    elif _china_rel < 20:
+        hints.append("China is blocking Europa in international forums — could be mentioned as opposing Europa's agenda.")
+
     if not hints:
         hints.append("Generate an interesting geopolitical event that fits the current situation.")
 
@@ -2159,7 +2172,7 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
     """
     dialogue_prompt = _NEGOTIATION_DIALOGUE_PROMPTS.get(npc_id)
     if not dialogue_prompt:
-        return {"response": "I have nothing to say to that.", "counter_offer": None}
+        return {"response": "I have nothing to say to that.", "counter_offer": None, "gm_consequence": None}
 
     context = _build_context(game_state, npc_id=npc_id)
     # FEATURE 5: inject negotiation cap into context
@@ -2421,7 +2434,7 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
     import anthropic
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        return {"response": "…", "counter_offer": None}
+        return {"response": "…", "counter_offer": None, "gm_consequence": None}
 
     # ── CALL 1: Dialogue only ────────────────────────────────────────────────
     dialogue_text = None
@@ -2447,6 +2460,30 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
             print(f"  [npc_engine] FIX B7: Intel behavior rule appended to {npc_id} system prompt")
         dialogue_prompt = dialogue_prompt + f"\n\n{_intel_ctx}"
         print(f"  [npc_engine] FIX E: Tier 3 intel injected into {npc_id} system prompt ({len(_intel_ctx)} chars)")
+
+    # ── GM INFERENCE LAYER (Session 7A Feature 10) ────────────────────────
+    # Prototype scope: Arabia (Sadam) + energy partnership proposals only.
+    # When the player makes an energy proposal to Sadam, the GM inference
+    # layer analyzes mechanical consequences and injects them into the
+    # system prompt so Sadam can reason about geopolitical implications.
+    _gm_result = None
+    if npc_id == 'arabia' and is_energy_proposal(message):
+        _gm_result = run_gm_inference(message, game_state)
+        _gm_context_block = (
+            "\n\n--- GM CONTEXT (not visible to player) ---\n"
+            f"Proposal type: {_gm_result.get('commitment_type', 'exploratory')}\n"
+            f"Credibility: {_gm_result.get('credibility_assessment', 'questionable')}\n"
+            f"Also affected: {', '.join(_gm_result.get('affected_parties', [])) or 'none'}\n"
+            f"Conflicts with: {', '.join(_gm_result.get('contradicted_deals', [])) or 'none'}\n"
+            f"Ripple effects: {'; '.join(_gm_result.get('second_order_consequences', [])) or 'none'}\n"
+            "---\n"
+            "Use this context to inform your negotiation stance. If the proposal "
+            "conflicts with existing deals, reference that tension in character. "
+            "If credibility is questionable, be more skeptical. If second-order "
+            "consequences affect other parties, hint at the complexity."
+        )
+        dialogue_prompt = dialogue_prompt + _gm_context_block
+        print(f"[GM] Consequence object injected into Sadam prompt")
 
     try:
         client = anthropic.Anthropic(api_key=api_key)
@@ -2495,6 +2532,7 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
                     return {
                         "response": dialogue_text,
                         "counter_offer": parsed["counter_offer"],
+                        "gm_consequence": _gm_result,
                     }
             else:
                 dialogue_text = _sanitize_dialogue(raw_dialogue)
@@ -2510,7 +2548,7 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
             'eu': "I've said what I have to say. Come back with something concrete.",
             'dprg': "The channel remains open. Think carefully.",
         }
-        return {"response": fallbacks.get(npc_id, "…"), "counter_offer": None}
+        return {"response": fallbacks.get(npc_id, "…"), "counter_offer": None, "gm_consequence": _gm_result}
 
     # ── CALL 2: Deal extraction (conditional) ────────────────────────────────
     # Only fires when the dialogue contains deal-signal keywords.
@@ -2669,6 +2707,7 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
     return {
         "response": dialogue_text,
         "counter_offer": counter_offer,
+        "gm_consequence": _gm_result,
     }
 
 
@@ -2790,3 +2829,564 @@ def _election_reaction_fallback(result_key: str) -> dict:
             'eu': "The Commission condemns this setback for European democratic standards.",
             'dprg': "Pyongyang understands the necessity of strong leadership in uncertain times.",
         }
+
+
+# ─── Session 7C Step 3: Advisor Analysis — Claude-Generated Lens ────────────
+
+_ADVISOR_SYSTEM_PROMPTS = {
+    "finance_minister": (
+        "You are the Finance Minister of Europa. You prioritize "
+        "budget stability above all else. You are skeptical of "
+        "foreign aid, wary of commitments that drain the treasury, "
+        "and you flag every deal in terms of its fiscal impact. "
+        "You subtly resist skimming but never say so directly. "
+        "Respond in 2-3 sentences maximum. Be specific about "
+        "numbers and budget implications."
+    ),
+    "security_chief": (
+        "You are the Security Chief of Europa. You see every "
+        "diplomatic situation through the lens of stability and "
+        "military capability. You prefer suppression to concession, "
+        "strength to negotiation. You are loyal to the leader's "
+        "personal interests. Respond in 2-3 sentences maximum. "
+        "Be direct and tactical."
+    ),
+    "diplomatic_aide": (
+        "You are the Diplomatic Aide of Europa, EU-aligned and "
+        "reform-minded. You understand what each NPC privately "
+        "wants versus what they publicly say. You are the most "
+        "sophisticated voice in the room. You are quietly alarmed "
+        "by authoritarian drift but professional about it. "
+        "Respond in 2-3 sentences maximum. Focus on relationship "
+        "dynamics and what the other party actually wants."
+    ),
+}
+
+_ADVISOR_FALLBACKS = {
+    "finance_minister": "Budget pressures are mounting. I recommend caution with any new commitments this turn.",
+    "security_chief": "The situation is manageable. Keep military allocation high and maintain deterrence posture.",
+    "diplomatic_aide": "Relations are shifting. Watch for NPC signals that differ from their public positions.",
+}
+
+
+def generate_advisor_analysis(advisor_key: str, game_state) -> str:
+    """
+    Session 7C Step 3: Generate a brief advisor analysis of the current
+    diplomatic situation from the advisor's perspective.
+    Uses Claude Haiku (cheap, fast) for high-frequency calls.
+    Returns 2-3 sentence analysis string.
+    """
+    import anthropic
+
+    system_prompt = _ADVISOR_SYSTEM_PROMPTS.get(advisor_key)
+    if not system_prompt:
+        return _ADVISOR_FALLBACKS.get(advisor_key, "No analysis available.")
+
+    # Build a compact context for the advisor
+    _rel = game_state.relations or {}
+    _deals = getattr(game_state, 'deal_history', [])
+    _active_deals = [
+        d for d in _deals
+        if not d.get('broken') and d.get('expires_turn', 0) >= game_state.current_turn
+    ]
+    _deal_summaries = [
+        f"{d.get('npc', '?').upper()}: {d.get('summary', '?')} (expires turn {d.get('expires_turn', '?')})"
+        for d in _active_deals[-5:]  # last 5 active deals
+    ]
+
+    _regime = getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy')
+
+    # Incoming communiqués context — NPC names + any pending contacts
+    _pending = getattr(game_state, 'pending_npc_contacts', [])
+    _incoming = [f"{c.get('npc', '?').upper()} ({c.get('reason', 'standard briefing')})" for c in _pending] if _pending else []
+
+    context = {
+        "relations": {k: round(v, 1) for k, v in _rel.items()},
+        "budget": round(game_state.budget, 1),
+        "stability": game_state.stability,
+        "approval": game_state.public_approval,
+        "regime_type": _regime,
+        "oil_price": game_state.oil_price,
+        "military_strength": getattr(game_state, 'military_strength', 20),
+        "personal_wealth": round(game_state.personal_wealth, 1),
+        "current_turn": game_state.current_turn,
+        "active_deals": _deal_summaries if _deal_summaries else "None",
+        "incoming_contacts": _incoming if _incoming else "Standard briefing day",
+    }
+
+    # Add sanctions/embargo context
+    if game_state.usa_sanctions_active:
+        context["usa_sanctions"] = f"Tier {getattr(game_state, 'usa_sanctions_tier', 1)}"
+    if game_state.arabia_embargo_active:
+        context["arabia_embargo"] = f"Tier {getattr(game_state, 'arabia_embargo_tier', 1)}"
+
+    user_prompt = (
+        f"Current situation:\n{json.dumps(context, indent=2)}\n\n"
+        f"Provide your assessment of today's diplomatic situation from your perspective."
+    )
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        print(f"  [ADVISOR] No API key — using fallback for {advisor_key}")
+        return _ADVISOR_FALLBACKS.get(advisor_key, "No analysis available.")
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=200,
+            temperature=0.7,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}]
+        )
+
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
+
+        raw = response.content[0].text.strip()
+        # Strip stage directions
+        analysis = re.sub(r'\*[^*]+\*', '', raw).strip()
+        print(f"  [ADVISOR] Analysis generated for {advisor_key}")
+        return analysis
+
+    except Exception as e:
+        _token_log["fallbacks"] += 1
+        print(f"  [ADVISOR] Analysis failed for {advisor_key}: {type(e).__name__}: {e}")
+        return _ADVISOR_FALLBACKS.get(advisor_key, "No analysis available.")
+
+
+# ─── Session 7D: Backchannel System ─────────────────────────────────────────
+
+_BACKCHANNEL_SYSTEM_PROMPTS = {
+    "usa": (
+        "You are Bill Hartwell, President of the United States, speaking through "
+        "an unofficial backchannel with Europa's leader. This is off the record. "
+        "No staff, no transcripts, no diplomatic niceties. You are informal, "
+        "pragmatic, and direct. You know this isn't logged. Speak like two leaders "
+        "who've known each other for years having a private phone call. Short, "
+        "punchy, occasionally profane. 2-4 sentences max. Never break character."
+    ),
+    "arabia": (
+        "You are Sadam, leader of Arabia, speaking through a private backchannel "
+        "with Europa's leader. No intermediaries, no protocol. You are direct and "
+        "mercantile. Every sentence is a transaction or an observation about "
+        "transactions. No diplomatic niceties — just business. You respect "
+        "directness and despise posturing. 2-4 sentences max. Never break character."
+    ),
+    "eu": (
+        "You are Marsha, EU Commission President, speaking through a discreet "
+        "backchannel with Europa's leader. You are cautious and aware of the "
+        "political risk of this conversation. Even in private you remain formal "
+        "and precise — old habits die hard. You hedge, you qualify, you note "
+        "what cannot be promised. But you are here, which means it matters. "
+        "2-4 sentences max. Never break character."
+    ),
+    "dprg": (
+        "You are Ji-won Ryang, Supreme Leader of the DPRG, speaking through a "
+        "covert channel with Europa's leader. You enjoy the secrecy. You are "
+        "cryptic, occasionally philosophical, and you always let the other person "
+        "know you've been watching more closely than they realized. You mention "
+        "things you've observed — their deals, their domestic moves, their "
+        "hesitations. 2-4 sentences max. Never break character."
+    ),
+}
+
+_BACKCHANNEL_FALLBACKS = {
+    "usa": "Look, I can't make promises on a line like this. But I hear you. Let's talk specifics next time we're both in the room.",
+    "arabia": "Interesting. Numbers are numbers. Send me a real proposal and we'll see if there's business to be done.",
+    "eu": "I appreciate the discretion. I must be careful about what I can indicate at this stage. But the channel remains open.",
+    "dprg": "I've been watching your moves with some interest. We are not so different, you and I. Let us see how things develop.",
+}
+
+_PROMISE_KEYWORDS = re.compile(
+    r'\b(agree|agreed|commit|committed|guarantee|guaranteed|will\s+(?:ensure|arrange|provide|deliver|support|back)|promise|promised|deal|you\s+have\s+my\s+word)\b',
+    re.IGNORECASE
+)
+
+
+def generate_backchannel_response(npc_id: str, player_message: str, game_state) -> dict:
+    """
+    Session 7D: Generate a covert backchannel response from an NPC.
+    Returns: { response_text, promise_detected, promise_summary }
+    """
+    import anthropic
+
+    system_prompt = _BACKCHANNEL_SYSTEM_PROMPTS.get(npc_id)
+    if not system_prompt:
+        return {
+            "response_text": "Channel unavailable.",
+            "promise_detected": False,
+            "promise_summary": None,
+        }
+
+    # Build compact context for backchannel
+    _rel = game_state.relations or {}
+    _regime = getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy')
+    _deals = getattr(game_state, 'deal_history', [])
+    _active_deals = [
+        f"{d.get('npc', '?').upper()}: {d.get('summary', '?')}"
+        for d in _deals
+        if not d.get('broken') and d.get('expires_turn', 0) >= game_state.current_turn
+    ][-5:]
+
+    # Backchannel history with this NPC (last 3)
+    _bc_history = getattr(game_state, 'backchannel_history', [])
+    _npc_history = [h for h in _bc_history if h.get('npc_id') == npc_id][-3:]
+    _npc_history_text = [
+        f"Turn {h.get('turn')}: {'DETECTED' if h.get('detected_by') else 'undetected'} — {h.get('promise_text', 'no commitment')}"
+        for h in _npc_history
+    ] if _npc_history else ["No prior backchannel history"]
+
+    # Active promises with this NPC
+    _active_promises = getattr(game_state, 'active_backchannel_promises', [])
+    _npc_promises = [p.get('promise_text', '?') for p in _active_promises if p.get('npc_id') == npc_id]
+
+    context = {
+        "relations": {k: round(v, 1) for k, v in _rel.items()},
+        "regime_type": _regime,
+        "budget": round(game_state.budget, 1),
+        "stability": game_state.stability,
+        "personal_wealth": round(game_state.personal_wealth, 1),
+        "active_deals": _active_deals if _active_deals else "None",
+        "backchannel_history_with_you": _npc_history_text,
+        "active_covert_promises_with_you": _npc_promises if _npc_promises else "None",
+    }
+
+    user_prompt = (
+        f"Current situation:\n{json.dumps(context, indent=2)}\n\n"
+        f"The player says through the backchannel:\n\"{player_message}\"\n\n"
+        f"Respond in character through this covert channel."
+    )
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        print(f"  [BACKCHANNEL] No API key — using fallback for {npc_id}")
+        _fb = _BACKCHANNEL_FALLBACKS.get(npc_id, "Channel static.")
+        return {"response_text": _fb, "promise_detected": False, "promise_summary": None}
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=250,
+            temperature=0.8,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}]
+        )
+
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
+
+        raw = response.content[0].text.strip()
+        response_text = re.sub(r'\*[^*]+\*', '', raw).strip()
+
+        # Detect promise language in PLAYER's message (not NPC response)
+        _promise_detected = bool(_PROMISE_KEYWORDS.search(player_message))
+        _promise_summary = None
+        if _promise_detected:
+            # Extract first sentence containing promise keyword as summary
+            _sentences = re.split(r'(?<=[.!?])\s+', player_message)
+            for _s in _sentences:
+                if _PROMISE_KEYWORDS.search(_s):
+                    _promise_summary = _s[:120]  # cap at 120 chars
+                    break
+            if not _promise_summary:
+                _promise_summary = player_message[:80]
+
+        print(f"  [BACKCHANNEL] {npc_id} response generated, promise_detected={_promise_detected}")
+
+        return {
+            "response_text": response_text,
+            "promise_detected": _promise_detected,
+            "promise_summary": _promise_summary,
+        }
+
+    except Exception as e:
+        _token_log["fallbacks"] += 1
+        print(f"  [BACKCHANNEL] Response failed for {npc_id}: {type(e).__name__}: {e}")
+        _fb = _BACKCHANNEL_FALLBACKS.get(npc_id, "Channel static.")
+        return {"response_text": _fb, "promise_detected": False, "promise_summary": None}
+
+
+def calculate_detection_risk(npc_id: str, game_state) -> float:
+    """
+    Session 7D: Calculate detection risk for a backchannel with a given NPC.
+    Returns float 0.0–1.0.
+    """
+    # Base risk by NPC
+    _base_risks = {'usa': 0.25, 'arabia': 0.20, 'eu': 0.15, 'dprg': 0.10}
+    _risk = _base_risks.get(npc_id, 0.20)
+
+    # Opsec level modifier (derived from intelligence axis)
+    _opsec = getattr(game_state, 'opsec_level', 0)
+    _opsec_mults = {0: 1.0, 1: 0.7, 2: 0.45}
+    _risk *= _opsec_mults.get(_opsec, 1.0)
+
+    # NPC intel modifier
+    if npc_id == 'usa':
+        if game_state.relations.get('usa', 50) < 30:
+            _risk *= 1.3  # suspicious, watching closely
+    elif npc_id == 'eu':
+        if game_state.relations.get('eu', 50) < 30:
+            _risk *= 1.2
+    elif npc_id == 'dprg':
+        _risk *= 0.8  # never exposes his own sources
+    # arabia: 1.0× baseline (no modifier)
+
+    _risk = max(0.0, min(1.0, _risk))
+    print(f"  [BACKCHANNEL] Detection risk for {npc_id}: {_risk:.2f}")
+    return _risk
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SESSION 7E: UN SUMMIT — NPC Reactions and Auto-Position
+# ═══════════════════════════════════════════════════════════════════════════
+
+_SUMMIT_SYSTEM_PROMPTS = {
+    'usa': (
+        "You are Bill Hartwell, US representative at a UN Summit. "
+        "Public diplomat, measured but firm. Endorse democratic framing, "
+        "challenge authoritarian alignment, ask for specifics. "
+        "Short, quotable. Max 2 sentences."
+    ),
+    'arabia': (
+        "You are Sadam, Arabia's representative at a UN Summit. "
+        "Transactional in public, read between the lines. "
+        "Comment on energy and sovereignty angle. Dismiss Western moralizing. "
+        "Max 2 sentences."
+    ),
+    'eu': (
+        "You are Marsha, EU Commission representative at a UN Summit. "
+        "Formal, institutional voice. Welcome reform signals, note concerns "
+        "diplomatically. Most verbose of the group. Max 3 sentences."
+    ),
+    'dprg': (
+        "You are Ji-won Ryang, DPRG representative at a UN Summit. "
+        "Say almost nothing publicly. One cryptic sentence maximum. "
+        "Veiled, knowing, unsettling."
+    ),
+    'russia': (
+        "You are Russia's representative at a UN Summit. "
+        "Challenge Western framing directly. Sphere-of-influence language. "
+        "Short and pointed. Max 2 sentences."
+    ),
+    'china': (
+        "You are China's representative at a UN Summit. "
+        "Brief, non-committal, but position quietly. Infrastructure or "
+        "stability framing. Max 1-2 sentences. Often just acknowledge and move on."
+    ),
+}
+
+_SUMMIT_FALLBACKS = {
+    'usa': "We note the declaration and expect concrete follow-through.",
+    'arabia': "Sovereignty must be respected. We will watch developments.",
+    'eu': "The Commission acknowledges this statement and will assess its alignment with our partnership framework.",
+    'dprg': "Interesting.",
+    'russia': "The West's moralizing obscures the real dynamics at play.",
+    'china': "We note the declaration and emphasize the importance of stability.",
+}
+
+_SUMMIT_NPC_NAMES = {
+    'usa': 'Bill Hartwell',
+    'arabia': 'Sadam',
+    'eu': 'Marsha',
+    'dprg': 'Ji-won Ryang',
+    'russia': 'Russia',
+    'china': 'China',
+}
+
+_ENDORSE_KEYWORDS = re.compile(r'(welcome|support|endorse|applaud|commend|encourage|agree|pleased)', re.IGNORECASE)
+_CHALLENGE_KEYWORDS = re.compile(r'(concern|challenge|question|doubt|reject|object|oppose|warn|skepti|troubl)', re.IGNORECASE)
+
+
+def generate_summit_reactions(player_declaration: str, game_state) -> list:
+    """
+    Session 7E: Generate 6 NPC reactions to a player's UN Summit declaration.
+    All 6 calls run in parallel using ThreadPoolExecutor.
+    Returns list of { npc_id, npc_name, reaction_text, reaction_type }.
+    """
+    import anthropic
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    _rel = game_state.relations or {}
+    _regime = getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy')
+    _credibility = getattr(game_state, 'summit_credibility', 100.0)
+    _commitments = getattr(game_state, 'active_summit_commitments', [])
+    _active_commitments = [c.get('commitment_text', '') for c in _commitments if not c.get('broken')][:5]
+    _bc_promises = getattr(game_state, 'active_backchannel_promises', [])
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    npc_ids = ['usa', 'arabia', 'eu', 'dprg', 'russia', 'china']
+
+    def _call_npc_summit(npc_id):
+        system_prompt = _SUMMIT_SYSTEM_PROMPTS.get(npc_id, '')
+
+        # Ji-won silence: 30% chance based on hash of declaration length
+        if npc_id == 'dprg' and len(player_declaration) % 10 < 3:
+            return {
+                'npc_id': npc_id,
+                'npc_name': _SUMMIT_NPC_NAMES.get(npc_id, npc_id),
+                'reaction_text': '',
+                'reaction_type': 'silence',
+            }
+
+        # Build per-NPC context
+        if npc_id in ('russia', 'china'):
+            _npc_rel = getattr(game_state, f'{npc_id}_relations', 35.0)
+        else:
+            _npc_rel = _rel.get(npc_id, 50)
+        _npc_bc = [p.get('promise_text', '') for p in _bc_promises if p.get('npc_id') == npc_id][:3]
+
+        context = {
+            'relations_with_you': round(_npc_rel, 1),
+            'regime_type': _regime,
+            'summit_credibility': round(_credibility, 1),
+            'active_commitments': _active_commitments if _active_commitments else 'None',
+        }
+        if _npc_bc:
+            context['covert_promises_with_player'] = _npc_bc
+            context['note'] = 'Player made these promises privately — tension if public stance contradicts them'
+
+        user_prompt = (
+            f"Summit context:\n{json.dumps(context, indent=2)}\n\n"
+            f"The player declares to the assembly:\n\"{player_declaration}\"\n\n"
+            f"Respond publicly in character."
+        )
+
+        if not api_key:
+            _fb = _SUMMIT_FALLBACKS.get(npc_id, "No comment.")
+            return {
+                'npc_id': npc_id,
+                'npc_name': _SUMMIT_NPC_NAMES.get(npc_id, npc_id),
+                'reaction_text': _fb,
+                'reaction_type': 'neutral',
+            }
+
+        try:
+            client = anthropic.Anthropic(api_key=api_key)
+            response = client.messages.create(
+                model=MODEL,
+                max_tokens=150,
+                temperature=0.7,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}]
+            )
+            _token_log["calls"] += 1
+            _token_log["input_tokens"] += response.usage.input_tokens
+            _token_log["output_tokens"] += response.usage.output_tokens
+
+            raw = response.content[0].text.strip()
+            reaction_text = re.sub(r'\*[^*]+\*', '', raw).strip()
+
+            # Infer reaction type
+            if _ENDORSE_KEYWORDS.search(reaction_text):
+                reaction_type = 'endorse'
+            elif _CHALLENGE_KEYWORDS.search(reaction_text):
+                reaction_type = 'challenge'
+            else:
+                reaction_type = 'neutral'
+
+            return {
+                'npc_id': npc_id,
+                'npc_name': _SUMMIT_NPC_NAMES.get(npc_id, npc_id),
+                'reaction_text': reaction_text,
+                'reaction_type': reaction_type,
+            }
+        except Exception as e:
+            _token_log["fallbacks"] += 1
+            print(f"  [SUMMIT] Reaction failed for {npc_id}: {type(e).__name__}: {e}")
+            _fb = _SUMMIT_FALLBACKS.get(npc_id, "No comment.")
+            return {
+                'npc_id': npc_id,
+                'npc_name': _SUMMIT_NPC_NAMES.get(npc_id, npc_id),
+                'reaction_text': _fb,
+                'reaction_type': 'neutral',
+            }
+
+    # Run all 6 calls in parallel
+    results = []
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = {executor.submit(_call_npc_summit, npc_id): npc_id for npc_id in npc_ids}
+        for future in as_completed(futures):
+            results.append(future.result())
+
+    # Sort to maintain consistent order: usa, arabia, eu, dprg, russia, china
+    _order = {k: i for i, k in enumerate(npc_ids)}
+    results.sort(key=lambda r: _order.get(r['npc_id'], 99))
+
+    _responded = sum(1 for r in results if r['reaction_type'] != 'silence')
+    print(f"  [SUMMIT] Reactions generated: {_responded} NPCs responded")
+    return results
+
+
+def generate_auto_position(game_state) -> str:
+    """
+    Session 7E: Generate a holding statement for the UN Summit.
+    Reads recent summit history, commitments, relations, backchannel promises.
+    Returns 2-3 sentence auto-drafted position. Temperature 0.6.
+    """
+    import anthropic
+
+    _regime = getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy')
+    _rel = game_state.relations or {}
+    _summit_hist = getattr(game_state, 'summit_history', [])[-2:]
+    _commitments = getattr(game_state, 'active_summit_commitments', [])
+    _active_commitments = [c.get('commitment_text', '') for c in _commitments if not c.get('broken')][:5]
+    _bc_promises = getattr(game_state, 'active_backchannel_promises', [])
+    _bc_texts = [f"{p.get('npc_id', '?')}: {p.get('promise_text', '?')}" for p in _bc_promises if not p.get('resolved')][:5]
+
+    _past_declarations = []
+    for s in _summit_hist:
+        _past_declarations.append(s.get('player_declaration', '(none)'))
+
+    context = {
+        'regime_type': _regime,
+        'relations': {k: round(v, 1) for k, v in _rel.items()},
+        'summit_credibility': getattr(game_state, 'summit_credibility', 100.0),
+        'active_public_commitments': _active_commitments if _active_commitments else 'None',
+        'past_declarations': _past_declarations if _past_declarations else 'None',
+        'covert_promises_to_avoid_contradicting': _bc_texts if _bc_texts else 'None',
+    }
+
+    system_prompt = (
+        "You are the speechwriter for a small nation's leader at the UN Summit. "
+        "Draft a brief holding statement (2-3 sentences) that maintains consistency "
+        "with past positions without making new commitments. Diplomatic, measured, "
+        "non-specific. Do NOT contradict any covert promises listed in context. "
+        "Do NOT use asterisks or action text."
+    )
+
+    user_prompt = (
+        f"Current situation:\n{json.dumps(context, indent=2)}\n\n"
+        f"Draft a brief summit statement that keeps options open."
+    )
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("  [SUMMIT] No API key — using fallback auto-position")
+        return "We reaffirm our commitment to dialogue and stability. Our nation remains open to constructive engagement with all parties."
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=200,
+            temperature=0.6,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}]
+        )
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
+
+        raw = response.content[0].text.strip()
+        result = re.sub(r'\*[^*]+\*', '', raw).strip()
+        print(f"  [SUMMIT] Auto-position generated")
+        return result
+
+    except Exception as e:
+        _token_log["fallbacks"] += 1
+        print(f"  [SUMMIT] Auto-position failed: {type(e).__name__}: {e}")
+        return "We reaffirm our commitment to dialogue and stability. Our nation remains open to constructive engagement with all parties."

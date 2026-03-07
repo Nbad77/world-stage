@@ -81,6 +81,75 @@
   color: var(--ws-gold);
   border-bottom: 1px solid var(--ws-chrome);
   background: rgba(201, 168, 76, 0.04);
+  transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
+
+/* ── Event mode context label ─────────────────────────────────────────── */
+.dashboard-context-label.context-event {
+  color: #e0e0e0;
+  background: rgba(74, 144, 217, 0.08);
+  border-bottom-color: rgba(74, 144, 217, 0.3);
+}
+
+/* ── Mode indicator (● AMBIENT / ⚡ EVENT) ────────────────────────────── */
+.context-mode-indicator {
+  display: block;
+  font-size: 0.58rem;
+  letter-spacing: 0.2em;
+  margin-bottom: 0.25rem;
+  opacity: 0.7;
+}
+
+.dashboard-context-label.context-event .context-mode-indicator {
+  color: var(--ws-blue);
+  opacity: 1;
+}
+
+/* ── Tab bar (Foreign Affairs | Domestic) ──────────────────────────────── */
+.dashboard-tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.dashboard-tab {
+  flex: 1;
+  padding: 0.5rem 1rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.dashboard-tab:hover {
+  color: var(--fg);
+}
+
+.dashboard-tab.tab-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AMBIENT vs EVENT MODE — Step 3
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Bar pulse animation (stability/approval during event mode) ───────── */
+@keyframes bar-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+.ls-bar-fill.bar-pulse {
+  animation: bar-pulse 2s ease-in-out infinite;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -167,6 +236,16 @@
 .ls-stat-value.good  { color: var(--success); }
 .ls-stat-value.warn  { color: var(--warning); }
 .ls-stat-value.bad   { color: var(--danger);  }
+
+/* ── Tech gain indicator ───────────────────────────────────────────────── */
+.ls-tech-gain {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: var(--muted);
+  text-align: right;
+  margin-top: -2px;
+  padding-right: 2px;
+}
 
 /* ── Progress bars (stability, approval) ───────────────────────────────── */
 .ls-bar-container {
@@ -370,6 +449,8 @@
 .npc-card.health-warn   { border-color: var(--warning); }
 .npc-card.health-bad    { border-color: var(--danger);  }
 .npc-card.placeholder   { border-color: #2a2a2a; opacity: 0.45; }
+.npc-card.npc-passive   { opacity: 0.75; }
+.npc-card.npc-passive .npc-card-subtitle { font-style: italic; }
 
 .npc-card-header {
   display: flex;
@@ -431,6 +512,33 @@
   margin-top: 0.15rem;
 }
 
+/* ── Session 7B Step 3: Contact button ─────────────────────────────────── */
+.npc-contact-btn {
+  display: block;
+  width: 100%;
+  margin-top: 0.4rem;
+  padding: 0.3rem 0;
+  background: transparent;
+  border: 1px solid var(--ws-chrome);
+  border-radius: 4px;
+  color: var(--ws-gold);
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.npc-contact-btn:hover:not(:disabled) {
+  background: var(--ws-chrome);
+  color: var(--ws-bg);
+}
+.npc-contact-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
 /* ── Placeholder cards (Russia, China) ─────────────────────────────────── */
 .npc-card-coming {
   font-family: var(--mono);
@@ -477,6 +585,23 @@
   border: 3px solid var(--ws-chrome);
   flex-shrink: 0;
   position: relative;
+  background: none;
+  padding: 0;
+  cursor: default;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+/* fixes_20 Fix D: Tappable on mobile for player-initiated contact */
+.mobile-npc-circle.mobile-npc-tappable {
+  cursor: pointer;
+}
+.mobile-npc-circle.mobile-npc-tappable:active {
+  border-color: #c9a84c;
+  box-shadow: 0 0 8px rgba(201, 168, 76, 0.5);
+}
+.mobile-npc-circle:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .mobile-npc-circle.health-good { border-color: var(--success); }
@@ -542,4 +667,1732 @@
 .dashboard-right::-webkit-scrollbar-thumb {
   background: var(--ws-chrome);
   border-radius: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ERA TRANSITION CARD — Session 7A Step 5
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.era-transition-card {
+  margin: 1rem 0;
+  padding: 1rem;
+  background: rgba(201, 168, 76, 0.06);
+  border: 2px solid var(--ws-gold);
+  border-radius: 8px;
+  position: relative;
+}
+
+.era-transition-header {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ws-gold);
+  margin-bottom: 0.75rem;
+  text-align: center;
+}
+
+.era-transition-body {
+  font-family: var(--sans);
+  font-size: 0.85rem;
+  color: var(--text);
+  line-height: 1.5;
+  margin-bottom: 0.75rem;
+}
+
+.era-transition-prompt {
+  margin-top: 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ws-gold);
+  font-style: italic;
+}
+
+.era-transition-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.era-dismiss-btn {
+  color: var(--muted) !important;
+  border-color: var(--ws-chrome) !important;
+}
+
+.era-close-btn {
+  background: var(--ws-gold) !important;
+  color: #0f1923 !important;
+  border-color: var(--ws-gold) !important;
+  font-weight: 700;
+}
+
+.era-close-btn:hover {
+  background: #d4b356 !important;
+}
+
+.era-close-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HISTORIAN VERDICT MODAL — Session 7A Step 5
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.historian-overlay {
+  z-index: 360;
+}
+
+.historian-modal {
+  background: var(--ws-surface);
+  border: 2px solid var(--ws-gold);
+  border-radius: 10px;
+  max-width: 520px;
+  width: 90vw;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.historian-modal-header {
+  background: rgba(201, 168, 76, 0.08);
+  padding: 1rem 1.25rem;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ws-gold);
+  border-bottom: 1px solid var(--ws-chrome);
+  text-align: center;
+}
+
+.historian-modal-body {
+  padding: 1.25rem;
+}
+
+.historian-on-demand-note {
+  font-style: italic;
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 0.75rem;
+}
+
+.historian-text {
+  font-family: var(--sans);
+  font-size: 0.88rem;
+  color: var(--text);
+  line-height: 1.65;
+  font-style: italic;
+}
+
+.historian-modal-actions {
+  padding: 0.75rem 1.25rem 1.25rem;
+  display: flex;
+  justify-content: center;
+}
+
+/* ── Historian button (active state) in left sidebar ─────────────────────── */
+.ls-historian-btn.ls-historian-active {
+  opacity: 1;
+  cursor: pointer;
+  color: var(--ws-gold);
+  border-color: var(--ws-gold);
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.ls-historian-btn.ls-historian-active:hover {
+  background: rgba(201, 168, 76, 0.15);
+}
+
+.ls-historian-btn.ls-historian-active:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* ── Budget allocation summary (LeftSidebar) ───────────────────────────── */
+.ls-budget-summary {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  color: var(--muted);
+  text-align: center;
+  padding: 0.25rem 0;
+  letter-spacing: 0.03em;
+  border-top: 1px solid var(--border);
+  margin-top: 0.25rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DOMESTIC AFFAIRS TAB
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.domestic-tab {
+  padding: 1rem;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.domestic-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.domestic-title {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--fg);
+}
+
+.domestic-total {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--success);
+}
+
+.domestic-total.total-error {
+  color: var(--danger);
+}
+
+/* ── Slider rows ────────────────────────────────────────────────────────── */
+.domestic-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.domestic-slider-row {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+}
+
+.domestic-slider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.3rem;
+}
+
+.domestic-cat-label {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.domestic-cat-pct {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.domestic-cat-pct.slider-high { color: var(--success); }
+.domestic-cat-pct.slider-med  { color: var(--warning); }
+.domestic-cat-pct.slider-low  { color: var(--danger); }
+
+/* ── Range slider styling ─────────────────────────────────────────────── */
+.domestic-range {
+  width: 100%;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--border);
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+}
+
+.domestic-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid var(--bg);
+}
+
+.domestic-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid var(--bg);
+}
+
+.domestic-range.slider-high::-webkit-slider-thumb { background: var(--success); }
+.domestic-range.slider-med::-webkit-slider-thumb  { background: var(--warning); }
+.domestic-range.slider-low::-webkit-slider-thumb   { background: var(--danger); }
+
+.domestic-range.slider-high::-moz-range-thumb { background: var(--success); }
+.domestic-range.slider-med::-moz-range-thumb  { background: var(--warning); }
+.domestic-range.slider-low::-moz-range-thumb   { background: var(--danger); }
+
+/* ── Effect preview text ──────────────────────────────────────────────── */
+.domestic-effect {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  margin-top: 0.25rem;
+  font-style: italic;
+}
+
+.domestic-effect.effect-good { color: var(--success); }
+.domestic-effect.effect-ok   { color: var(--muted); }
+.domestic-effect.effect-warn { color: var(--warning); }
+.domestic-effect.effect-bad  { color: var(--danger); }
+
+/* ── Actions bar ──────────────────────────────────────────────────────── */
+.domestic-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.domestic-apply-btn {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.5rem 1.5rem;
+  background: var(--accent);
+  color: #000;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.domestic-apply-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.domestic-apply-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.domestic-flash {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.domestic-flash.flash-ok    { color: var(--success); }
+.domestic-flash.flash-error { color: var(--danger); }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ADVISOR PANEL — Session 7C Step 2
+   Compact row of 3 advisor cards with trust tiers and assign buttons.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.advisor-panel-7c {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.6rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+}
+
+.advisor-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+
+.advisor-panel-title {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--ws-gold);
+  letter-spacing: 0.08em;
+}
+
+.advisor-slot-indicator {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  color: var(--muted);
+}
+
+.advisor-error {
+  font-size: 0.65rem;
+  color: #ff5252;
+  margin-bottom: 0.3rem;
+  padding: 0.2rem 0.4rem;
+  background: rgba(255, 82, 82, 0.1);
+  border-radius: 3px;
+}
+
+.advisor-card-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.advisor-card-7c {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.5rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  border-left: 3px solid var(--advisor-accent, #888);
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.advisor-card-7c.advisor-assigned {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--advisor-accent);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.05);
+}
+
+.advisor-card-top {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.3rem;
+}
+
+.advisor-card-icon {
+  font-size: 0.85rem;
+}
+
+.advisor-card-name {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Trust tier bar ─────────────────────────────────────────────────────── */
+
+.advisor-trust-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.3rem;
+}
+
+.advisor-trust-label {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  font-weight: 600;
+  min-width: 3.2rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.advisor-trust-label.trust-high     { color: #4caf50; }
+.advisor-trust-label.trust-med      { color: #ffc107; }
+.advisor-trust-label.trust-low      { color: #ff9800; }
+.advisor-trust-label.trust-critical { color: #ff5252; }
+
+.advisor-trust-bar {
+  flex: 1;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.advisor-trust-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+.advisor-trust-fill.trust-high     { background: #4caf50; }
+.advisor-trust-fill.trust-med      { background: #ffc107; }
+.advisor-trust-fill.trust-low      { background: #ff9800; }
+.advisor-trust-fill.trust-critical { background: #ff5252; }
+
+/* ── Defection badge ────────────────────────────────────────────────────── */
+
+.advisor-defection-badge {
+  font-size: 0.55rem;
+  font-weight: 700;
+  color: #ff5252;
+  margin-bottom: 0.25rem;
+  letter-spacing: 0.05em;
+}
+
+/* ── Assign / Unassign button ───────────────────────────────────────────── */
+
+.advisor-assign-btn {
+  width: 100%;
+  padding: 0.2rem 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  transition: all 0.15s;
+}
+
+.advisor-assign-btn.btn-available {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.advisor-assign-btn.btn-available:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--ws-gold);
+  color: var(--ws-gold);
+}
+
+.advisor-assign-btn.btn-assigned {
+  background: rgba(76, 175, 80, 0.15);
+  color: #4caf50;
+  border-color: rgba(76, 175, 80, 0.3);
+}
+
+.advisor-assign-btn.btn-assigned:hover {
+  background: rgba(255, 82, 82, 0.12);
+  color: #ff5252;
+  border-color: rgba(255, 82, 82, 0.3);
+}
+
+.advisor-assign-btn.btn-disabled {
+  background: transparent;
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* ── Mobile: stack cards vertically ──────────────────────────────────────── */
+
+@media (max-width: 600px) {
+  .advisor-card-row {
+    flex-direction: column;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ADVISOR ANALYSIS CARDS — Session 7C Step 3
+   Subtle tinted cards showing Claude-generated advisor assessments.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.advisor-analyses {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+
+.advisor-analysis-card {
+  padding: 0.4rem 0.6rem;
+  border-radius: 5px;
+  border-left: 3px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* Color tints per advisor */
+.advisor-analysis-card.analysis-green {
+  border-left-color: rgba(76, 175, 80, 0.5);
+  background: rgba(76, 175, 80, 0.05);
+}
+
+.advisor-analysis-card.analysis-red {
+  border-left-color: rgba(244, 67, 54, 0.5);
+  background: rgba(244, 67, 54, 0.05);
+}
+
+.advisor-analysis-card.analysis-blue {
+  border-left-color: rgba(66, 165, 245, 0.5);
+  background: rgba(66, 165, 245, 0.05);
+}
+
+.analysis-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.25rem;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.analysis-label {
+  font-size: 0.55rem;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.analysis-card-body {
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.75);
+  font-style: italic;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PROMISE TRACKER — Session 7D Step 3
+   Persistent covert commitments card in center panel.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.promise-tracker {
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.75rem;
+  background: rgba(120, 40, 40, 0.08);
+  border: 1px solid rgba(120, 40, 40, 0.25);
+  border-radius: 8px;
+}
+
+.promise-tracker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.4rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid rgba(120, 40, 40, 0.15);
+}
+
+.promise-tracker-title {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.promise-tracker-risk {
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ── Per-NPC group ───────────────────────────────────────────────────────── */
+.promise-tracker-npc {
+  margin-bottom: 0.3rem;
+}
+
+.promise-tracker-npc:last-child {
+  margin-bottom: 0;
+}
+
+.promise-tracker-npc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 0.15rem;
+}
+
+.promise-tracker-npc-risk {
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+/* ── Individual promise item ─────────────────────────────────────────────── */
+.promise-tracker-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  padding: 0.1rem 0 0.1rem 0.5rem;
+}
+
+.promise-tracker-bullet {
+  font-size: 0.6rem;
+  flex-shrink: 0;
+}
+
+.promise-tracker-text {
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.65);
+  flex: 1;
+}
+
+.promise-tracker-turn {
+  font-family: var(--mono);
+  font-size: 0.5rem;
+  color: rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+  letter-spacing: 0.05em;
+}
+
+/* ── Risk bar at bottom ──────────────────────────────────────────────────── */
+.promise-tracker-bar {
+  height: 2px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 1px;
+  margin-top: 0.4rem;
+}
+
+.promise-tracker-bar-fill {
+  height: 100%;
+  border-radius: 1px;
+  transition: width 0.4s ease;
+}
+
+/* ── History toggle button ───────────────────────────────────────────────── */
+.promise-tracker-history-toggle {
+  display: block;
+  width: 100%;
+  margin-top: 0.4rem;
+  padding: 0.3rem 0;
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.35);
+  background: none;
+  border: none;
+  border-top: 1px solid rgba(120, 40, 40, 0.15);
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.15s;
+}
+
+.promise-tracker-history-toggle:hover {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BACKCHANNEL HISTORY LOG — Session 7D Step 4
+   Expandable chronological log of all backchannel exchanges.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.backchannel-history-log {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.bclog-entry {
+  padding: 0.4rem 0.5rem;
+  background: rgba(120, 40, 40, 0.06);
+  border: 1px solid rgba(120, 40, 40, 0.12);
+  border-radius: 5px;
+}
+
+.bclog-entry.bclog-detected {
+  border-color: rgba(229, 74, 74, 0.3);
+  background: rgba(229, 74, 74, 0.06);
+}
+
+.bclog-entry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.55);
+  margin-bottom: 0.25rem;
+}
+
+.bclog-turn {
+  font-size: 0.5rem;
+  color: rgba(255, 255, 255, 0.3);
+  letter-spacing: 0.06em;
+}
+
+.bclog-exchange {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.bclog-player,
+.bclog-npc {
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.bclog-role {
+  font-family: var(--mono);
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.4);
+  margin-right: 0.25rem;
+}
+
+.bclog-promise {
+  margin-top: 0.2rem;
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  color: #ffb74d;
+  padding: 0.15rem 0.3rem;
+  background: rgba(255, 183, 77, 0.08);
+  border-radius: 3px;
+}
+
+.bclog-detected-badge {
+  margin-top: 0.2rem;
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  font-weight: 700;
+  color: var(--danger);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ── History log scrollbar ───────────────────────────────────────────────── */
+.backchannel-history-log::-webkit-scrollbar {
+  width: 3px;
+}
+.backchannel-history-log::-webkit-scrollbar-track {
+  background: transparent;
+}
+.backchannel-history-log::-webkit-scrollbar-thumb {
+  background: rgba(120, 40, 40, 0.25);
+  border-radius: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   NPC BACKCHANNEL BUTTON — Session 7D Step 2
+   Covert channel button on NPC cards in right sidebar.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.npc-backchannel-btn {
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.3rem 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(120, 40, 40, 0.2);
+  border: 1px solid rgba(120, 40, 40, 0.4);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.npc-backchannel-btn:hover:not(:disabled) {
+  background: rgba(120, 40, 40, 0.35);
+  border-color: rgba(160, 50, 50, 0.6);
+}
+
+.npc-backchannel-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.backchannel-risk-label {
+  font-weight: 700;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BACKCHANNEL MODAL — Session 7D Step 2
+   Full-screen dark overlay with covert channel conversation UI.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.backchannel-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 5, 10, 0.92);
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.backchannel-modal {
+  width: 100%;
+  max-width: 520px;
+  max-height: 85vh;
+  background: #0a0d12;
+  border: 1px solid rgba(120, 40, 40, 0.5);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 0 40px rgba(120, 40, 40, 0.15), 0 0 120px rgba(0, 0, 0, 0.6);
+}
+
+/* ── Detection risk meter — thin bar at top ─────────────────────────────── */
+.backchannel-risk-meter {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
+}
+
+.backchannel-risk-meter-fill {
+  height: 100%;
+  transition: width 0.4s ease;
+  border-radius: 0 2px 2px 0;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+.backchannel-header {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(120, 40, 40, 0.3);
+  flex-shrink: 0;
+}
+
+.backchannel-title {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #a03030;
+  text-transform: uppercase;
+}
+
+.backchannel-subtitle {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 0.2rem;
+  text-transform: uppercase;
+}
+
+/* ── Promise recorded banner ─────────────────────────────────────────────── */
+.backchannel-promise-banner {
+  padding: 0.4rem 1rem;
+  background: rgba(255, 183, 77, 0.12);
+  border-bottom: 1px solid rgba(255, 183, 77, 0.3);
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #ffb74d;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  animation: promise-flash 0.5s ease;
+  flex-shrink: 0;
+}
+
+@keyframes promise-flash {
+  0% { background: rgba(255, 183, 77, 0.3); }
+  100% { background: rgba(255, 183, 77, 0.12); }
+}
+
+/* ── Error banner ────────────────────────────────────────────────────────── */
+.backchannel-error {
+  padding: 0.35rem 1rem;
+  background: rgba(229, 74, 74, 0.1);
+  border-bottom: 1px solid rgba(229, 74, 74, 0.3);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--danger);
+  flex-shrink: 0;
+}
+
+/* ── Message area ────────────────────────────────────────────────────────── */
+.backchannel-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 200px;
+}
+
+.backchannel-empty {
+  text-align: center;
+  padding: 2rem 1rem;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: rgba(255, 255, 255, 0.3);
+  line-height: 1.5;
+  font-style: italic;
+}
+
+/* ── Message bubbles ─────────────────────────────────────────────────────── */
+.backchannel-message {
+  max-width: 85%;
+  padding: 0.45rem 0.65rem;
+  border-radius: 6px;
+}
+
+.backchannel-message.msg-player {
+  align-self: flex-end;
+  background: rgba(70, 70, 100, 0.25);
+  border: 1px solid rgba(100, 100, 140, 0.2);
+}
+
+.backchannel-message.msg-npc {
+  align-self: flex-start;
+  background: rgba(120, 40, 40, 0.15);
+  border: 1px solid rgba(120, 40, 40, 0.25);
+}
+
+.backchannel-msg-label {
+  font-family: var(--mono);
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+  margin-bottom: 0.2rem;
+}
+
+.backchannel-msg-text {
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.backchannel-typing {
+  opacity: 0.5;
+  font-style: italic;
+  animation: backchannel-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes backchannel-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.2; }
+}
+
+/* ── Promises list ───────────────────────────────────────────────────────── */
+.backchannel-promises-list {
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid rgba(255, 183, 77, 0.15);
+  background: rgba(255, 183, 77, 0.04);
+  flex-shrink: 0;
+}
+
+.backchannel-promises-header {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 183, 77, 0.7);
+  margin-bottom: 0.3rem;
+}
+
+.backchannel-promise-item {
+  font-size: 0.68rem;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.35;
+  padding: 0.1rem 0;
+}
+
+/* ── Input area ──────────────────────────────────────────────────────────── */
+.backchannel-input-area {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid rgba(120, 40, 40, 0.3);
+  background: rgba(0, 0, 0, 0.3);
+  flex-shrink: 0;
+}
+
+.backchannel-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(120, 40, 40, 0.3);
+  border-radius: 5px;
+  padding: 0.4rem 0.5rem;
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  color: var(--text);
+  resize: none;
+  outline: none;
+}
+
+.backchannel-input:focus {
+  border-color: rgba(160, 48, 48, 0.5);
+}
+
+.backchannel-input::placeholder {
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.backchannel-send-btn {
+  padding: 0.4rem 0.8rem;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #a03030;
+  background: rgba(120, 40, 40, 0.15);
+  border: 1px solid rgba(120, 40, 40, 0.4);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.15s;
+  align-self: flex-end;
+}
+
+.backchannel-send-btn:hover:not(:disabled) {
+  background: rgba(120, 40, 40, 0.3);
+}
+
+.backchannel-send-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* ── Close button ────────────────────────────────────────────────────────── */
+.backchannel-close-btn {
+  width: 100%;
+  padding: 0.55rem;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.03);
+  border: none;
+  border-top: 1px solid rgba(120, 40, 40, 0.2);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.backchannel-close-btn:hover {
+  background: rgba(120, 40, 40, 0.15);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ── Scrollbar for backchannel messages ───────────────────────────────────── */
+.backchannel-messages::-webkit-scrollbar {
+  width: 4px;
+}
+.backchannel-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+.backchannel-messages::-webkit-scrollbar-thumb {
+  background: rgba(120, 40, 40, 0.3);
+  border-radius: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SUMMIT COMMITMENT TRACKER — Session 7E Step 3
+   Public commitment display card + credibility bar + summit history log.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.summit-commitment-tracker {
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.75rem;
+  background: rgba(30, 60, 90, 0.12);
+  border: 1px solid rgba(68, 170, 255, 0.15);
+  border-radius: 6px;
+}
+
+.sct-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.35rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid rgba(68, 170, 255, 0.08);
+}
+
+.sct-title {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.65);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sct-credibility {
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.sct-credibility.cred-high { color: #4db6ac; }
+.sct-credibility.cred-mid  { color: #ffb74d; }
+.sct-credibility.cred-low  { color: #ef5350; }
+
+/* ── Credibility bar ────────────────────────────────────────────────────── */
+.sct-bar {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 2px;
+  margin-bottom: 0.4rem;
+  overflow: hidden;
+}
+
+.sct-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+.sct-bar-fill.cred-high { background: #4db6ac; }
+.sct-bar-fill.cred-mid  { background: #ffb74d; }
+.sct-bar-fill.cred-low  { background: #ef5350; }
+
+/* ── Commitment items ───────────────────────────────────────────────────── */
+.sct-section {
+  margin-bottom: 0.25rem;
+}
+
+.sct-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  padding: 0.15rem 0;
+}
+
+.sct-bullet {
+  font-size: 0.6rem;
+  flex-shrink: 0;
+}
+
+.sct-text {
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.7);
+  flex: 1;
+}
+
+.sct-text-broken {
+  text-decoration: line-through;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.sct-day {
+  font-family: var(--mono);
+  font-size: 0.5rem;
+  color: rgba(255, 255, 255, 0.3);
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.sct-empty {
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.3);
+  font-style: italic;
+  text-align: center;
+  padding: 0.3rem 0;
+}
+
+/* ── Summit history toggle ──────────────────────────────────────────────── */
+.sct-history-toggle {
+  display: block;
+  width: 100%;
+  padding: 0.3rem 0;
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  color: rgba(255, 255, 255, 0.35);
+  letter-spacing: 0.1em;
+  background: none;
+  border: none;
+  border-top: 1px solid rgba(68, 170, 255, 0.1);
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.15s;
+  margin-top: 0.25rem;
+}
+
+.sct-history-toggle:hover {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* ── Summit history log ─────────────────────────────────────────────────── */
+.sct-history-log {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.sct-history-entry {
+  padding: 0.4rem 0.5rem;
+  background: rgba(30, 60, 90, 0.08);
+  border: 1px solid rgba(68, 170, 255, 0.1);
+  border-radius: 5px;
+}
+
+.sct-history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 0.2rem;
+}
+
+.sct-history-commitments {
+  font-size: 0.5rem;
+  color: #4db6ac;
+}
+
+.sct-history-declaration {
+  font-size: 0.65rem;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.55);
+  font-style: italic;
+  margin-bottom: 0.2rem;
+}
+
+.sct-history-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.sct-history-reaction {
+  font-family: var(--mono);
+  font-size: 0.5rem;
+  padding: 0.1rem 0.25rem;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.sct-rx-endorse   { color: #4caf50; }
+.sct-rx-challenge { color: #ef5350; }
+.sct-rx-neutral   { color: #90a4ae; }
+.sct-rx-silence   { color: #546e7a; }
+
+/* ── Left Sidebar: Summit Commitment Summary ────────────────────────────── */
+.ls-summit-commitments-summary {
+  display: flex;
+  gap: 0.6rem;
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  margin-top: 0.15rem;
+  padding-left: 0.1rem;
+}
+
+.ls-commitment-active {
+  color: #4db6ac;
+}
+
+.ls-commitment-broken {
+  color: #ef5350;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UN SUMMIT MODAL — Session 7E Step 2
+   Group chat UI replacing center panel content. Sidebars remain visible.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.summit-modal {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--ws-bg);
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+.summit-header {
+  padding: 1rem 1.2rem 0.75rem;
+  border-bottom: 2px solid var(--ws-gold);
+  flex-shrink: 0;
+  background: rgba(201, 168, 76, 0.04);
+}
+
+.summit-title {
+  font-family: var(--mono);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--ws-gold);
+  text-transform: uppercase;
+}
+
+.summit-subtitle {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 0.25rem;
+  text-transform: uppercase;
+}
+
+/* ── Commitment flash banner ─────────────────────────────────────────────── */
+.summit-commitment-flash {
+  padding: 0.5rem 1rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #ffb74d;
+  background: rgba(255, 183, 77, 0.1);
+  border-bottom: 1px solid rgba(255, 183, 77, 0.2);
+  text-align: center;
+  animation: summit-flash-in 0.3s ease;
+}
+
+@keyframes summit-flash-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Error banner ────────────────────────────────────────────────────────── */
+.summit-error {
+  padding: 0.45rem 1rem;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--danger);
+  background: rgba(229, 74, 74, 0.1);
+  border-bottom: 1px solid rgba(229, 74, 74, 0.2);
+  text-align: center;
+}
+
+/* ── Thread area ─────────────────────────────────────────────────────────── */
+.summit-thread {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+.summit-empty {
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.35);
+  padding: 2rem 1rem;
+  line-height: 1.6;
+}
+
+/* ── Player declaration ──────────────────────────────────────────────────── */
+.summit-declaration {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--ws-gold);
+  border-left: 3px solid var(--ws-gold);
+  border-radius: 6px;
+  background: rgba(201, 168, 76, 0.06);
+}
+
+.summit-declaration-label {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--ws-gold);
+  text-transform: uppercase;
+  margin-bottom: 0.3rem;
+}
+
+.summit-declaration-text {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* ── NPC reaction message ────────────────────────────────────────────────── */
+.summit-message {
+  padding: 0.6rem 0.85rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 3px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.summit-message.endorse {
+  border-color: rgba(76, 175, 80, 0.3);
+  border-left-color: #4caf50;
+  background: rgba(76, 175, 80, 0.04);
+}
+
+.summit-message.challenge {
+  border-color: rgba(239, 83, 80, 0.3);
+  border-left-color: #ef5350;
+  background: rgba(239, 83, 80, 0.04);
+}
+
+.summit-message.neutral {
+  border-color: rgba(144, 164, 174, 0.2);
+  border-left-color: #90a4ae;
+  background: rgba(144, 164, 174, 0.03);
+}
+
+.summit-message.silence {
+  border-color: rgba(84, 110, 122, 0.15);
+  border-left-color: #546e7a;
+  background: rgba(84, 110, 122, 0.03);
+  opacity: 0.7;
+}
+
+/* Observer styling — slightly muted */
+.summit-message.summit-observer {
+  opacity: 0.75;
+}
+
+.summit-message-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.35rem;
+}
+
+.summit-npc-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.summit-npc-flag {
+  font-size: 1rem;
+}
+
+.summit-npc-name {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.8);
+  text-transform: uppercase;
+}
+
+.summit-observer-badge {
+  font-family: var(--mono);
+  font-size: 0.48rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.35);
+  text-transform: uppercase;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.summit-reaction-badge {
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.summit-reaction-text {
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.summit-silence {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* ── Loading indicator ───────────────────────────────────────────────────── */
+.summit-loading {
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.4);
+  padding: 0.75rem;
+  animation: summit-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes summit-pulse {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 1; }
+}
+
+/* ── Action area ─────────────────────────────────────────────────────────── */
+.summit-action-area {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid rgba(201, 168, 76, 0.2);
+  flex-shrink: 0;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.summit-input {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  font-family: inherit;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(201, 168, 76, 0.25);
+  border-radius: 6px;
+  resize: vertical;
+  min-height: 60px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.summit-input:focus {
+  border-color: var(--ws-gold);
+}
+
+.summit-input:disabled {
+  opacity: 0.5;
+}
+
+.summit-auto-note {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  color: #ffb74d;
+  margin-top: 0.25rem;
+  letter-spacing: 0.04em;
+}
+
+.summit-buttons {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.summit-btn {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+
+.summit-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.summit-btn-auto {
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(74, 144, 217, 0.12);
+  border: 1px solid rgba(74, 144, 217, 0.35);
+}
+
+.summit-btn-auto:hover:not(:disabled) {
+  background: rgba(74, 144, 217, 0.22);
+  border-color: rgba(74, 144, 217, 0.55);
+}
+
+.summit-btn-declare {
+  color: var(--ws-gold);
+  background: rgba(201, 168, 76, 0.12);
+  border: 1px solid rgba(201, 168, 76, 0.4);
+}
+
+.summit-btn-declare:hover:not(:disabled) {
+  background: rgba(201, 168, 76, 0.22);
+  border-color: rgba(201, 168, 76, 0.6);
+}
+
+.summit-btn-close {
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.summit-btn-close:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ── Summit thread scrollbar ─────────────────────────────────────────────── */
+.summit-thread::-webkit-scrollbar {
+  width: 4px;
+}
+.summit-thread::-webkit-scrollbar-track {
+  background: transparent;
+}
+.summit-thread::-webkit-scrollbar-thumb {
+  background: rgba(201, 168, 76, 0.2);
+  border-radius: 2px;
+}
+
+/* ── Summit pending banner (in DIALOGUE phase) ───────────────────────────── */
+.summit-pending-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 1rem;
+  margin-bottom: 0.75rem;
+  background: rgba(201, 168, 76, 0.08);
+  border: 1px solid rgba(201, 168, 76, 0.35);
+  border-left: 3px solid var(--ws-gold);
+  border-radius: 6px;
+  animation: summit-banner-glow 3s ease-in-out infinite;
+}
+
+@keyframes summit-banner-glow {
+  0%, 100% { border-color: rgba(201, 168, 76, 0.35); }
+  50%      { border-color: rgba(201, 168, 76, 0.6); }
+}
+
+.summit-pending-text {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ws-gold);
+}
+
+.summit-pending-btn {
+  flex-shrink: 0;
+  padding: 0.4rem 1rem;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #0f1923;
+  background: var(--ws-gold);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.summit-pending-btn:hover {
+  background: #d4b65e;
+  transform: translateY(-1px);
+}
+
+/* ── Summit-blocked notice in OffersPanel ─────────────────────────────────── */
+.summit-blocked-notice {
+  padding: 0.45rem 0.75rem;
+  margin-bottom: 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ws-gold);
+  background: rgba(201, 168, 76, 0.06);
+  border: 1px solid rgba(201, 168, 76, 0.2);
+  border-radius: 5px;
+  text-align: center;
 }

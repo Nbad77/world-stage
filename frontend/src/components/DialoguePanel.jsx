@@ -153,6 +153,13 @@ function IntelDossier({ npcKey, sessionId, gs, onGsUpdate, intelligenceLevel = 0
     }
   }, [npcKey, gs?.current_turn]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // fixes_20 Fix C: Log once per turn, not on every re-render
+  useEffect(() => {
+    if (intelligenceLevel < 3) {
+      console.log(`[INTELLIGENCE] Intel locked for ${npcKey}: intelligence level ${intelligenceLevel} < 3`)
+    }
+  }, [npcKey, gs?.current_turn, intelligenceLevel])
+
   async function handleActivate() {
     if (loading) return
     setLoading(true)
@@ -184,7 +191,6 @@ function IntelDossier({ npcKey, sessionId, gs, onGsUpdate, intelligenceLevel = 0
 
   // Session 6: Intel locked unless Intelligence axis >= 3 (was Security)
   if (intelligenceLevel < 3) {
-    console.log(`[INTELLIGENCE] Intel locked for ${npcKey}: intelligence level ${intelligenceLevel} < 3`)
     return (
       <div className="intel-dossier intel-dossier-inactive" style={{ opacity: 0.5 }}>
         <button
@@ -340,7 +346,7 @@ export default function DialoguePanel({
   // fixes_19 Fix A: Log negotiate costs once per turn or when political axis changes
   const _politicalAxisLevel = gs?.cabinet_axes?.political || 0
   useEffect(() => {
-    const activeAdvisors = gs?.advisors || []
+    const activeAdvisors = Array.isArray(gs?.advisors) ? gs.advisors : []
     const diplomat = activeAdvisors.find(a => a.archetype === 'diplomat')
     for (const { key } of NPC_ORDER) {
       const rel = gs?.relations?.[key] ?? 50
@@ -362,6 +368,33 @@ export default function DialoguePanel({
       if (negDiscountLabel) console.log(`[DialoguePanel] Fix 22+23: ${key} negotiate cost $${baseNegCost}B → $${discountedCost}B (${negDiscountLabel})`)
     }
   }, [_currentTurn, _politicalAxisLevel]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Session 7B: Compute urgency tier for each NPC (factors in ignored communiqués)
+  const ignoredMap = gs?.ignored_communiques || {}
+  const briefingTiers = {}
+  for (const { key } of NPC_ORDER) {
+    const rel = gs?.relations?.[key] ?? 50
+    const hasSanctions = key === 'usa' && gs?.usa_sanctions_active
+    const hasEmbargo = key === 'arabia' && gs?.arabia_embargo_active
+    const ignoreCount = ignoredMap[key]?.ignore_count || 0
+    if (hasSanctions || hasEmbargo || rel < 25 || ignoreCount >= 2) {
+      briefingTiers[key] = 'urgent'
+    } else if (ignoreCount === 1) {
+      briefingTiers[key] = 'developing'
+    } else {
+      briefingTiers[key] = 'incoming'
+    }
+  }
+
+  // Session 7B: Emit briefing tier counts
+  useEffect(() => {
+    if (!gs) return
+    const counts = { urgent: 0, incoming: 0, intelligence: 0, developing: 0 }
+    for (const tier of Object.values(briefingTiers)) {
+      counts[tier] = (counts[tier] || 0) + 1
+    }
+    console.log('[BRIEFING] Items rendered:', counts)
+  }, [gs?.current_turn]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="panel dialogue-panel">
@@ -395,7 +428,7 @@ export default function DialoguePanel({
         const baseNegCost = rel >= 60 ? 0.3 : rel >= 30 ? 0.5 : 0.8
         let negMult = 1.0
         let negDiscountLabel = ''
-        const activeAdvisors = gs?.advisors || []
+        const activeAdvisors = Array.isArray(gs?.advisors) ? gs.advisors : []
         const diplomat = activeAdvisors.find(a => a.archetype === 'diplomat')
         if (diplomat) {
           if (diplomat.competence >= 80) {
@@ -418,10 +451,27 @@ export default function DialoguePanel({
         const negCost = incomingContact ? 0 : discountedCost
         // Fix 22+23 negotiate cost log moved to useEffect below (fixes_19 Fix A)
 
+        const tier = briefingTiers[key] || 'incoming'
+        const ignoreCount = ignoredMap[key]?.ignore_count || 0
+        const escalationClass = ignoreCount >= 3 ? 'npc-row-escalated-3' :
+                                ignoreCount >= 2 ? 'npc-row-escalated-2' :
+                                ignoreCount >= 1 ? 'npc-row-escalated-1' : ''
+
         return (
-          <div key={key} className={`npc-row ${incomingContact ? 'npc-row-incoming' : ''}`}>
+          <div
+            key={key}
+            className={`npc-row ${incomingContact?.leverage_type ? 'npc-row-leverage' : incomingContact ? 'npc-row-incoming' : ''} ${escalationClass}`}
+            title={ignoreCount > 0 ? `${ignoreCount} day${ignoreCount !== 1 ? 's' : ''} without response` : undefined}
+          >
             <div className="npc-row-header">
               <span className={`npc-name ${key}`}>
+                {/* Session 7B: Urgency tier tag */}
+                <span className={`briefing-tag briefing-tag-${tier}`}>
+                  {tier === 'urgent' && ignoreCount >= 3 ? 'CONFRONTATION' :
+                   tier === 'urgent' && ignoreCount >= 2 ? 'OVERDUE' :
+                   tier === 'urgent' ? 'URGENT' :
+                   tier === 'developing' ? 'NO RESPONSE' : 'INCOMING'}
+                </span>
                 {flag} {label}
                 {/* fixes_13 Fix 7: Show "Private Channel" instead of department subtitle for INCOMING */}
                 {incomingContact ? (

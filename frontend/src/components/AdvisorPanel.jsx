@@ -1,180 +1,175 @@
 /**
- * AdvisorPanel — Session 5 advisor management.
- * Shows active advisors (max 3) and available hiring pool.
- * Supports hire, dismiss, and eliminate actions.
+ * AdvisorPanel — Session 7C Step 2+3: Advisor Assignment + Analysis UI.
+ * Shows 3 fixed advisor cards in a compact row.
+ * Each card: name + icon, trust tier bar, assign/unassign button.
+ * When assigned, generates Claude analysis displayed below.
  *
  * Props:
- *   gs        : game_state object
+ *   gs        : game_state object (advisors dict)
  *   sessionId : string
  *   onGsUpdate: (newGs) => void
  */
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { api } from '../api'
 
+const ADVISOR_META = {
+  finance_minister: { icon: '💰', color: '#4caf50', tint: 'analysis-green' },
+  security_chief:   { icon: '🛡️', color: '#f44336', tint: 'analysis-red' },
+  diplomatic_aide:  { icon: '🕊️', color: '#42a5f5', tint: 'analysis-blue' },
+}
+
+function trustTier(trust) {
+  if (trust >= 70) return { label: 'High',     cls: 'trust-high' }
+  if (trust >= 40) return { label: 'Medium',   cls: 'trust-med' }
+  if (trust >= 20) return { label: 'Low',      cls: 'trust-low' }
+  return              { label: 'Critical', cls: 'trust-critical' }
+}
+
 export default function AdvisorPanel({ gs, sessionId, onGsUpdate }) {
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(null) // advisor key being acted on
   const [error, setError] = useState(null)
-  const [successMsg, setSuccessMsg] = useState(null)
-  const [confirmEliminate, setConfirmEliminate] = useState(null) // advisor_id or null
+  // Step 3: Store analysis results keyed by advisor key
+  const [analyses, setAnalyses] = useState({})
 
-  const advisors = gs?.advisors || []
-  const pool = gs?.advisor_pool || []
-  const maxAdvisors = gs?.fourth_advisor_slot ? 4 : 3
-
-  // Fetch pool on mount if empty
-  useEffect(() => {
-    if (pool.length === 0 && advisors.length < maxAdvisors) {
-      fetchPool()
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function fetchPool() {
-    try {
-      const res = await api.getAdvisorPool(sessionId)
-      if (res.game_state && onGsUpdate) {
-        onGsUpdate(res.game_state)
-      }
-    } catch (e) {
-      console.error('Failed to fetch advisor pool:', e)
-    }
+  const advisors = gs?.advisors
+  if (!advisors || typeof advisors !== 'object' || Array.isArray(advisors)) {
+    return null
   }
 
-  async function handleAction(action, advisorId) {
-    setLoading(true)
+  const slots = gs?.advisor_slots_available ?? 2
+  const assignedCount = Object.values(advisors).filter(a => a.assigned_this_turn).length
+
+  async function handleToggle(key) {
+    const adv = advisors[key]
+    if (!adv) return
+    const action = adv.assigned_this_turn ? 'unassign' : 'assign'
+
+    // Check slot limit before assigning
+    if (action === 'assign' && assignedCount >= slots) return
+
+    setLoading(key)
     setError(null)
-    setSuccessMsg(null)
-    setConfirmEliminate(null)
     try {
-      const res = await api.advisorAction(sessionId, action, advisorId)
-      if (res.success) {
-        setSuccessMsg(res.message)
-      } else {
-        setError(res.message)
+      const res = action === 'assign'
+        ? await api.assignAdvisor(sessionId, key)
+        : await api.unassignAdvisor(sessionId, key)
+
+      console.log(`[ADVISOR] ${action === 'assign' ? 'Assigned' : 'Unassigned'}:`, key)
+
+      // Step 3: Store analysis if returned from assign call
+      if (action === 'assign' && res.advisor_analysis) {
+        console.log('[ADVISOR] Analysis received:', key)
+        setAnalyses(prev => ({ ...prev, [key]: res.advisor_analysis }))
       }
+
+      // Clear analysis on unassign
+      if (action === 'unassign') {
+        setAnalyses(prev => {
+          const next = { ...prev }
+          delete next[key]
+          return next
+        })
+      }
+
       if (res.game_state && onGsUpdate) {
         onGsUpdate(res.game_state)
       }
     } catch (e) {
+      console.error(`[ADVISOR] ${action} failed:`, e)
       setError(e.message)
+      setTimeout(() => setError(null), 3000)
     } finally {
-      setLoading(false)
+      setLoading(null)
     }
   }
 
-  if (advisors.length === 0 && pool.length === 0) {
-    return null // nothing to show
-  }
+  // Collect active analyses for display
+  const activeAnalyses = Object.entries(analyses).filter(
+    ([key]) => advisors[key]?.assigned_this_turn
+  )
 
   return (
-    <div className="panel advisor-panel">
-      <div className="panel-header">
-        Advisors
-        <span className="advisor-count">{advisors.length}/{maxAdvisors} active</span>
+    <div className="advisor-panel-7c">
+      <div className="advisor-panel-header">
+        <span className="advisor-panel-title">ADVISORS</span>
+        <span className="advisor-slot-indicator">
+          {assignedCount}/{slots} assigned today
+        </span>
       </div>
 
-      {successMsg && <div className="sc-success" style={{ margin: '0.3rem 0' }}>{successMsg}</div>}
-      {error && <div className="sc-error" style={{ margin: '0.3rem 0' }}>{error}</div>}
-
-      {/* Active advisors */}
-      {advisors.length > 0 && (
-        <div className="advisor-active-section">
-          {advisors.map(a => (
-            <div key={a.id} className={`advisor-card ${a.nefarious ? 'advisor-nefarious' : ''}`}>
-              <div className="advisor-card-header">
-                <span className="advisor-icon">{a.icon}</span>
-                <div className="advisor-info">
-                  <span className="advisor-name">{a.name}</span>
-                  <span className="advisor-type">{a.label}</span>
-                </div>
-                <div className="advisor-stats">
-                  <span className="advisor-stat" title="Competence">🎯 {a.competence}</span>
-                  <span className={`advisor-stat ${a.loyalty < 30 ? 'advisor-stat-danger' : a.loyalty < 50 ? 'advisor-stat-warn' : ''}`} title="Loyalty">
-                    ❤️ {a.loyalty}
-                  </span>
-                </div>
-              </div>
-              <div className="advisor-desc">{a.description}</div>
-              {a.bias_stat && (
-                <div className="advisor-bias">
-                  Bias: {a.bias_stat} {a.bias_direction > 0 ? `+${a.bias_direction}` : a.bias_direction}
-                </div>
-              )}
-              <div className="advisor-actions">
-                <button
-                  className="advisor-btn advisor-btn-dismiss"
-                  onClick={() => handleAction('dismiss', a.id)}
-                  disabled={loading}
-                >
-                  Dismiss
-                </button>
-                {confirmEliminate === a.id ? (
-                  <div className="advisor-eliminate-confirm">
-                    <span>Permanent?</span>
-                    <button
-                      className="advisor-btn advisor-btn-eliminate"
-                      onClick={() => handleAction('eliminate', a.id)}
-                      disabled={loading}
-                    >
-                      Confirm
-                    </button>
-                    <button
-                      className="advisor-btn"
-                      onClick={() => setConfirmEliminate(null)}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    className="advisor-btn advisor-btn-eliminate-init"
-                    onClick={() => setConfirmEliminate(a.id)}
-                    disabled={loading}
-                    title="Permanently remove — cannot be rehired. Costs $2.0B personal."
-                    style={{ color: '#ff5252' }}
-                  >
-                    Eliminate ($2B)
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+      {error && (
+        <div className="advisor-error">{error}</div>
       )}
 
-      {/* Hiring pool */}
-      {advisors.length < maxAdvisors && pool.length > 0 && (
-        <div className="advisor-pool-section">
-          <div className="advisor-pool-header">Available for Hire</div>
-          {pool.map(a => (
-            <div key={a.id} className={`advisor-card advisor-card-pool ${a.nefarious ? 'advisor-nefarious' : ''}`}>
-              <div className="advisor-card-header">
-                <span className="advisor-icon">{a.icon}</span>
-                <div className="advisor-info">
-                  <span className="advisor-name">{a.name}</span>
-                  <span className="advisor-type">{a.label}</span>
-                  {/* fixes_12 Fix 6: Previously served badge */}
-                  {a.previously_served && (
-                    <span style={{ fontSize: '0.65rem', color: '#b0b040', fontWeight: 600, marginLeft: '0.3rem' }}>
-                      Previously Served
-                    </span>
-                  )}
-                </div>
-                <div className="advisor-stats">
-                  <span className="advisor-stat" title="Competence">🎯 {a.competence}</span>
-                  <span className="advisor-stat" title="Loyalty">❤️ {a.loyalty}</span>
+      <div className="advisor-card-row">
+        {Object.entries(advisors).map(([key, adv]) => {
+          const meta = ADVISOR_META[key] || { icon: '👤', color: '#888', tint: '' }
+          const tier = trustTier(adv.trust ?? 75)
+          const isAssigned = adv.assigned_this_turn
+          const isLoading = loading === key
+          const canAssign = !isAssigned && assignedCount < slots
+
+          return (
+            <div
+              key={key}
+              className={`advisor-card-7c ${isAssigned ? 'advisor-assigned' : ''}`}
+              style={{ '--advisor-accent': meta.color }}
+            >
+              <div className="advisor-card-top">
+                <span className="advisor-card-icon">{meta.icon}</span>
+                <span className="advisor-card-name">{adv.name}</span>
+              </div>
+
+              {/* Trust tier bar — hides exact number */}
+              <div className="advisor-trust-row">
+                <span className={`advisor-trust-label ${tier.cls}`}>
+                  {tier.label}
+                </span>
+                <div className="advisor-trust-bar">
+                  <div
+                    className={`advisor-trust-fill ${tier.cls}`}
+                    style={{ width: `${Math.max(5, Math.min(100, adv.trust ?? 75))}%` }}
+                  />
                 </div>
               </div>
-              <div className="advisor-desc">{a.description}</div>
+
+              {/* Defection warning */}
+              {adv.defection_triggered && (
+                <div className="advisor-defection-badge">⚠️ DEFECTED</div>
+              )}
+
+              {/* Assign/Unassign button */}
               <button
-                className="advisor-btn advisor-btn-hire"
-                onClick={() => handleAction('hire', a.id)}
-                disabled={loading}
+                className={`advisor-assign-btn ${isAssigned ? 'btn-assigned' : canAssign ? 'btn-available' : 'btn-disabled'}`}
+                onClick={() => handleToggle(key)}
+                disabled={isLoading || (!isAssigned && !canAssign)}
               >
-                Hire
+                {isLoading ? 'Consulting...' : isAssigned ? 'ASSIGNED ✓' : 'Assign'}
               </button>
             </div>
-          ))}
+          )
+        })}
+      </div>
+
+      {/* Step 3: Analysis cards below advisor row */}
+      {activeAnalyses.length > 0 && (
+        <div className="advisor-analyses">
+          {activeAnalyses.map(([key, text]) => {
+            const meta = ADVISOR_META[key] || { icon: '👤', tint: '' }
+            const adv = advisors[key]
+            return (
+              <div key={key} className={`advisor-analysis-card ${meta.tint}`}>
+                <div className="analysis-card-header">
+                  <span>{meta.icon} {adv?.name}</span>
+                  <span className="analysis-label">ASSESSMENT</span>
+                </div>
+                <div className="analysis-card-body">
+                  {text}
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

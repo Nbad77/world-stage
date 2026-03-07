@@ -38,7 +38,10 @@ export default function InterceptPanel({ intercepts }) {
 
   return (
     <div className="intercept-panel">
-      <div className="intercept-header">🔍 Intelligence Intercepts — CLASSIFIED</div>
+      <div className="intercept-header">
+        <span className="briefing-tag briefing-tag-intelligence">INTELLIGENCE</span>
+        🔍 Intelligence Intercepts — CLASSIFIED
+      </div>
       {intercepts.map((raw, i) => {
         const { label, text } = parseIntercept(raw)
         return (

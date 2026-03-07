@@ -210,6 +210,39 @@ export default function TestPanel({ sessionId, gs, onGsUpdate, onOpenCheatPanel,
         Open Cheat Panel
       </button>
 
+      {/* Trigger Summit */}
+      <button
+        onClick={async () => {
+          if (!sessionId) { setMessage('No active session'); return }
+          setLoading(true)
+          setMessage(null)
+          try {
+            const res = await api.debugSetState(sessionId, { summit_due: true })
+            if (res.game_state) onGsUpdate(res.game_state)
+            setMessage('Summit triggered')
+          } catch (e) {
+            setMessage(`Summit trigger failed: ${e.message}`)
+          } finally {
+            setLoading(false)
+          }
+        }}
+        disabled={loading || !sessionId}
+        style={{
+          width: '100%',
+          padding: '0.4rem',
+          marginBottom: '0.5rem',
+          background: '#2a0a0a',
+          color: '#44aaff',
+          border: '1px solid #44aaff',
+          borderRadius: '4px',
+          cursor: loading ? 'not-allowed' : 'pointer',
+          fontFamily: 'monospace',
+          fontSize: '0.75rem',
+        }}
+      >
+        Trigger Summit
+      </button>
+
       {/* Status message */}
       {message && (
         <div style={{

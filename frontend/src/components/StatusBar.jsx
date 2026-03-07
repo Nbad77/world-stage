@@ -85,7 +85,8 @@ export default function StatusBar({ gs, onShadowCabinet }) {
         <span className="stat-label">Tech</span>
         <span className={`stat-value mono ${(gs.tech_level ?? 0) === 0 ? '' : gs.tech_level >= 41 ? 'good' : 'warn'}`}
           style={(gs.tech_level ?? 0) === 0 ? { opacity: 0.4 } : {}}
-        >{gs.tech_level ?? 0}</span>
+          title="Higher tech unlocks EU ceiling, boosts GDP, reduces detection risk"
+        >{typeof gs.tech_level === 'number' ? gs.tech_level.toFixed(1) : (gs.tech_level ?? 0)}</span>
       </div>
 
       {/* Session 5: Latent stats — Soft Power + Diplomatic Capital */}

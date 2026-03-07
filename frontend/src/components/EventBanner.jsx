@@ -47,9 +47,17 @@ export default function EventBanner({ event }) {
     if (label) chips.push({ label, positive: val > 0 })
   }
 
+  // Session 7B: Determine if event has immediate consequences → URGENT, else DEVELOPING
+  const hasImmediateConsequence = oil_price_delta || stability_delta ||
+    Object.values(relations_delta).some(v => v !== 0)
+  const eventTier = hasImmediateConsequence ? 'urgent' : 'developing'
+
   return (
     <div className="event-banner">
       <div className="event-banner-header">
+        <span className={`briefing-tag briefing-tag-${eventTier}`}>
+          {eventTier === 'urgent' ? 'URGENT' : 'DEVELOPING'}
+        </span>
         <span className="event-ticker">⚠ BREAKING</span>
         <span className="event-title">{title}</span>
         {affected_npc && affected_npc !== 'none' && (

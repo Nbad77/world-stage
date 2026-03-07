@@ -136,6 +136,15 @@ class GameState:
         self.current_turn = 1
         self.max_turns = 10
 
+        # Day/Era tracking (Session 7A)
+        self.current_day = 1
+        self.current_era = 1
+        self.era_start_day = 1
+        self.era_transitions = []        # log of past era transitions
+        self.pending_era_transition = False
+        self.last_threshold_event = None  # e.g. "regime_shift", "election"
+        self.last_threshold_day = 0
+
         # NPC relationships (0-100)
         self.relations = {
             'usa': 50,
@@ -252,6 +261,19 @@ class GameState:
         # dict of { npc_id: turn_number } — intel unlock only valid for the turn it was activated
         self.intel_activated_this_turn = {}  # { 'usa': 3, 'arabia': 3, ... }
 
+        # ── Session 7A Feature 10: Pending GM consequences (applied at EOT) ──
+        # list of { gm_consequence_dict, npc, turn_accepted }
+        self.pending_gm_consequences = []
+
+        # ── Session 7B Step 2: Ignored communiqué tracking ──────────────────
+        # { npc_id: { ignore_count: int, first_ignored_day: int } }
+        self.ignored_communiques = {}
+        # Set of NPC keys interacted with this turn (cleared at EOT)
+        self.npcs_interacted_this_turn = []
+
+        # ── Session 7B Step 4: Budget trend tracking ──────────────────────────
+        self.budget_last_eot = None  # budget snapshot at last EOT for trend display
+
         # ── Stage 5 Session 2: Deal history ───────────────────────────────────
         # list of { npc, summary, turn_accepted, expires_turn, broken }
         self.deal_history = []
@@ -344,14 +366,24 @@ class GameState:
         self.coup_immune = False            # coup cannot trigger
         self.marsha_red_line_triggered = False  # journalists liquidated while EU 70+
 
-        # Session 4D: Tech Level
-        self.tech_level = 0               # 0-100, permanent once gained, no decay
+        # Session 4D: Tech Level — redesigned as passive float accumulation
+        self.tech_level = 0.0             # float, accumulates via relationship-weighted passive gain
         self.tech_sources = []            # log of how tech was acquired
+        self.tech_gain_last_turn = 0.0    # last turn's gain for display
 
         # Session 4D: Intelligence Budget (national, separate from personal wealth)
         self.intel_budget = 0.0           # current intel budget pool (national funds)
         self.intel_budget_allocation = "maintenance"  # "none"|"maintenance"|"active"|"expansion"
         self.intel_turns_unfunded = 0     # consecutive turns at allocation "none"
+
+        # Domestic Affairs: Persistent Budget Allocation (percentages, sum to 100)
+        self.budget_allocation = {
+            "military": 20,
+            "intelligence": 20,
+            "public_services": 20,
+            "infrastructure": 20,
+            "diplomacy": 20,
+        }
 
         # Session 4D: Alternate endings
         self.ending_triggered = None      # None|"retirement"|"democratic"|"capture"|"martyrdom"
@@ -422,12 +454,49 @@ class GameState:
         # ── fixes_13 Fix 28: Emergency tax event ────────────────────────
         self.emergency_tax_event_fired = False
 
-        # ── Session 5: Advisor System ──────────────────────────────────────
-        self.advisors = []           # list of advisor dicts (max 3 active)
-        self.advisor_pool = []       # available advisors to hire (refreshed each era)
-        self.advisors_eliminated = []  # list of advisor IDs permanently removed
-        self.advisor_actions_log = []  # { turn, advisor_id, action, result }
-        self.advisor_distortions = {}  # { stat_name: offset } — applied by frontend
+        # ── Session 7C Step 4: Russia and China — passive world actors ──
+        self.russia_relations = 35.0
+        self.china_relations = 35.0
+
+        # ── Session 7D: Backchannel System ──
+        self.backchannel_history = []         # resolved entries: {npc_id, turn, era, day, promise_made, promise_text, detected_by, resolved}
+        self.active_backchannel_promises = [] # unresolved promises: same schema, resolved=False
+        self.opsec_level = 0                  # derived from intelligence axis: 0-3→0, 4-6→1, 7-10→2
+
+        # ── Session 7E: UN Summit System ──
+        self.summit_due = False               # True when current_day % 20 == 0 and current_day > 0
+        self.summit_history = []              # closed summits: {era, day, player_declaration, npc_reactions, commitments_made}
+        self.active_summit_commitments = []   # unresolved public commitments: {commitment_text, day_made, era_made, broken}
+        self.summit_credibility = 100.0       # starts 100, drops when commitments broken
+
+        # ── Session 7C: Advisor System (fixed three advisors with trust) ──
+        self.advisors = {
+            "finance_minister": {
+                "name": "Finance Minister",
+                "trust": 75,
+                "assigned_this_turn": False,
+                "defection_triggered": False,
+            },
+            "security_chief": {
+                "name": "Security Chief",
+                "trust": 75,
+                "assigned_this_turn": False,
+                "defection_triggered": False,
+            },
+            "diplomatic_aide": {
+                "name": "Diplomatic Aide",
+                "trust": 75,
+                "assigned_this_turn": False,
+                "defection_triggered": False,
+            },
+        }
+        self.advisor_slots_available = 2  # can increase via Shadow Cabinet or axis threshold
+
+        # Legacy advisor fields (kept for backward compatibility with old saves)
+        self.advisor_pool = []
+        self.advisors_eliminated = []
+        self.advisor_actions_log = []
+        self.advisor_distortions = {}
 
         # ── Session 5: Economic Development Model ──────────────────────────
         self.tax_rates = {
@@ -456,9 +525,6 @@ class GameState:
         }
         self.soft_power = 0              # 0-100, computed from relations + tech + approval
         self.diplomatic_capital = 0      # 0-100, computed from deals + leverage + alliances
-
-        # ── Session 5: Tech Level Passive Acquisition ──────────────────────
-        self.tech_level_fractional = 0.0  # accumulated fractional tech points
 
         # ── Session 5: NPC-Initiated Contact ───────────────────────────────
         self.npc_contact_history = {}     # { trigger_id: last_turn_fired }
@@ -525,19 +591,17 @@ class GameState:
         FIX Q: All relation changes are logged for audit trail.
         """
         _old = self.relations[npc]
-        # Session 4D: EU ceiling from tech level (default 100 for all NPCs)
-        _cap = 100
-        if npc == 'eu':
-            _tech = getattr(self, 'tech_level', 0)
-            # Inline tier lookup to avoid circular import with turn_processor
-            if _tech >= 81:
-                _cap = 140
-            elif _tech >= 61:
-                _cap = 130
-            elif _tech >= 41:
-                _cap = 120
-            elif _tech >= 21:
-                _cap = 110
+        _cap = 100  # hard cap for all NPCs
+
+        # EU soft cap from tech level: 60 + (tech × 2), capped at 100
+        # Above soft cap: positive gains halved (stacks with diminishing returns)
+        _eu_soft_cap_mult = 1.0
+        if npc == 'eu' and change > 0 and not flat:
+            _tech = float(getattr(self, 'tech_level', 0))
+            _eu_soft = min(100, 60 + int(_tech * 2))
+            if self.relations[npc] >= _eu_soft:
+                _eu_soft_cap_mult = 0.5
+
         if change > 0 and not flat:
             cur = self.relations[npc]
             if cur >= _cap:
@@ -550,9 +614,13 @@ class GameState:
                 effective = change * 0.75
             else:
                 effective = float(change)
+            effective *= _eu_soft_cap_mult
             self.relations[npc] = max(0, min(_cap, cur + effective))
         else:
-            self.relations[npc] = max(0, min(_cap, self.relations[npc] + change))
+            # Domestic Affairs: diplomacy allocation moderates negative drift during EOT
+            _diplo_mod = getattr(self, '_diplo_drift_modifier', 1.0)
+            _eff_change = change * _diplo_mod if (change < 0 and _diplo_mod < 1.0) else change
+            self.relations[npc] = max(0, min(_cap, self.relations[npc] + _eff_change))
 
         # FIX Q: Log every relation change for audit trail
         _new = self.relations[npc]
@@ -633,9 +701,10 @@ class GameState:
         self.public_approval = max(floor, min(ceiling, self.public_approval + change))
 
     def advance_turn(self):
-        """Move to next turn - ENFORCED 10 TURN MAX"""
+        """Move to next day/turn - ENFORCED 10 TURN MAX"""
         if self.current_turn < self.max_turns:
             self.current_turn += 1
+            self.current_day += 1
             return True
         return False
 
@@ -827,6 +896,13 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'corruption_warned': self.corruption_warned,
             'current_turn': self.current_turn,
             'max_turns': self.max_turns,
+            'current_day': self.current_day,
+            'current_era': self.current_era,
+            'era_start_day': self.era_start_day,
+            'era_transitions': self.era_transitions,
+            'pending_era_transition': self.pending_era_transition,
+            'last_threshold_event': self.last_threshold_event,
+            'last_threshold_day': self.last_threshold_day,
             'relations': self.relations,
             'times_sided_with': self.times_sided_with,
             'times_ignored': self.times_ignored,
@@ -868,6 +944,10 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'intel': self.intel,
             'intel_activated_this_turn': self.intel_activated_this_turn,
             'deal_history': self.deal_history,
+            'pending_gm_consequences': self.pending_gm_consequences,
+            'ignored_communiques': self.ignored_communiques,
+            'npcs_interacted_this_turn': list(self.npcs_interacted_this_turn),
+            'budget_last_eot': self.budget_last_eot,
             'previous_oil_base': self.previous_oil_base,
             # Session 3
             'negotiation_log': self.negotiation_log,
@@ -914,12 +994,18 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'coup_immune': getattr(self, 'coup_immune', False),
             'marsha_red_line_triggered': getattr(self, 'marsha_red_line_triggered', False),
             # Session 4D: Tech Level
-            'tech_level': getattr(self, 'tech_level', 0),
+            'tech_level': getattr(self, 'tech_level', 0.0),
             'tech_sources': getattr(self, 'tech_sources', []),
+            'tech_gain_last_turn': getattr(self, 'tech_gain_last_turn', 0.0),
             # Session 4D: Intelligence Budget
             'intel_budget': getattr(self, 'intel_budget', 0.0),
             'intel_budget_allocation': getattr(self, 'intel_budget_allocation', 'maintenance'),
             'intel_turns_unfunded': getattr(self, 'intel_turns_unfunded', 0),
+            # Domestic Affairs: Budget Allocation
+            'budget_allocation': getattr(self, 'budget_allocation', {
+                "military": 20, "intelligence": 20, "public_services": 20,
+                "infrastructure": 20, "diplomacy": 20,
+            }),
             # Session 4D: Alternate endings
             'ending_triggered': getattr(self, 'ending_triggered', None),
             'martyrdom_triggered': getattr(self, 'martyrdom_triggered', False),
@@ -984,8 +1070,22 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'dprg_coup_deterrence': getattr(self, 'dprg_coup_deterrence', False),
             # fixes_13 Fix 28: Emergency tax event
             'emergency_tax_event_fired': getattr(self, 'emergency_tax_event_fired', False),
-            # Session 5: Advisor System
-            'advisors': getattr(self, 'advisors', []),
+            # Session 7C Step 4: Russia and China passive relations
+            'russia_relations': getattr(self, 'russia_relations', 35.0),
+            'china_relations': getattr(self, 'china_relations', 35.0),
+            # Session 7D: Backchannel System
+            'backchannel_history': getattr(self, 'backchannel_history', []),
+            'active_backchannel_promises': getattr(self, 'active_backchannel_promises', []),
+            'opsec_level': getattr(self, 'opsec_level', 0),
+            # Session 7E: UN Summit System
+            'summit_due': getattr(self, 'summit_due', False),
+            'summit_history': getattr(self, 'summit_history', []),
+            'active_summit_commitments': getattr(self, 'active_summit_commitments', []),
+            'summit_credibility': getattr(self, 'summit_credibility', 100.0),
+            # Session 7C: Advisor System (fixed three advisors)
+            'advisors': getattr(self, 'advisors', {}),
+            'advisor_slots_available': getattr(self, 'advisor_slots_available', 2),
+            # Legacy advisor fields
             'advisor_pool': getattr(self, 'advisor_pool', []),
             'advisors_eliminated': getattr(self, 'advisors_eliminated', []),
             'advisor_actions_log': getattr(self, 'advisor_actions_log', []),
@@ -998,8 +1098,6 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'resource_endowment': getattr(self, 'resource_endowment', {'oil_reserves': 0.7, 'mineral_deposits': 0.3, 'arable_land': 0.4, 'rare_earths': 0.1, 'coastal_access': 0.6}),
             'soft_power': getattr(self, 'soft_power', 0),
             'diplomatic_capital': getattr(self, 'diplomatic_capital', 0),
-            # Session 5: Tech Level Passive Acquisition
-            'tech_level_fractional': getattr(self, 'tech_level_fractional', 0.0),
             # Session 5: NPC-Initiated Contact
             'npc_contact_history': getattr(self, 'npc_contact_history', {}),
             'pending_npc_contacts': getattr(self, 'pending_npc_contacts', []),
@@ -1019,6 +1117,13 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.corruption_warned = data['corruption_warned']
         gs.current_turn = data['current_turn']
         gs.max_turns = data['max_turns']
+        gs.current_day = data.get('current_day', data['current_turn'])  # fallback for pre-7A saves
+        gs.current_era = data.get('current_era', 1)
+        gs.era_start_day = data.get('era_start_day', 1)
+        gs.era_transitions = data.get('era_transitions', [])
+        gs.pending_era_transition = data.get('pending_era_transition', False)
+        gs.last_threshold_event = data.get('last_threshold_event', None)
+        gs.last_threshold_day = data.get('last_threshold_day', 0)
         gs.relations = data['relations']
         gs.times_sided_with = data['times_sided_with']
         gs.times_ignored = data['times_ignored']
@@ -1097,6 +1202,10 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.intel = data.get('intel', {})
         gs.intel_activated_this_turn = data.get('intel_activated_this_turn', {})
         gs.deal_history = data.get('deal_history', [])
+        gs.pending_gm_consequences = data.get('pending_gm_consequences', [])
+        gs.ignored_communiques = data.get('ignored_communiques', {})
+        gs.npcs_interacted_this_turn = data.get('npcs_interacted_this_turn', [])
+        gs.budget_last_eot = data.get('budget_last_eot', None)
         gs.previous_oil_base = data.get('previous_oil_base', 75)
         gs.negotiation_log = data.get('negotiation_log', [])
         gs.total_aid_received = data.get('total_aid_received', {'usa': 0.0, 'arabia': 0.0, 'eu': 0.0, 'dprg': 0.0})
@@ -1146,11 +1255,16 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         if 'action_media_taken' not in data:
             print("  [game_state] DOMESTIC ACTION FIELDS MIGRATED: added defaults to old save")
         # Session 4D: Tech Level, Intel Budget, Alternate Endings (migration for old saves)
-        gs.tech_level = data.get('tech_level', 0)
+        gs.tech_level = float(data.get('tech_level', 0))
         gs.tech_sources = data.get('tech_sources', [])
+        gs.tech_gain_last_turn = data.get('tech_gain_last_turn', 0.0)
         gs.intel_budget = data.get('intel_budget', 0.0)
         gs.intel_budget_allocation = data.get('intel_budget_allocation', 'maintenance')
         gs.intel_turns_unfunded = data.get('intel_turns_unfunded', 0)
+        gs.budget_allocation = data.get('budget_allocation', {
+            "military": 20, "intelligence": 20, "public_services": 20,
+            "infrastructure": 20, "diplomacy": 20,
+        })
         gs.ending_triggered = data.get('ending_triggered', None)
         gs.martyrdom_triggered = data.get('martyrdom_triggered', False)
         gs.turns_no_suppression = data.get('turns_no_suppression', 0)
@@ -1214,8 +1328,32 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.dprg_coup_deterrence = data.get('dprg_coup_deterrence', False)
         # fixes_13 Fix 28: Emergency tax event
         gs.emergency_tax_event_fired = data.get('emergency_tax_event_fired', False)
-        # Session 5: Advisor System
-        gs.advisors = data.get('advisors', [])
+        # Session 7C Step 4: Russia and China passive relations
+        gs.russia_relations = data.get('russia_relations', 35.0)
+        gs.china_relations = data.get('china_relations', 35.0)
+        # Session 7D: Backchannel System
+        gs.backchannel_history = data.get('backchannel_history', [])
+        gs.active_backchannel_promises = data.get('active_backchannel_promises', [])
+        gs.opsec_level = data.get('opsec_level', 0)
+        # Session 7E: UN Summit System
+        gs.summit_due = data.get('summit_due', False)
+        gs.summit_history = data.get('summit_history', [])
+        gs.active_summit_commitments = data.get('active_summit_commitments', [])
+        gs.summit_credibility = data.get('summit_credibility', 100.0)
+        # Session 7C: Advisor System (fixed three advisors)
+        _default_advisors = {
+            "finance_minister": {"name": "Finance Minister", "trust": 75, "assigned_this_turn": False, "defection_triggered": False},
+            "security_chief": {"name": "Security Chief", "trust": 75, "assigned_this_turn": False, "defection_triggered": False},
+            "diplomatic_aide": {"name": "Diplomatic Aide", "trust": 75, "assigned_this_turn": False, "defection_triggered": False},
+        }
+        _raw_advisors = data.get('advisors', _default_advisors)
+        # Migration: old list-based advisor system -> new dict-based
+        if isinstance(_raw_advisors, list):
+            gs.advisors = _default_advisors
+        else:
+            gs.advisors = _raw_advisors
+        gs.advisor_slots_available = data.get('advisor_slots_available', 2)
+        # Legacy advisor fields
         gs.advisor_pool = data.get('advisor_pool', [])
         gs.advisors_eliminated = data.get('advisors_eliminated', [])
         gs.advisor_actions_log = data.get('advisor_actions_log', [])
@@ -1235,8 +1373,6 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         })
         gs.soft_power = data.get('soft_power', 0)
         gs.diplomatic_capital = data.get('diplomatic_capital', 0)
-        # Session 5: Tech Level Passive Acquisition
-        gs.tech_level_fractional = data.get('tech_level_fractional', 0.0)
         # Session 5: NPC-Initiated Contact
         gs.npc_contact_history = data.get('npc_contact_history', {})
         gs.pending_npc_contacts = data.get('pending_npc_contacts', [])

@@ -17,9 +17,15 @@ import ElectionPanel from './ElectionPanel'
 import EndingPanel from './EndingPanel'
 import IntelAllocationPanel from './IntelAllocationPanel'
 import AdvisorPanel from './AdvisorPanel'
+import BackchannelModal from './BackchannelModal'
+import PromiseTracker from './PromiseTracker'
+import SummitModal from './SummitModal'
+import SummitCommitmentTracker from './SummitCommitmentTracker'
 import DebugPanel from './DebugPanel'
 import TestPanel from './TestPanel'
 import DashboardLayout from './DashboardLayout'
+import DomesticTab from './DomesticTab'
+import BriefingSummaryCard from './BriefingSummaryCard'
 
 /**
  * GameScreen manages the full turn lifecycle:
@@ -103,12 +109,20 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   // fixes_10 Fix 7: Debug panel — dev only, Ctrl+Shift+D
   const [debugOpen, setDebugOpen] = useState(false)
 
+  // Domestic Affairs Tab
+  const [activeTab, setActiveTab] = useState('foreign')
+
   // FEATURE 1: Confirmation dialog — intercepts choice + skim before committing
   // { type: 'choice'|'skim', value: letter|choiceNum, text: string } | null
   const [pendingConfirm, setPendingConfirm] = useState(null)
 
   // Stage 4: World events
   const [currentEvent, setCurrentEvent] = useState(initialData.current_event || null)
+
+  // Session 7A Step 5: Era transition + Historian
+  const [eraTransitionSuggestion, setEraTransitionSuggestion] = useState(null)
+  const [historianModal, setHistorianModal] = useState(null) // { era, summary, isOnDemand }
+  const [historianLoading, setHistorianLoading] = useState(false)
 
   // Stage 4: Negotiation
   const [negotiatingNpc, setNegotiatingNpc] = useState(null)   // 'usa'|'arabia'|'eu'|'dprg'|null
@@ -117,6 +131,12 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   // per-NPC chat history, keyed by npcKey — survives panel close/reopen within same turn
   // shape: { [npcKey]: { messages: [], pendingOffers: [] } }
   const [chatHistories, setChatHistories] = useState({})
+
+  // Session 7D: Backchannel modal state
+  const [backchannelNpc, setBackchannelNpc] = useState(null)  // npcKey or null
+
+  // Session 7E: UN Summit modal state
+  const [summitOpen, setSummitOpen] = useState(false)
 
   const scrollRef = useRef(null)
 
@@ -150,6 +170,11 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0
   }, [phase])
+
+  // Domestic Affairs: Intel allocation gate removed
+  useEffect(() => {
+    console.log('[BUDGET] Intel allocation gate removed — using persistent domestic allocation')
+  }, [])
 
   // fixes_10 Fix 7: Debug/Cheat panel — now locked behind test account check.
   // Ctrl+Shift+D removed. Cheat panel opened via TestPanel "Open Cheat Panel" button only.
@@ -370,6 +395,9 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         return
       }
 
+      // Session 7A Step 5: Capture era transition suggestion
+      setEraTransitionSuggestion(res.era_transition_suggestion || null)
+
       setPhase(PHASE.EOT)
 
       _nextTurnRef.current = {
@@ -430,6 +458,9 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         return
       }
 
+      // Session 7A Step 5: Capture era transition suggestion
+      setEraTransitionSuggestion(res.era_transition_suggestion || null)
+
       setPhase(PHASE.EOT)
 
       _nextTurnRef.current = {
@@ -467,7 +498,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   // Stash next-turn data between phases
   const _nextTurnRef = useRef(null)
 
-  // ── PHASE 2 → 0 (or ENDED): player hits "Next Turn" ─────────────────────
+  // ── PHASE 2 → 0 (or ENDED): player hits "Next Day" ──────────────────────
   function handleContinue() {
     const next = _nextTurnRef.current
 
@@ -486,7 +517,8 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       return
     }
 
-    // Advance to next turn
+    // Advance to next day
+    console.log('[DAY] Day advanced to:', next.game_state?.current_day ?? gs?.current_turn)
     setDialogue(next.dialogue)
     setOffers(next.offers)
     setSkimOptions(next.skimOptions || [])
@@ -504,6 +536,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     setDrainProjection(null)
     setIntelAllocated(false)
     setElectionConseqStash(null)
+    setEraTransitionSuggestion(null)
     // Stage 4
     setCurrentEvent(next.event || null)
     setNegotiatingNpc(null)
@@ -511,6 +544,50 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     setChatHistories({})
     setPhase(PHASE.DIALOGUE)
     _nextTurnRef.current = null
+  }
+
+  // ── Session 7A Step 5: Era close + Historian handlers ───────────────────────
+  async function handleCloseEra() {
+    clearError()
+    setHistorianLoading(true)
+    try {
+      const res = await api.closeEra(sessionId)
+      console.log('[ERA] Era closed:', res.closed_era, '→', res.new_era, 'trigger:', res.trigger)
+      setGs(res.game_state)
+      setEraTransitionSuggestion(null)
+      // Show historian verdict modal
+      setHistorianModal({
+        era: res.closed_era,
+        summary: res.historian_summary,
+        isOnDemand: false,
+      })
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setHistorianLoading(false)
+    }
+  }
+
+  function handleDismissEraCard() {
+    setEraTransitionSuggestion(null)
+  }
+
+  async function handleHistorianAssessment() {
+    clearError()
+    setHistorianLoading(true)
+    try {
+      console.log('[ERA] Historian assessment requested')
+      const res = await api.historianSummary(sessionId)
+      setHistorianModal({
+        era: res.era,
+        summary: res.historian_summary,
+        isOnDemand: true,
+      })
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setHistorianLoading(false)
+    }
   }
 
   // ── Session 4B: Election done handler ─────────────────────────────────────
@@ -611,6 +688,47 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         },
       }))
     }
+  }
+
+  // Session 7B Step 3: Player-initiated contact from RightSidebar
+  async function handlePlayerContact(npcKey) {
+    if (!npcKey || negotiatingNpc || loading) return
+    console.log('[BRIEFING] Player-initiated contact:', npcKey)
+
+    // If chat history already exists for this NPC, just open the panel
+    const existing = chatHistories[npcKey]
+    if (existing?.messages?.length) {
+      setNegotiatingNpc(npcKey)
+      return
+    }
+
+    setNegotiatingNpc(npcKey)
+    setLoading(true)
+
+    try {
+      const res = await api.negotiate(sessionId, npcKey, '[CONTACT]', [], null, true)
+      // Inject NPC opening message as first chat history entry
+      setChatHistories(prev => ({
+        ...prev,
+        [npcKey]: {
+          messages: [{ role: 'npc', content: res.response }],
+          pendingOffers: [],
+          heldOffer: null,
+        },
+      }))
+      if (res.game_state) setGs(res.game_state)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Session 7D Step 2: Open backchannel modal
+  function handleOpenBackchannel(npcKey) {
+    if (!npcKey) return
+    console.log('[BACKCHANNEL] Opening covert channel:', npcKey)
+    setBackchannelNpc(npcKey)
   }
 
   // ── FEATURE 1: Shadow Cabinet upgrade purchased → sync gs ────────────────
@@ -801,6 +919,71 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       })
     }
 
+    // ── BACKCHANNEL LOG — Session 7D Step 4 ────────────────────────────
+    lines.push('BACKCHANNEL LOG (CLASSIFIED)')
+    lines.push(sep)
+    const bcHistory = gs.backchannel_history || []
+    if (bcHistory.length === 0) {
+      lines.push('(no backchannel exchanges recorded)')
+    } else {
+      bcHistory.forEach((entry, i) => {
+        const npcLabel = NPC_INFO[entry.npc_id]?.label || entry.npc_id
+        const detected = entry.detected_by ? `DETECTED by ${entry.detected_by}` : 'undetected'
+        lines.push(`[${i + 1}] Turn ${entry.turn || '?'} — ${npcLabel} [${detected}]:`)
+        if (entry.player_message) lines.push(`  Player:        "${entry.player_message}"`)
+        if (entry.response_text)  lines.push(`  NPC:           "${entry.response_text}"`)
+        if (entry.promise_made)   lines.push(`  Promise:       ${entry.promise_text || '(unspecified)'}`)
+        lines.push('')
+      })
+    }
+
+    // ── ACTIVE COVERT PROMISES ──────────────────────────────────────────
+    const bcPromises = gs.active_backchannel_promises || []
+    if (bcPromises.length > 0) {
+      lines.push('ACTIVE COVERT PROMISES')
+      lines.push(sep)
+      bcPromises.forEach((p, i) => {
+        const npcLabel = NPC_INFO[p.npc_id]?.label || p.npc_id
+        const status = p.resolved ? 'RESOLVED' : p.detected_by ? `COMPROMISED (${p.detected_by})` : 'ACTIVE'
+        lines.push(`[${i + 1}] ${npcLabel} [${status}]:`)
+        lines.push(`  Promise:       ${p.promise_text || '(unspecified)'}`)
+        lines.push(`  Made:          Turn ${p.turn || '?'}`)
+        lines.push('')
+      })
+    }
+
+    // ── SUMMIT HISTORY — Session 7E ─────────────────────────────────────
+    lines.push('SUMMIT HISTORY')
+    lines.push(sep)
+    lines.push(`Summit Credibility: ${gs.summit_credibility ?? 100}`)
+    lines.push(`Summit Due:         ${gs.summit_due ? 'YES' : 'No'}`)
+    const summitHist = gs.summit_history || []
+    if (summitHist.length === 0) {
+      lines.push('(no summits held)')
+    } else {
+      summitHist.forEach((s, i) => {
+        lines.push(`[${i + 1}] Day ${s.day}:`)
+        lines.push(`  Declaration:   "${s.player_declaration}"`)
+        if (s.npc_reactions) {
+          s.npc_reactions.forEach(r => {
+            lines.push(`  ${r.npc_name || r.npc_id}: [${r.reaction_type}] ${r.reaction_text || '(silence)'}`)
+          })
+        }
+        if (s.commitments_made > 0) lines.push(`  Commitments:   ${s.commitments_made}`)
+        lines.push('')
+      })
+    }
+    const summitCommits = gs.active_summit_commitments || []
+    if (summitCommits.length > 0) {
+      lines.push('ACTIVE SUMMIT COMMITMENTS')
+      lines.push(sep)
+      summitCommits.forEach((c, i) => {
+        const status = c.broken ? 'BROKEN' : 'ACTIVE'
+        lines.push(`[${i + 1}] [${status}] ${c.text}`)
+      })
+      lines.push('')
+    }
+
     lines.push('=== END OF EXPORT ===')
 
     const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
@@ -857,7 +1040,17 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         />
       </div>
 
-      <DashboardLayout gs={gs} onShadowCabinet={() => setShadowCabinetOpen(true)}>
+      <DashboardLayout gs={gs} onShadowCabinet={() => setShadowCabinetOpen(true)} negotiatingNpc={negotiatingNpc} onHistorian={handleHistorianAssessment} historianLoading={historianLoading} onContact={phase === PHASE.DIALOGUE && !loading ? handlePlayerContact : null} contactsDisabled={loading || phase !== PHASE.DIALOGUE} activeTab={activeTab} onTabChange={setActiveTab} domesticContent={<DomesticTab gs={gs} sessionId={sessionId} onGsUpdate={setGs} />} onBackchannel={phase === PHASE.DIALOGUE ? handleOpenBackchannel : null} backchannelDisabled={loading || phase !== PHASE.DIALOGUE}>
+
+      {/* Session 7E: Summit replaces center panel content when open */}
+      {summitOpen ? (
+        <SummitModal
+          gs={gs}
+          sessionId={sessionId}
+          onClose={() => setSummitOpen(false)}
+          onGsUpdate={setGs}
+        />
+      ) : (
       <div className="game-scroll" ref={scrollRef}>
 
         {error && (
@@ -917,6 +1110,35 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               </div>
             )}
 
+            {/* Session 7B Step 4: Briefing Summary Card */}
+            <BriefingSummaryCard gs={gs} currentEvent={currentEvent} intercepts={intercepts} />
+
+            {/* Session 7E: Summit Pending Banner */}
+            {gs?.summit_due && !summitOpen && (
+              <div className="summit-pending-banner">
+                <div className="summit-pending-text">
+                  🌐 UN SUMMIT IN SESSION — Address the assembly before advancing
+                </div>
+                <button
+                  className="summit-pending-btn"
+                  onClick={() => setSummitOpen(true)}
+                >
+                  OPEN SUMMIT
+                </button>
+              </div>
+            )}
+
+            {/* Session 7C Step 2: Advisor Assignment Panel — above communiqués, compact */}
+            {gs?.advisors && typeof gs.advisors === 'object' && !Array.isArray(gs.advisors) && Object.keys(gs.advisors).length > 0 && (
+              <AdvisorPanel gs={gs} sessionId={sessionId} onGsUpdate={setGs} />
+            )}
+
+            {/* Session 7D Step 3: Promise Tracker — active covert commitments */}
+            <PromiseTracker gs={gs} />
+
+            {/* Session 7E Step 3: Summit Commitment Tracker — active public commitments */}
+            <SummitCommitmentTracker gs={gs} />
+
             {/* World event banner */}
             <EventBanner event={currentEvent} />
 
@@ -930,11 +1152,6 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               gs={gs}
               onGsUpdate={setGs}
             />
-
-            {/* Session 5: Advisor Panel */}
-            {gs?.advisors?.length > 0 && (
-              <AdvisorPanel gs={gs} sessionId={sessionId} onGsUpdate={setGs} />
-            )}
 
             {/* Negotiation slide-up panel */}
             {negotiatingNpc && (() => {
@@ -1074,8 +1291,9 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               <OffersPanel
                 offers={offers}
                 onChoice={handleChoice}
-                disabled={loading || (gs?.brigades_deployed_last_turn && !aftermathResult)}
+                disabled={loading || (gs?.brigades_deployed_last_turn && !aftermathResult) || gs?.summit_due}
                 counterOffers={counterOffers}
+                summitBlocked={!!gs?.summit_due}
               />
             )}
 
@@ -1207,19 +1425,12 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               <div className="alert alert-warn">{brigadeResult}</div>
             )}
 
-            {/* Session 4D: Intel allocation — before skim */}
-            {!intelAllocated && (
-              <IntelAllocationPanel
-                gs={gs}
-                onAllocate={handleIntelAllocate}
-                disabled={loading || brigadeLoading || (brigadeAvailable && !brigadeResult)}
-              />
-            )}
+            {/* Intel allocation gate removed — now driven by Domestic Affairs Tab */}
 
             <SkimPanel
               skimOptions={skimOptions}
               onSkim={handleSkim}
-              disabled={loading || brigadeLoading || (brigadeAvailable && !brigadeResult) || !intelAllocated}
+              disabled={loading || brigadeLoading || (brigadeAvailable && !brigadeResult)}
               drainProjection={drainProjection}
               detectionHeat={gs?.detection_heat || 0}
             />
@@ -1246,7 +1457,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         {/* ── PHASE: EOT ── */}
         {phase === PHASE.EOT && (
           <>
-            <div className="turn-divider">— END OF TURN {(gs?.current_turn || 1) - 1}/{gs?.max_turns} —</div>
+            <div className="turn-divider">— END OF DAY {(gs?.current_day || gs?.current_turn || 1) - 1} —</div>
 
             {skimMessages.length > 0 && (
               <div className="panel">
@@ -1269,13 +1480,50 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
 
             <EotPanel messages={eotMessages} />
 
+            {/* Session 7A Step 5: Era transition suggestion card */}
+            {eraTransitionSuggestion && !ending && (
+              <div className="era-transition-card">
+                <div className="era-transition-header">
+                  <span className="briefing-tag briefing-tag-briefing">BRIEFING</span>
+                  📜 ERA-DEFINING MOMENT
+                </div>
+                <div className="era-transition-body">
+                  <p>
+                    {eraTransitionSuggestion.trigger === 'time_backstop'
+                      ? `${eraTransitionSuggestion.days_in_era} days have passed without a defining moment.`
+                      : `A threshold event has occurred: ${eraTransitionSuggestion.trigger.replace(/_/g, ' ')}.`
+                    }
+                  </p>
+                  <p className="era-transition-prompt">
+                    Close Era {eraTransitionSuggestion.era} and receive the Historian's verdict?
+                  </p>
+                </div>
+                <div className="era-transition-actions">
+                  <button
+                    className="btn-ghost era-dismiss-btn"
+                    onClick={handleDismissEraCard}
+                    disabled={historianLoading}
+                  >
+                    Not Yet
+                  </button>
+                  <button
+                    className="btn-primary era-close-btn"
+                    onClick={handleCloseEra}
+                    disabled={historianLoading}
+                  >
+                    {historianLoading ? 'Consulting historian…' : 'Close This Era'}
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="continue-row">
               <button
                 className="btn-primary"
                 onClick={handleContinue}
                 disabled={loading}
               >
-                {ending ? 'See Results' : `Turn ${gs?.current_turn || 1} →`}
+                {ending ? 'See Results' : `Day ${gs?.current_day || gs?.current_turn || 1} →`}
               </button>
             </div>
           </>
@@ -1294,6 +1542,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         )}
 
       </div>
+      )}
       </DashboardLayout>
 
       {/* FEATURE 1: Confirmation modal */}
@@ -1348,6 +1597,43 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
             </div>
           </div>
         </div>
+      )}
+
+      {/* Session 7A Step 5: Historian verdict modal */}
+      {historianModal && (
+        <div className="confirm-overlay historian-overlay" style={{ zIndex: 360 }}>
+          <div className="historian-modal">
+            <div className="historian-modal-header">
+              📜 {historianModal.isOnDemand ? 'HISTORIAN\'S ASSESSMENT' : `ERA ${historianModal.era} VERDICT`}
+            </div>
+            <div className="historian-modal-body">
+              {historianModal.isOnDemand && (
+                <p className="historian-on-demand-note">As things stand…</p>
+              )}
+              <p className="historian-text">{historianModal.summary}</p>
+            </div>
+            <div className="historian-modal-actions">
+              <button
+                className="btn-primary"
+                onClick={() => setHistorianModal(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Session 7D: Backchannel Modal */}
+      {backchannelNpc && (
+        <BackchannelModal
+          npcKey={backchannelNpc}
+          npcLabel={NPC_INFO[backchannelNpc]?.label || backchannelNpc}
+          gs={gs}
+          sessionId={sessionId}
+          onClose={() => setBackchannelNpc(null)}
+          onGsUpdate={setGs}
+        />
       )}
 
       {/* FEATURE 1: Shadow Cabinet drawer */}

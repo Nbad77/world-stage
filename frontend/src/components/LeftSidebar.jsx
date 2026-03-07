@@ -18,7 +18,7 @@ const POWER_BASE_POSITIONS = {
   'Elite-Captured': 90,
 }
 
-export default function LeftSidebar({ gs, onShadowCabinet }) {
+export default function LeftSidebar({ gs, onShadowCabinet, mode, onHistorian, historianLoading }) {
   if (!gs) return null
 
   // ── Regime identity ──────────────────────────────────────────────────
@@ -48,7 +48,9 @@ export default function LeftSidebar({ gs, onShadowCabinet }) {
   const military = gs.military_strength ?? 20
   const militaryClass = military < 10 ? 'bad' : military < 30 ? 'warn' : 'good'
   const tech = gs.tech_level ?? 0
+  const techGain = gs.tech_gain_last_turn ?? 0
   const techClass = tech === 0 ? '' : tech >= 41 ? 'good' : 'warn'
+  console.log('[TECH] Display updated:', tech, techGain)
 
   // ── Power base slider position ───────────────────────────────────────
   const sliderPos = POWER_BASE_POSITIONS[powerBase] ?? 50
@@ -64,10 +66,10 @@ export default function LeftSidebar({ gs, onShadowCabinet }) {
         <span className="ls-power-base">{powerBase}</span>
       </div>
 
-      {/* ── Era & Day (placeholder) ──────────────────────────────────── */}
+      {/* ── Era & Day ─────────────────────────────────────────────────── */}
       <div className="ls-era-day">
-        <span>ERA 1</span>
-        <span>DAY 1</span>
+        <span>ERA {gs.current_era ?? 1}</span>
+        <span>DAY {gs.current_day ?? gs.current_turn ?? 1}</span>
       </div>
 
       {/* ── Financial ────────────────────────────────────────────────── */}
@@ -108,7 +110,7 @@ export default function LeftSidebar({ gs, onShadowCabinet }) {
       <div className="ls-bar-container">
         <div className="ls-bar-track">
           <div
-            className={`ls-bar-fill ${stabilityClass}`}
+            className={`ls-bar-fill ${stabilityClass}${mode === 'event' ? ' bar-pulse' : ''}`}
             style={{ width: `${Math.max(0, Math.min(100, stability))}%` }}
           />
         </div>
@@ -121,7 +123,7 @@ export default function LeftSidebar({ gs, onShadowCabinet }) {
       <div className="ls-bar-container">
         <div className="ls-bar-track">
           <div
-            className={`ls-bar-fill ${approvalClass}`}
+            className={`ls-bar-fill ${approvalClass}${mode === 'event' ? ' bar-pulse' : ''}`}
             style={{ width: `${Math.max(0, Math.min(100, approval))}%` }}
           />
         </div>
@@ -140,8 +142,26 @@ export default function LeftSidebar({ gs, onShadowCabinet }) {
         <span
           className={`ls-stat-value ${techClass}`}
           style={tech === 0 ? { opacity: 0.4 } : {}}
-        >{tech}</span>
+          title="Higher tech unlocks EU ceiling, boosts GDP, reduces detection risk"
+        >{typeof tech === 'number' ? tech.toFixed(1) : tech}</span>
       </div>
+      {techGain > 0 && (
+        <div className="ls-tech-gain">+{techGain.toFixed(1)}/turn</div>
+      )}
+
+      {/* ── Budget Allocation Summary ──────────────────────────────── */}
+      {gs.budget_allocation && (() => {
+        const ba = gs.budget_allocation
+        const intelPct = ba.intelligence ?? 20
+        const intelTier = intelPct > 25 ? 'Expand' : intelPct >= 20 ? 'Active' : intelPct >= 15 ? 'Maint' : 'Low'
+        const milLevel = (ba.military ?? 20) > 30 ? 'High' : (ba.military ?? 20) >= 20 ? 'Med' : 'Low'
+        const svcLevel = (ba.public_services ?? 20) > 30 ? 'High' : (ba.public_services ?? 20) >= 20 ? 'Med' : 'Low'
+        return (
+          <div className="ls-budget-summary">
+            Intel {intelTier} · Mil {milLevel} · Svc {svcLevel}
+          </div>
+        )
+      })()}
 
       {/* ── Power Base slider (read-only) ────────────────────────────── */}
       <div className="ls-section-label">Power Base</div>
@@ -154,8 +174,8 @@ export default function LeftSidebar({ gs, onShadowCabinet }) {
         <span>Elite</span>
       </div>
 
-      {/* ── Soft Power / Diplomatic Capital (if > 0) ─────────────────── */}
-      {(gs.soft_power > 0 || gs.diplomatic_capital > 0) && (
+      {/* ── Influence & Summit Credibility ─────────────────────────────── */}
+      {(gs.soft_power > 0 || gs.diplomatic_capital > 0 || (gs.summit_credibility ?? 100) < 100 || (gs.active_summit_commitments || []).length > 0) && (
         <>
           <div className="ls-section-label">Influence</div>
           {gs.soft_power > 0 && (
@@ -177,9 +197,51 @@ export default function LeftSidebar({ gs, onShadowCabinet }) {
         </>
       )}
 
-      {/* ── Historian button (placeholder) ───────────────────────────── */}
-      <button className="ls-historian-btn" disabled>
-        📜 Historian's Assessment
+      {/* ── Session 7E Step 3: Summit Credibility ──────────────────────── */}
+      {(() => {
+        const cred = gs.summit_credibility ?? 100
+        const commitments = gs.active_summit_commitments || []
+        const activeCount = commitments.filter(c => !c.broken).length
+        const brokenCount = commitments.filter(c => c.broken).length
+        // Only show when there's summit activity
+        if (cred >= 100 && activeCount === 0 && brokenCount === 0) return null
+        const credClass = cred >= 80 ? 'good' : cred >= 50 ? 'warn' : 'bad'
+        return (
+          <>
+            <div className="ls-section-label">UN Standing</div>
+            <div className="ls-stat-row">
+              <span className="ls-stat-label">Credibility</span>
+              <span className={`ls-stat-value ${credClass}`}>🌐 {Math.round(cred)}</span>
+            </div>
+            <div className="ls-bar-container">
+              <div className="ls-bar-track">
+                <div
+                  className={`ls-bar-fill ${credClass}`}
+                  style={{ width: `${Math.max(0, Math.min(100, cred))}%` }}
+                />
+              </div>
+            </div>
+            {(activeCount > 0 || brokenCount > 0) && (
+              <div className="ls-summit-commitments-summary">
+                {activeCount > 0 && (
+                  <span className="ls-commitment-active">📋 {activeCount} active</span>
+                )}
+                {brokenCount > 0 && (
+                  <span className="ls-commitment-broken">❌ {brokenCount} broken</span>
+                )}
+              </div>
+            )}
+          </>
+        )
+      })()}
+
+      {/* ── Historian button (Session 7A Step 5: functional) ─────────── */}
+      <button
+        className={`ls-historian-btn ${onHistorian ? 'ls-historian-active' : ''}`}
+        disabled={!onHistorian || historianLoading}
+        onClick={onHistorian}
+      >
+        {historianLoading ? '📜 Consulting…' : '📜 Historian\'s Assessment'}
       </button>
 
       {/* ── Emergency tokens (placeholder) ───────────────────────────── */}

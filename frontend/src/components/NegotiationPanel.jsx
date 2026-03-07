@@ -26,6 +26,20 @@ function renderWithStageDirections(text) {
   return <span>{cleaned}</span>
 }
 
+// Session 7A Feature 10: Client-side energy keyword detection (mirrors gm_engine.py)
+const ENERGY_KEYWORDS = [
+  'energy', 'oil', 'exclusive', 'partner', 'supply',
+  'barrel', 'crude', 'pipeline', 'contract', 'deal',
+]
+function isEnergyProposal(text) {
+  const lower = (text || '').toLowerCase()
+  let matches = 0
+  for (const kw of ENERGY_KEYWORDS) {
+    if (lower.includes(kw)) matches++
+  }
+  return matches >= 2
+}
+
 export default function NegotiationPanel({
   npcKey,
   npcLabel,
@@ -46,6 +60,9 @@ export default function NegotiationPanel({
   const [messages, setMessages] = useState(initialMessages)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Session 7A Feature 10: GM consequence object from last energy proposal
+  const [gmConsequence, setGmConsequence] = useState(null)
 
   // All counter-offers made in this session with this NPC, newest last.
   // Seeded from initialPendingOffers so they survive minimize/reopen.
@@ -82,7 +99,9 @@ export default function NegotiationPanel({
     const text = input.trim()
     if (!text || loading) return
 
-    const userMsg = { role: 'user', content: text }
+    // Session 7A Feature 10: Tag user message if it triggers energy detection (Arabia only)
+    const energyDetected = npcKey === 'arabia' && isEnergyProposal(text)
+    const userMsg = { role: 'user', content: text, energyProposal: energyDetected }
     const withUser = [...messages, userMsg]
     // Optimistically update messages (keep current pendingOffers)
     setMessages(withUser)
@@ -106,7 +125,14 @@ export default function NegotiationPanel({
       // BUG 6: sync updated game_state (with fresh negotiation_log) to parent
       if (res.game_state && onGsUpdate) onGsUpdate(res.game_state)
 
-      const withNpc = [...withUser, { role: 'npc', content: res.response }]
+      // Session 7A Feature 10: Capture GM consequence object
+      const _gmResult = res.gm_consequence || null
+      if (_gmResult) {
+        setGmConsequence(_gmResult)
+        console.log('[GM] Consequence preview received:', _gmResult)
+      }
+
+      const withNpc = [...withUser, { role: 'npc', content: res.response, gmConsequence: _gmResult }]
 
       // If a new counter-offer arrived, append it to the stack and clear held offer.
       // Dedup: if the backend re-emitted the same offer as the fallback
@@ -323,14 +349,60 @@ export default function NegotiationPanel({
             </div>
           )}
           {messages.map((m, i) => (
-            <div
-              key={i}
-              className={`negotiation-msg ${m.role === 'user' ? 'msg-user' : `msg-npc msg-${npcColorClass}`}`}
-            >
-              {m.role === 'user'
-                ? <span>{m.content}</span>
-                : <span>{renderWithStageDirections(m.content)}</span>
-              }
+            <div key={i}>
+              <div
+                className={`negotiation-msg ${m.role === 'user' ? 'msg-user' : `msg-npc msg-${npcColorClass}`}`}
+              >
+                {m.role === 'user'
+                  ? <>
+                      {m.energyProposal && (
+                        <span className="gm-energy-badge">Energy Proposal</span>
+                      )}
+                      <span>{m.content}</span>
+                    </>
+                  : <span>{renderWithStageDirections(m.content)}</span>
+                }
+              </div>
+              {/* Session 7A Feature 10: GM Assessment card after NPC response */}
+              {m.role === 'npc' && m.gmConsequence && (
+                <div className="gm-assessment-card">
+                  <div className="gm-assessment-header">GM Assessment</div>
+                  <div className="gm-assessment-body">
+                    <div className="gm-assessment-row">
+                      <span className="gm-label">Proposal</span>
+                      <span className="gm-value">{m.gmConsequence.proposal_summary}</span>
+                    </div>
+                    <div className="gm-assessment-row">
+                      <span className="gm-label">Type</span>
+                      <span className="gm-value">{m.gmConsequence.commitment_type}</span>
+                    </div>
+                    <div className="gm-assessment-row">
+                      <span className="gm-label">Credibility</span>
+                      <span className={`gm-value gm-cred-${m.gmConsequence.credibility_assessment}`}>
+                        {m.gmConsequence.credibility_assessment}
+                      </span>
+                    </div>
+                    {m.gmConsequence.affected_parties?.length > 0 && (
+                      <div className="gm-assessment-row">
+                        <span className="gm-label">Also affected</span>
+                        <span className="gm-value">{m.gmConsequence.affected_parties.join(', ')}</span>
+                      </div>
+                    )}
+                    {m.gmConsequence.contradicted_deals?.length > 0 && (
+                      <div className="gm-assessment-row">
+                        <span className="gm-label">Conflicts with</span>
+                        <span className="gm-value gm-conflict">{m.gmConsequence.contradicted_deals.join(', ')}</span>
+                      </div>
+                    )}
+                    {m.gmConsequence.second_order_consequences?.length > 0 && (
+                      <div className="gm-assessment-row">
+                        <span className="gm-label">Ripple effects</span>
+                        <span className="gm-value">{m.gmConsequence.second_order_consequences.join('; ')}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           ))}
           {loading && (

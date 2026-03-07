@@ -133,21 +133,35 @@ def test_tech_gdp_bonus_in_eot():
 
 
 def test_eu_ceiling_from_tech():
-    """Tech level 50 (EU ceiling 120) allows EU relations above 100."""
-    gs = _fresh_gs(tech_level=50)
-    gs.relations['eu'] = 98
+    """Tech level affects EU soft cap: 60 + (tech × 2). Hard cap always 100.
+    Above soft cap, positive gains are halved."""
+    # Tech 20 -> soft cap = 60 + 40 = 100 (at hard cap, no halving)
+    gs_high = _fresh_gs(tech_level=20.0)
+    gs_high.relations['eu'] = 65
+    gs_high.update_relations('eu', 10)  # Above 61 = 75% diminishing, no soft cap halving
+    eu_high = gs_high.relations['eu']
 
-    # With ceiling 120, EU should be able to go above 100
-    gs.update_relations('eu', 30, flat=True)
-    assert gs.relations['eu'] > 100, f"EU should exceed 100, got {gs.relations['eu']}"
-    assert gs.relations['eu'] <= 120, f"EU should not exceed 120, got {gs.relations['eu']}"
+    # Tech 0 -> soft cap = 60. At EU 65, above soft cap -> gains halved
+    gs_low = _fresh_gs(tech_level=0.0)
+    gs_low.relations['eu'] = 65
+    gs_low.update_relations('eu', 10)
+    eu_low = gs_low.relations['eu']
+
+    assert eu_high > eu_low, \
+        f"Higher tech should give more EU gain above soft cap: tech20={eu_high}, tech0={eu_low}"
+
+    # Hard cap at 100 always enforced
+    gs_cap = _fresh_gs(tech_level=50.0)
+    gs_cap.relations['eu'] = 98
+    gs_cap.update_relations('eu', 30, flat=True)
+    assert gs_cap.relations['eu'] == 100, f"EU should cap at 100 (hard cap), got {gs_cap.relations['eu']}"
 
     # Non-EU should still cap at 100
-    gs.relations['usa'] = 98
-    gs.update_relations('usa', 30, flat=True)
-    assert gs.relations['usa'] == 100, f"USA should cap at 100, got {gs.relations['usa']}"
+    gs_cap.relations['usa'] = 98
+    gs_cap.update_relations('usa', 30, flat=True)
+    assert gs_cap.relations['usa'] == 100, f"USA should cap at 100, got {gs_cap.relations['usa']}"
 
-    print(f"  PASSED: EU ceiling from tech — EU at {gs.relations['eu']}, USA capped at 100.")
+    print(f"  PASSED: EU soft cap — tech20 gain: {eu_high:.1f}, tech0 gain: {eu_low:.1f}, hard cap: 100")
 
 
 # ── Intel Budget Tests ───────────────────────────────────────────────────────

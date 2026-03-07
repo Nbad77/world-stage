@@ -528,7 +528,11 @@ def apply_stat_distortion(game_state) -> dict:
     Backend always uses true gs.* values.
     """
     distortions = {}
-    for advisor in getattr(game_state, 'advisors', []):
+    _advisors_raw = getattr(game_state, 'advisors', [])
+    # Session 7C: advisors changed from list to dict — legacy function skips new format
+    if isinstance(_advisors_raw, dict):
+        return distortions
+    for advisor in _advisors_raw:
         bias_stat = advisor.get('bias_stat')
         if not bias_stat:
             continue
@@ -556,7 +560,11 @@ def check_advisor_loyalty(game_state) -> list:
     Returns list of message strings describing betrayal events.
     """
     messages = []
-    for advisor in getattr(game_state, 'advisors', []):
+    _advisors_raw = getattr(game_state, 'advisors', [])
+    # Session 7C: advisors changed from list to dict — legacy function skips new format
+    if isinstance(_advisors_raw, dict):
+        return messages
+    for advisor in _advisors_raw:
         loyalty = advisor.get('loyalty', 50)
         if loyalty >= 50:
             continue

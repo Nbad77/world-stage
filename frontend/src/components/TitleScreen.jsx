@@ -2,13 +2,12 @@
  * Title / splash screen shown before the game starts.
  *
  * Session persistence (Addition 1):
- *   hasResumable = null  → still checking localStorage (silent gap)
  *   hasResumable = false → no saved session — show normal "Begin Tenure"
  *   hasResumable = true  → active session found — show "Resume Game" + "New Game"
  */
 export default function TitleScreen({ onStart, onResume, hasResumable, resumeData, loading }) {
-  const checking = hasResumable === null
   const gs = resumeData?.game_state
+  console.log('[TITLE] Begin Tenure button rendered, ready=true')
 
   return (
     <div className="title-screen">
@@ -33,7 +32,7 @@ export default function TitleScreen({ onStart, onResume, hasResumable, resumeDat
       </div>
 
       {/* ── Resume block — only when a valid active session was found ── */}
-      {!checking && hasResumable && gs && (
+      {hasResumable && gs && (
         <div className="resume-block">
           <div className="resume-summary">
             <span className="resume-label">Saved session found</span>
@@ -63,7 +62,7 @@ export default function TitleScreen({ onStart, onResume, hasResumable, resumeDat
       )}
 
       {/* ── Normal start — no saved session ── */}
-      {!checking && !hasResumable && (
+      {!hasResumable && (
         <button
           className="btn-primary"
           onClick={onStart}
@@ -71,11 +70,6 @@ export default function TitleScreen({ onStart, onResume, hasResumable, resumeDat
         >
           {loading ? 'Starting…' : 'Begin Tenure'}
         </button>
-      )}
-
-      {/* ── Checking state — invisible height placeholder so layout doesn't jump ── */}
-      {checking && (
-        <div style={{ height: '2.6rem' }} />
       )}
 
       <p style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>

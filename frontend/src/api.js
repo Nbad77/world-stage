@@ -70,9 +70,9 @@ export const api = {
   /** POST /game/{id}/inject — body: { choice: 0-3 } */
   postInject: (id, choice) => request('POST', `/game/${id}/inject`, { choice }),
 
-  /** POST /game/{id}/negotiate — body: { npc_id, message, history, last_counter_offer? } */
-  negotiate: (id, npc_id, message, history = [], last_counter_offer = null) =>
-    request('POST', `/game/${id}/negotiate`, { npc_id, message, history, last_counter_offer }),
+  /** POST /game/{id}/negotiate — body: { npc_id, message, history, last_counter_offer?, player_initiated? } */
+  negotiate: (id, npc_id, message, history = [], last_counter_offer = null, player_initiated = false) =>
+    request('POST', `/game/${id}/negotiate`, { npc_id, message, history, last_counter_offer, player_initiated }),
 
   /** POST /game/{id}/accept_counter — body: { letter, counter_offer, covert? } */
   acceptCounter: (id, letter, counter_offer, covert = false) =>
@@ -101,6 +101,10 @@ export const api = {
   intelAllocation: (id, allocation) =>
     request('POST', `/game/${id}/intel_allocation`, { allocation }),
 
+  /** POST /game/{id}/budget_allocation — Domestic Affairs persistent allocation */
+  budgetAllocation: (id, allocation) =>
+    request('POST', `/game/${id}/budget_allocation`, allocation),
+
   /** POST /game/{id}/debug/set_state — body: { overrides } — fixes_10 Fix 7 */
   debugSetState: (id, overrides) =>
     request('POST', `/game/${id}/debug/set_state`, { overrides }),
@@ -111,13 +115,41 @@ export const api = {
   cabinetInvest: (id, axis, direction) =>
     request('POST', `/game/${id}/cabinet_invest`, { axis, direction }),
 
-  /** POST /game/{id}/advisor_action — body: { action, advisor_id } */
+  /** POST /game/{id}/advisor_action — body: { action, advisor_id } (legacy) */
   advisorAction: (id, action, advisor_id) =>
     request('POST', `/game/${id}/advisor_action`, { action, advisor_id }),
 
-  /** GET /game/{id}/advisor_pool */
+  /** GET /game/{id}/advisor_pool (legacy) */
   getAdvisorPool: (id) =>
     request('GET', `/game/${id}/advisor_pool`),
+
+  /** POST /game/{id}/advisor/assign — Session 7C: assign advisor for this turn */
+  assignAdvisor: (id, advisorKey) =>
+    request('POST', `/game/${id}/advisor/assign`, { advisor_key: advisorKey }),
+
+  /** POST /game/{id}/advisor/unassign — Session 7C: unassign advisor */
+  unassignAdvisor: (id, advisorKey) =>
+    request('POST', `/game/${id}/advisor/unassign`, { advisor_key: advisorKey }),
+
+  /** POST /game/{id}/backchannel — Session 7D: send covert message */
+  backchannel: (id, npcId, message) =>
+    request('POST', `/game/${id}/backchannel`, { npc_id: npcId, message }),
+
+  /** GET /game/{id}/backchannel/history — Session 7D: get backchannel logs */
+  backchannelHistory: (id) =>
+    request('GET', `/game/${id}/backchannel/history`),
+
+  /** POST /game/{id}/summit/declare — Session 7E: submit declaration, get NPC reactions */
+  summitDeclare: (id, declaration) =>
+    request('POST', `/game/${id}/summit/declare`, { declaration }),
+
+  /** POST /game/{id}/summit/auto_position — Session 7E: generate holding statement */
+  summitAutoPosition: (id) =>
+    request('POST', `/game/${id}/summit/auto_position`),
+
+  /** POST /game/{id}/summit/close — Session 7E: close summit, unblock End Day */
+  summitClose: (id) =>
+    request('POST', `/game/${id}/summit/close`),
 
   /** POST /game/{id}/set_tax_rates — body: { income_tax?, corporate_tax?, resource_tax? } */
   setTaxRates: (id, rates) =>
@@ -168,6 +200,14 @@ export const api = {
   /** POST /game/{id}/leverage_response — body: { leverage_type, accept } */
   leverageResponse: (id, leverage_type, accept) =>
     request('POST', `/game/${id}/leverage_response`, { leverage_type, accept }),
+
+  // ── Session 7A Step 5: Era + Historian endpoints ───────────────────────
+
+  /** POST /game/{id}/close_era — close current era, get historian summary */
+  closeEra: (id) => request('POST', `/game/${id}/close_era`),
+
+  /** POST /game/{id}/historian_summary — on-demand historian assessment */
+  historianSummary: (id) => request('POST', `/game/${id}/historian_summary`),
 
   // ── Test Account endpoints ──────────────────────────────────────────────
 

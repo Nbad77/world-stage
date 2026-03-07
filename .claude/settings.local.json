@@ -22,7 +22,8 @@
       "Bash(alembic upgrade head --sql)",
       "Bash(alembic upgrade head)",
       "Bash(ls \"/c/Users/nbbq8/OneDrive/Creative Projects/Claude Apps/GeoSim 3/frontend/.env\"*)",
-      "Bash(npm install -D tailwindcss@3 postcss autoprefixer)"
+      "Bash(npm install -D tailwindcss@3 postcss autoprefixer)",
+      "Bash(python3 -c \":*)"
     ]
   }
 }

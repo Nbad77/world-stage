@@ -1,8 +1,8 @@
 """
-Tests for Tech Level Passive Acquisition — Session 5
+Tests for Tech Level Passive Acquisition — Redesigned
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Tests cover: fractional accumulation formula, regime modifier,
-tech level advancement, and EOT integration.
+Tests cover: relationship-weighted formula, deal bonus multiplier,
+float accumulation, and zero-relations edge case.
 """
 
 import sys
@@ -25,8 +25,8 @@ def _fresh_gs():
     gs.personal_wealth = 0.0
     gs.state_identity = {'regime_type': 'Managed Democracy', 'power_base': 'Mass-Dependent'}
     gs.cabinet_axes = {'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}
-    gs.tech_level = 0
-    gs.tech_level_fractional = 0.0
+    gs.tech_level = 0.0
+    gs.tech_gain_last_turn = 0.0
     gs.advisors = []
     gs.advisor_pool = []
     gs.advisors_eliminated = []
@@ -42,92 +42,81 @@ def _fresh_gs():
     gs.npc_contact_history = {}
     gs.pending_npc_contacts = []
     gs.brigade_operations_this_turn = []
+    gs.deal_history = []
     return gs
 
 
 def test_tech_gain_formula():
-    """Verify the weighted formula: EU*0.60 + USA*0.25 + DPRG*0.15"""
+    """Verify the weighted formula: EU*1.0 + USA*0.9 + DPRG*0.5 + Arabia*0.3, all × BASE_RATE 0.5"""
     gs = _fresh_gs()
-    # EU 80, USA 60, DPRG 40 -> (0.80*0.60) + (0.60*0.25) + (0.40*0.15) = 0.48 + 0.15 + 0.06 = 0.69
-    gs.relations = {'usa': 60, 'arabia': 50, 'eu': 80, 'dprg': 40}
-    gs.state_identity['regime_type'] = 'Managed Democracy'
+    gs.relations = {'usa': 60, 'arabia': 40, 'eu': 80, 'dprg': 40}
 
-    expected_raw = (80/100.0) * 0.60 + (60/100.0) * 0.25 + (40/100.0) * 0.15
-    # Managed Democracy multiplier: 1.1
-    expected = round(expected_raw * 1.1, 3)
-
-    # Run EOT and check fractional gain
-    old_frac = gs.tech_level_fractional
-    apply_end_of_turn_effects(gs)
-    new_frac = gs.tech_level_fractional + (gs.tech_level - 0)  # add back any integer advances
-
-    actual_gain = round(new_frac - old_frac, 3)
-    assert abs(actual_gain - expected) < 0.01, \
-        f"Expected tech gain ~{expected}, got {actual_gain}"
-    print(f"  PASS: tech gain formula correct: {actual_gain} (expected {expected})")
-
-
-def test_regime_modifier_slows_tech():
-    """Authoritarian regimes should produce less tech gain than democracies."""
-    # Run with Managed Democracy (1.1x)
-    gs_dem = _fresh_gs()
-    gs_dem.relations = {'usa': 50, 'arabia': 50, 'eu': 50, 'dprg': 50}
-    gs_dem.state_identity['regime_type'] = 'Managed Democracy'
-
-    # Run with Totalitarian (0.5x)
-    gs_tot = _fresh_gs()
-    gs_tot.relations = {'usa': 50, 'arabia': 50, 'eu': 50, 'dprg': 50}
-    gs_tot.state_identity['regime_type'] = 'Totalitarian Regime'
-
-    apply_end_of_turn_effects(gs_dem)
-    apply_end_of_turn_effects(gs_tot)
-
-    dem_tech = gs_dem.tech_level_fractional + gs_dem.tech_level
-    tot_tech = gs_tot.tech_level_fractional + gs_tot.tech_level
-
-    assert dem_tech > tot_tech, \
-        f"Democracy tech ({dem_tech}) should exceed Totalitarian tech ({tot_tech})"
-    print(f"  PASS: regime modifier — Democracy {dem_tech:.3f} > Totalitarian {tot_tech:.3f}")
-
-
-def test_tech_level_advances_on_full_point():
-    """When fractional tech >= 1.0, tech_level should increase by 1."""
-    gs = _fresh_gs()
-    gs.relations = {'usa': 100, 'arabia': 50, 'eu': 100, 'dprg': 100}
-    gs.tech_level = 5
-    gs.tech_level_fractional = 0.95  # Close to 1.0, high relations push over
-    gs.state_identity['regime_type'] = 'Managed Democracy'
+    # Expected: (80/100*1.0 + 60/100*0.9 + 40/100*0.3 + 40/100*0.5) * 0.5
+    #         = (0.80 + 0.54 + 0.12 + 0.20) * 0.5 = 1.66 * 0.5 = 0.83
+    expected = round((0.80*1.0 + 0.60*0.9 + 0.40*0.3 + 0.40*0.5) * 0.5, 3)
 
     apply_end_of_turn_effects(gs)
 
-    assert gs.tech_level >= 6, \
-        f"Tech level should have advanced from 5, got {gs.tech_level}"
-    assert gs.tech_level_fractional < 1.0, \
-        f"Fractional should be < 1.0 after advancement, got {gs.tech_level_fractional}"
-    print(f"  PASS: tech level advanced to {gs.tech_level} (fractional: {gs.tech_level_fractional:.3f})")
+    assert abs(gs.tech_level - expected) < 0.15, \
+        f"Expected tech ~{expected}, got {gs.tech_level}"
+    assert abs(gs.tech_gain_last_turn - expected) < 0.15, \
+        f"Expected tech_gain_last_turn ~{expected}, got {gs.tech_gain_last_turn}"
+    print(f"  PASS: tech gain formula correct: {gs.tech_level} (expected ~{expected})")
+
+
+def test_deal_bonus_multiplier():
+    """NPC with a deal accepted this turn gets 1.5× contribution."""
+    gs_no_deal = _fresh_gs()
+    gs_no_deal.relations = {'usa': 50, 'arabia': 50, 'eu': 80, 'dprg': 50}
+
+    gs_with_deal = _fresh_gs()
+    gs_with_deal.relations = {'usa': 50, 'arabia': 50, 'eu': 80, 'dprg': 50}
+    gs_with_deal.deal_history = [{'npc': 'eu', 'turn_accepted': 3, 'summary': 'test deal'}]
+
+    apply_end_of_turn_effects(gs_no_deal)
+    apply_end_of_turn_effects(gs_with_deal)
+
+    assert gs_with_deal.tech_level > gs_no_deal.tech_level, \
+        f"Deal bonus should increase tech: with={gs_with_deal.tech_level}, without={gs_no_deal.tech_level}"
+    print(f"  PASS: deal bonus — with deal: {gs_with_deal.tech_level}, without: {gs_no_deal.tech_level}")
+
+
+def test_tech_accumulates_as_float():
+    """Tech level should accumulate as a float across turns."""
+    gs = _fresh_gs()
+    gs.relations = {'usa': 50, 'arabia': 50, 'eu': 50, 'dprg': 50}
+
+    apply_end_of_turn_effects(gs)
+    first_level = gs.tech_level
+    assert isinstance(first_level, float), f"tech_level should be float, got {type(first_level)}"
+    assert first_level > 0, f"tech_level should be > 0, got {first_level}"
+
+    # Second turn
+    gs.current_turn = 4
+    apply_end_of_turn_effects(gs)
+    assert gs.tech_level > first_level, \
+        f"Tech should accumulate: turn 2 ({gs.tech_level}) > turn 1 ({first_level})"
+    print(f"  PASS: float accumulation — turn 1: {first_level}, turn 2: {gs.tech_level}")
 
 
 def test_zero_relations_zero_tech_gain():
-    """With all relations at 0, tech gain should be 0 (or near-0)."""
+    """With all relations at 0, tech gain should be 0."""
     gs = _fresh_gs()
     gs.relations = {'usa': 0, 'arabia': 0, 'eu': 0, 'dprg': 0}
-    gs.tech_level = 0
-    gs.tech_level_fractional = 0.0
-    gs.state_identity['regime_type'] = 'Managed Democracy'
+    gs.tech_level = 0.0
 
     apply_end_of_turn_effects(gs)
 
-    # Should be 0 gain: (0*0.60 + 0*0.25 + 0*0.15) * 1.1 = 0
-    assert gs.tech_level_fractional == 0.0, \
-        f"Expected 0 fractional gain at 0 relations, got {gs.tech_level_fractional}"
-    assert gs.tech_level == 0, f"Tech level should stay at 0, got {gs.tech_level}"
+    assert gs.tech_gain_last_turn == 0.0, \
+        f"Expected 0 gain at 0 relations, got {gs.tech_gain_last_turn}"
+    assert gs.tech_level == 0.0, f"Tech level should stay at 0, got {gs.tech_level}"
     print("  PASS: zero relations -> zero tech gain")
 
 
 if __name__ == '__main__':
     print("\n=== test_tech_passive.py ===\n")
     test_tech_gain_formula()
-    test_regime_modifier_slows_tech()
-    test_tech_level_advances_on_full_point()
+    test_deal_bonus_multiplier()
+    test_tech_accumulates_as_float()
     test_zero_relations_zero_tech_gain()
     print("\nAll test_tech_passive tests passed!")

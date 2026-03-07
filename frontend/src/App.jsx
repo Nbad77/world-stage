@@ -36,8 +36,8 @@ export default function App() {
   const [error, setError]         = useState(null)
   const [gameKey, setGameKey]     = useState(0)   // increments to force GameScreen remount
 
-  // hasResumable: null = still checking, false = no session, true = session ready
-  const [hasResumable, setHasResumable] = useState(null)
+  // hasResumable: false = no session (default), true = session ready
+  const [hasResumable, setHasResumable] = useState(false)
   const [resumeData, setResumeData]     = useState(null)   // data from GET /game/{id}
 
   // ── On mount: probe localStorage for an existing active session ──────────

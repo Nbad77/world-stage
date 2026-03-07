@@ -18,6 +18,7 @@ Endpoints:
 
 import sys
 import os
+import re
 import random
 from pathlib import Path
 
@@ -90,6 +91,7 @@ class NegotiateRequest(BaseModel):
     message: str         # player's latest message
     history: List[Any] = []  # list of {role, content} prior messages
     last_counter_offer: Any = None  # most recent counter_offer the frontend has seen (for re-emit fallback)
+    player_initiated: bool = False  # Session 7B: True when player contacts NPC from sidebar
 
 class AcceptCounterRequest(BaseModel):
     letter: str           # "A"-"D"
@@ -118,6 +120,13 @@ class DomesticActionRequest(BaseModel):
 
 class IntelAllocationRequest(BaseModel):
     allocation: str  # 'none' | 'maintenance' | 'active' | 'expansion'
+
+class BudgetAllocationRequest(BaseModel):
+    military: int
+    intelligence: int
+    public_services: int
+    infrastructure: int
+    diplomacy: int
 
 class DebugSetStateRequest(BaseModel):
     overrides: dict  # fixes_10 Fix 7: field → value mapping for debug panel
@@ -1570,6 +1579,15 @@ async def post_action(session_id: str, body: ActionRequest, user: User = Depends
     }
 
     gs.record_action(choice_dict["type"], choice_dict.get("npc"))
+
+    # Session 7B: Track NPC interaction from deal acceptance
+    _deal_npc_interact = choice_dict.get("npc")
+    if _deal_npc_interact:
+        _interacted_deal = getattr(gs, 'npcs_interacted_this_turn', [])
+        if _deal_npc_interact not in _interacted_deal:
+            _interacted_deal.append(_deal_npc_interact)
+            gs.npcs_interacted_this_turn = _interacted_deal
+
     consequence_msgs = process_choice_consequences(gs, choice_dict)
 
     # FIX E: Deal immediate payment should be the FIRST line on the consequence screen.
@@ -1911,6 +1929,18 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
     if passive_messages:
         eot_messages.extend(passive_messages)
 
+    # Session 7A Feature 10: Apply GM consequences (energy deals with Arabia)
+    from turn_processor import apply_gm_consequences
+    gm_messages = apply_gm_consequences(gs)
+    if gm_messages:
+        eot_messages.extend(gm_messages)
+
+    # Session 7B Step 2: Check ignored communiqués (escalating penalties)
+    from turn_processor import check_ignored_communiques
+    ignored_msgs = check_ignored_communiques(gs)
+    if ignored_msgs:
+        eot_messages.extend(ignored_msgs)
+
     # Check game over
     is_over, result_type, _ = check_game_over(gs)
     status = _game_status(gs)
@@ -1927,22 +1957,23 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
     if is_over:
         ending = _build_ending(gs)
     else:
-        # Advance turn
+        # Advance day
         can_continue = gs.advance_turn()
-        # Session 3 Addendum: Reset per-turn rapport at start of new turn
+        print(f"[DAY] Day {gs.current_day - 1} ended, era {gs.current_era}")
+        # Session 3 Addendum: Reset per-turn rapport at start of new day
         from turn_processor import reset_turn_rapport
         reset_turn_rapport(gs)
-        # Also clear intel activation flags for the new turn
+        # Also clear intel activation flags for the new day
         gs.intel_activated_this_turn = {}
-        # fixes_11 Fix 2: Reset brigade operations for new turn
+        # fixes_11 Fix 2: Reset brigade operations for new day
         gs.brigade_operations_this_turn = []
-        # Reset per-turn negotiate costs
+        # Reset per-day negotiate costs
         gs.negotiate_costs_this_turn = 0.0
         if not can_continue:
             # FIX B: No longer push current_turn past max — check_game_over/status now uses >=
             ending = _build_ending(gs)
             status = "won"
-            print(f"  [api] FIX B: Game ended at turn {gs.current_turn}/{gs.max_turns}")
+            print(f"  [api] FIX B: Game ended at day {gs.current_day}/{gs.max_turns}")
 
     # Generate next turn data (if still playing)
     next_dialogue = None
@@ -2008,6 +2039,18 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
     if _pending_c:
         print(f"  [api] FIX C: Skim response includes {len(_pending_c)} pending contacts: {[c.get('npc') for c in _pending_c]}")
 
+    # Session 7A Step 4: Era transition suggestion for next day
+    _era_suggestion = None
+    if status == "active" and getattr(gs, 'pending_era_transition', False):
+        _trigger = getattr(gs, 'last_threshold_event', None) or 'time_backstop'
+        _era_suggestion = {
+            "type": "era_transition",
+            "trigger": _trigger,
+            "era": gs.current_era,
+            "days_in_era": gs.current_day - getattr(gs, 'era_start_day', 1),
+        }
+        print(f"  [api] ERA SUGGESTION: trigger={_trigger}, era={gs.current_era}, days={_era_suggestion['days_in_era']}")
+
     _save_gs(session_id, gs)
 
     return {
@@ -2022,6 +2065,7 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
         "next_offers": next_offers,
         "next_skim_options": _build_skim_options(gs) if status == "active" else [],
         "next_event": next_event,
+        "era_transition_suggestion": _era_suggestion,
         "game_state": gs.serialize(),
     }
 
@@ -2096,6 +2140,18 @@ def post_inject(session_id: str, body: InjectRequest):
     if _passive2:
         eot_messages.extend(_passive2)
 
+    # Session 7A Feature 10: Apply GM consequences (inject path)
+    from turn_processor import apply_gm_consequences as _agm2
+    _gm2 = _agm2(gs)
+    if _gm2:
+        eot_messages.extend(_gm2)
+
+    # Session 7B Step 2: Check ignored communiqués (inject path)
+    from turn_processor import check_ignored_communiques as _cic2
+    _ignored2 = _cic2(gs)
+    if _ignored2:
+        eot_messages.extend(_ignored2)
+
     # Check game over
     is_over, result_type, _ = check_game_over(gs)
     status = _game_status(gs)
@@ -2120,18 +2176,19 @@ def post_inject(session_id: str, body: InjectRequest):
             print(f"  [api] Memory hook (regime_collapse) failed: {e}")
     else:
         can_continue = gs.advance_turn()
-        # Session 3 Addendum: Reset per-turn rapport at start of new turn
+        print(f"[DAY] Day {gs.current_day - 1} ended, era {gs.current_era}")
+        # Session 3 Addendum: Reset per-turn rapport at start of new day
         from turn_processor import reset_turn_rapport as _rtr2
         _rtr2(gs)
         gs.intel_activated_this_turn = {}
-        # fixes_11 Fix 2: Reset brigade operations for new turn
+        # fixes_11 Fix 2: Reset brigade operations for new day
         gs.brigade_operations_this_turn = []
         gs.negotiate_costs_this_turn = 0.0
         if not can_continue:
             # FIX B: No longer push current_turn past max — check_game_over/status now uses >=
             ending = _build_ending(gs)
             status = "won"
-            print(f"  [api] FIX B: Game ended (inject) at turn {gs.current_turn}/{gs.max_turns}")
+            print(f"  [api] FIX B: Game ended (inject) at day {gs.current_day}/{gs.max_turns}")
 
     # Next turn dialogue
     next_dialogue = None
@@ -2190,6 +2247,18 @@ def post_inject(session_id: str, body: InjectRequest):
         if ending and gs.historian_summary:
             ending['historian_summary'] = gs.historian_summary
 
+    # Session 7A Step 4: Era transition suggestion for next day
+    _era_suggestion_inj = None
+    if status == "active" and getattr(gs, 'pending_era_transition', False):
+        _trigger_inj = getattr(gs, 'last_threshold_event', None) or 'time_backstop'
+        _era_suggestion_inj = {
+            "type": "era_transition",
+            "trigger": _trigger_inj,
+            "era": gs.current_era,
+            "days_in_era": gs.current_day - getattr(gs, 'era_start_day', 1),
+        }
+        print(f"  [api] ERA SUGGESTION (inject): trigger={_trigger_inj}, era={gs.current_era}")
+
     _save_gs(session_id, gs)
 
     return {
@@ -2203,6 +2272,7 @@ def post_inject(session_id: str, body: InjectRequest):
         "next_offers": next_offers,
         "next_skim_options": _build_skim_options(gs) if status == "active" else [],
         "next_event": next_event,
+        "era_transition_suggestion": _era_suggestion_inj,
         "game_state": gs.serialize(),
     }
 
@@ -2257,6 +2327,12 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
         gs.negotiate_costs_this_turn = getattr(gs, 'negotiate_costs_this_turn', 0.0) + _neg_cost
         gs.negotiate_sessions_this_turn = getattr(gs, 'negotiate_sessions_this_turn', 0) + 1
 
+        # Session 7B: Track NPC interaction for ignored communiqué system
+        _interacted = getattr(gs, 'npcs_interacted_this_turn', [])
+        if npc_id not in _interacted:
+            _interacted.append(npc_id)
+            gs.npcs_interacted_this_turn = _interacted
+
         # fixes_13 Fix 22: Diplomat loyalty leak — if diplomat active with loyalty < 40,
         # secretly report negotiating position to a random NPC (player never told which)
         _active_advisors = getattr(gs, 'advisors', [])
@@ -2268,6 +2344,19 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
             # but the player's negotiating position with the current NPC weakens slightly
             gs.update_relations(_leak_target, 3)
             print(f"  [api] Fix 22: Disloyal diplomat (loyalty {_diplomat.get('loyalty')}) leaked to {_leak_target} — {_leak_target} +3 relations")
+
+    # Session 7B Step 3: Player-initiated contact — generate tone-appropriate opening
+    _player_initiated = body.player_initiated and _is_first_message
+    _negotiate_message = body.message
+    if _player_initiated:
+        _rel = getattr(gs, 'relations', {}).get(npc_id, 50)
+        if _rel >= 70:
+            _negotiate_message = "The President is reaching out personally to discuss matters of mutual interest."
+        elif _rel >= 40:
+            _negotiate_message = "The President's office has requested a formal diplomatic meeting."
+        else:
+            _negotiate_message = "Despite recent tensions, the President has requested a direct conversation."
+        print(f"[BRIEFING] Player-initiated contact with {npc_id}, relations={_rel}")
 
     # PRE-SESSION 4 FIX (BUG M): Look up static deal value for this NPC so
     # the willingness system can enforce a floor (negotiation opening >= 40% of static).
@@ -2283,7 +2372,7 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
     result = npc_engine.generate_negotiation_response(
         gs,
         npc_id=npc_id,
-        message=body.message,
+        message=_negotiate_message,
         history=body.history,
     )
     # Clean up temporary attribute
@@ -2345,6 +2434,11 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
             counter_offer['relation_warning'] = f"⚠️ Will affect {' and '.join(_affected_co)} relations"
             print(f"  [api] NEGOTIATED DEAL WARNING FIELD: {npc_id} affects={_affected_co}")
 
+    # Session 7A Feature 10: Store latest GM consequence on game state for EOT application
+    _gm_consequence = result.get("gm_consequence", None)
+    if _gm_consequence and npc_id == 'arabia':
+        gs._latest_gm_consequence = _gm_consequence
+
     # Session 3: Record this exchange in negotiation_log for export auditing.
     # FIX F: Strip stage directions (*text*) BEFORE storing to negotiation_log
     import re as _re_f
@@ -2354,7 +2448,7 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
     gs.negotiation_log.append({
         "turn": gs.current_turn,
         "npc": npc_id,
-        "player_message": body.message,
+        "player_message": body.message if not _player_initiated else "[player-initiated contact]",
         "npc_response": _npc_response_clean,
         "counter_offer": counter_offer,
         "outcome": "ongoing",  # updated to 'accepted' by accept_counter endpoint
@@ -2372,6 +2466,8 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
             npc: _get_discounted_negotiate_cost(gs, npc)[0]
             for npc in ('usa', 'arabia', 'eu', 'dprg')
         },
+        # Session 7A Feature 10: GM consequence object for energy proposals (Arabia only)
+        "gm_consequence": result.get("gm_consequence", None),
     }
 
 
@@ -2865,8 +2961,20 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
 
     gs.options_override.append(counter)
 
-    # Session 3: Mark the most recent negotiation_log entry for this NPC as accepted
+    # Session 7A Feature 10: Queue GM consequence for EOT application (Arabia energy deals)
     npc_id = (counter.get("npc") or "").lower()
+    if npc_id == 'arabia' and hasattr(gs, '_latest_gm_consequence') and gs._latest_gm_consequence:
+        if not hasattr(gs, 'pending_gm_consequences'):
+            gs.pending_gm_consequences = []
+        gs.pending_gm_consequences.append({
+            'consequence': gs._latest_gm_consequence,
+            'npc': npc_id,
+            'turn_accepted': gs.current_turn,
+        })
+        print(f"[GM] Consequence queued for EOT: {gs._latest_gm_consequence.get('proposal_summary', 'unknown')}")
+        gs._latest_gm_consequence = None  # clear after queueing
+
+    # Session 3: Mark the most recent negotiation_log entry for this NPC as accepted
     if hasattr(gs, 'negotiation_log') and npc_id:
         for entry in reversed(gs.negotiation_log):
             if entry.get("npc") == npc_id and entry.get("turn") == gs.current_turn:
@@ -3096,6 +3204,49 @@ async def post_intel_allocation(session_id: str, body: IntelAllocationRequest, u
         "success": True,
         "allocation": allocation,
         "changes": changes,
+        "game_state": gs.serialize(),
+    }
+
+
+# ── Domestic Affairs: Budget Allocation ──────────────────────────────────────
+
+@app.post("/game/{session_id}/budget_allocation")
+async def post_budget_allocation(session_id: str, body: BudgetAllocationRequest, user: User = Depends(get_optional_user)):
+    """
+    Set persistent budget allocation across five categories.
+    Body: { military, intelligence, public_services, infrastructure, diplomacy }
+    All values >= 0, sum must == 100.
+    Returns: { success, allocation, game_state }
+    """
+    _verify_game_ownership(session_id, user)
+    gs = _load_gs(session_id)
+
+    vals = {
+        "military": body.military,
+        "intelligence": body.intelligence,
+        "public_services": body.public_services,
+        "infrastructure": body.infrastructure,
+        "diplomacy": body.diplomacy,
+    }
+
+    # Validate: all >= 0
+    for k, v in vals.items():
+        if v < 0:
+            raise HTTPException(status_code=400, detail=f"'{k}' must be >= 0, got {v}")
+
+    # Validate: sum == 100
+    total = sum(vals.values())
+    if total != 100:
+        raise HTTPException(status_code=400, detail=f"Allocation must sum to 100, got {total}")
+
+    gs.budget_allocation = vals
+    print(f"  [BUDGET] Allocation updated: mil={vals['military']}%, intel={vals['intelligence']}%, services={vals['public_services']}%, infra={vals['infrastructure']}%, diplo={vals['diplomacy']}%")
+
+    _save_gs(session_id, gs)
+
+    return {
+        "success": True,
+        "allocation": vals,
         "game_state": gs.serialize(),
     }
 
@@ -3758,6 +3909,15 @@ def leverage_response(session_id: str, body: LeverageResponseRequest):
     _pending = getattr(gs, 'pending_npc_contacts', [])
     gs.pending_npc_contacts = [c for c in _pending if c.get('leverage_type') != leverage_type]
 
+    # Session 7B: Track NPC interaction from leverage response
+    _leverage_npc_map = {'marsha_media': 'eu', 'bill_opposition': 'usa', 'sadam_reward': 'arabia'}
+    _lev_npc = _leverage_npc_map.get(leverage_type)
+    if _lev_npc:
+        _interacted_lev = getattr(gs, 'npcs_interacted_this_turn', [])
+        if _lev_npc not in _interacted_lev:
+            _interacted_lev.append(_lev_npc)
+            gs.npcs_interacted_this_turn = _interacted_lev
+
     _save_gs(session_id, gs)
     return {"success": True, "messages": messages, "game_state": gs.serialize()}
 
@@ -3810,6 +3970,243 @@ def get_advisor_pool(session_id: str):
         "advisors": gs.advisors,
         "game_state": gs.serialize(),
     }
+
+
+# ── Session 7C Step 2: Advisor Assign / Unassign ───────────────────────────
+
+class AdvisorAssignRequest(BaseModel):
+    advisor_key: str
+
+@app.post("/game/{session_id}/advisor/assign")
+def advisor_assign(session_id: str, body: AdvisorAssignRequest):
+    """Assign an advisor for this turn (uses one slot)."""
+    gs = _load_gs(session_id)
+    _advisors = getattr(gs, 'advisors', {})
+    if not isinstance(_advisors, dict):
+        raise HTTPException(status_code=400, detail="Advisor system not initialized")
+
+    _key = body.advisor_key
+    if _key not in _advisors:
+        raise HTTPException(status_code=400, detail=f"Unknown advisor: {_key}")
+
+    _adv = _advisors[_key]
+    if _adv.get('assigned_this_turn', False):
+        raise HTTPException(status_code=400, detail=f"{_adv['name']} is already assigned this turn")
+
+    # Check slot limit
+    _slots = getattr(gs, 'advisor_slots_available', 2)
+    _assigned_count = sum(1 for a in _advisors.values() if a.get('assigned_this_turn', False))
+    if _assigned_count >= _slots:
+        raise HTTPException(status_code=400, detail=f"All {_slots} advisor slots are in use this turn")
+
+    _adv['assigned_this_turn'] = True
+    print(f"  [ADVISOR] {_key} assigned for turn {gs.current_turn}")
+
+    _save_gs(session_id, gs)
+
+    # Session 7C Step 3: Generate advisor analysis via Claude Haiku
+    _analysis = None
+    try:
+        _analysis = npc_engine.generate_advisor_analysis(_key, gs)
+    except Exception as e:
+        print(f"  [ADVISOR] Analysis generation failed: {e}")
+        _analysis = None
+
+    return {"success": True, "advisors": gs.advisors, "advisor_analysis": _analysis, "game_state": gs.serialize()}
+
+
+@app.post("/game/{session_id}/advisor/unassign")
+def advisor_unassign(session_id: str, body: AdvisorAssignRequest):
+    """Unassign an advisor (frees the slot)."""
+    gs = _load_gs(session_id)
+    _advisors = getattr(gs, 'advisors', {})
+    if not isinstance(_advisors, dict):
+        raise HTTPException(status_code=400, detail="Advisor system not initialized")
+
+    _key = body.advisor_key
+    if _key not in _advisors:
+        raise HTTPException(status_code=400, detail=f"Unknown advisor: {_key}")
+
+    _adv = _advisors[_key]
+    if not _adv.get('assigned_this_turn', False):
+        raise HTTPException(status_code=400, detail=f"{_adv['name']} is not assigned")
+
+    _adv['assigned_this_turn'] = False
+    print(f"  [ADVISOR] {_key} unassigned for turn {gs.current_turn}")
+
+    _save_gs(session_id, gs)
+    return {"success": True, "advisors": gs.advisors, "game_state": gs.serialize()}
+
+
+# ── Session 7D: Backchannel System ─────────────────────────────────────────
+
+class BackchannelRequest(BaseModel):
+    npc_id: str
+    message: str
+
+@app.post("/game/{session_id}/backchannel")
+def backchannel_message(session_id: str, body: BackchannelRequest):
+    """Send a covert backchannel message to an NPC. Returns NPC response + detection risk."""
+    gs = _load_gs(session_id)
+    _npc_id = body.npc_id
+    _message = body.message
+
+    if _npc_id not in ('usa', 'arabia', 'eu', 'dprg'):
+        raise HTTPException(status_code=400, detail=f"Cannot open backchannel to {_npc_id}")
+
+    try:
+        # Generate backchannel response via Claude
+        _result = npc_engine.generate_backchannel_response(_npc_id, _message, gs)
+        _detection_risk = npc_engine.calculate_detection_risk(_npc_id, gs)
+
+        # Resolve promise_summary: use result, fallback to player message if empty
+        _promise_summary = _result.get('promise_summary') or ''
+        if _result.get('promise_detected') and not _promise_summary:
+            _promise_summary = _message[:80]
+
+        # Record the exchange in backchannel_history
+        if not hasattr(gs, 'backchannel_history'):
+            gs.backchannel_history = []
+        _history_entry = {
+            'npc_id': _npc_id,
+            'turn': gs.current_turn,
+            'era': getattr(gs, 'current_era', 1),
+            'day': getattr(gs, 'current_day', gs.current_turn),
+            'player_message': _message,
+            'response_text': _result.get('response_text', ''),
+            'promise_made': _result.get('promise_detected', False),
+            'promise_text': _promise_summary,
+            'detected_by': None,
+        }
+        gs.backchannel_history.append(_history_entry)
+
+        # If promise detected, record it in active promises
+        _promise_recorded = False
+        if _result.get('promise_detected'):
+            _promise = {
+                'npc_id': _npc_id,
+                'turn': gs.current_turn,
+                'era': getattr(gs, 'current_era', 1),
+                'day': getattr(gs, 'current_day', gs.current_turn),
+                'promise_made': True,
+                'promise_text': _promise_summary,
+                'detected_by': None,
+                'resolved': False,
+            }
+            if not hasattr(gs, 'active_backchannel_promises'):
+                gs.active_backchannel_promises = []
+            gs.active_backchannel_promises.append(_promise)
+            _promise_recorded = True
+            print(f"  [BACKCHANNEL] Promise recorded with {_npc_id}: {_promise_summary[:60]}")
+
+        _save_gs(session_id, gs)
+
+        return {
+            "response_text": _result["response_text"],
+            "detection_risk": round(_detection_risk, 3),
+            "promise_recorded": _promise_recorded,
+            "promise_summary": _promise_summary or None,
+            "game_state": gs.serialize(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"  [BACKCHANNEL] ERROR in backchannel_message: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=f"Backchannel error: {type(e).__name__}: {str(e)}")
+
+
+@app.get("/game/{session_id}/backchannel/history")
+def backchannel_history(session_id: str):
+    """Get backchannel history and active promises for display."""
+    gs = _load_gs(session_id)
+    return {
+        "backchannel_history": getattr(gs, 'backchannel_history', []),
+        "active_backchannel_promises": getattr(gs, 'active_backchannel_promises', []),
+    }
+
+
+# ── Session 7E: UN Summit System ──────────────────────────────────────────────
+
+class SummitDeclareRequest(BaseModel):
+    declaration: str
+
+@app.post("/game/{session_id}/summit/declare")
+def summit_declare(session_id: str, body: SummitDeclareRequest):
+    """Player makes a public declaration at the UN Summit. Generates all NPC reactions."""
+    gs = _load_gs(session_id)
+    _declaration = body.declaration
+
+    try:
+        # Generate reactions from all 6 NPCs in parallel
+        _reactions = npc_engine.generate_summit_reactions(_declaration, gs)
+
+        # Detect commitments in declaration (same keyword approach as backchannel)
+        from npc_engine import _PROMISE_KEYWORDS
+        _commitments_recorded = []
+        if _PROMISE_KEYWORDS.search(_declaration):
+            # Extract sentences containing commitment language
+            _sentences = re.split(r'(?<=[.!?])\s+', _declaration)
+            for _s in _sentences:
+                if _PROMISE_KEYWORDS.search(_s):
+                    _commitment = {
+                        'commitment_text': _s[:200],
+                        'day_made': getattr(gs, 'current_day', gs.current_turn),
+                        'era_made': getattr(gs, 'current_era', 1),
+                        'broken': False,
+                    }
+                    if not hasattr(gs, 'active_summit_commitments'):
+                        gs.active_summit_commitments = []
+                    gs.active_summit_commitments.append(_commitment)
+                    _commitments_recorded.append(_commitment)
+                    print(f"  [SUMMIT] Commitment recorded: {_s[:60]}")
+
+        # Record in summit history
+        if not hasattr(gs, 'summit_history'):
+            gs.summit_history = []
+        _history_entry = {
+            'era': getattr(gs, 'current_era', 1),
+            'day': getattr(gs, 'current_day', gs.current_turn),
+            'player_declaration': _declaration,
+            'npc_reactions': _reactions,
+            'commitments_made': [c['commitment_text'] for c in _commitments_recorded],
+        }
+        gs.summit_history.append(_history_entry)
+
+        _save_gs(session_id, gs)
+
+        return {
+            "reactions": _reactions,
+            "commitments_recorded": len(_commitments_recorded),
+            "game_state": gs.serialize(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"  [SUMMIT] ERROR in summit_declare: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=f"Summit error: {type(e).__name__}: {str(e)}")
+
+
+@app.post("/game/{session_id}/summit/auto_position")
+def summit_auto_position(session_id: str):
+    """Generate an auto-drafted holding statement for the summit."""
+    gs = _load_gs(session_id)
+
+    try:
+        _position = npc_engine.generate_auto_position(gs)
+        return {"position_text": _position}
+    except Exception as e:
+        print(f"  [SUMMIT] ERROR in auto_position: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=f"Summit auto-position error: {str(e)}")
+
+
+@app.post("/game/{session_id}/summit/close")
+def summit_close(session_id: str):
+    """Close the active summit session, unblocking End Day."""
+    gs = _load_gs(session_id)
+    gs.summit_due = False
+    _save_gs(session_id, gs)
+    print(f"  [SUMMIT] Summit closed for session {session_id}")
+    return {"game_state": gs.serialize()}
 
 
 # ── Session 5: Tax Rate Adjustment ──────────────────────────────────────────
@@ -4276,6 +4673,103 @@ def post_black_operation(session_id: str, body: BlackOpRequest):
         "messages": messages,
         "detected": _detected,
         "game_state": gs.serialize(),
+    }
+
+
+# ── Session 7A Step 5: Era System — Close Era + Historian ───────────────────
+
+@app.post("/game/{session_id}/close_era")
+async def close_era(session_id: str, user: User = Depends(get_optional_user)):
+    """
+    Session 7A Step 5: Close the current era.
+    Increments era, resets era tracking fields, logs transition,
+    generates historian summary for the closed era.
+    """
+    _verify_game_ownership(session_id, user)
+    gs = _load_gs(session_id)
+
+    if not getattr(gs, 'pending_era_transition', False):
+        raise HTTPException(status_code=400, detail="No era transition pending")
+
+    _old_era = gs.current_era
+    _trigger = getattr(gs, 'last_threshold_event', None) or 'time_backstop'
+    _days_in_era = gs.current_day - getattr(gs, 'era_start_day', 1)
+
+    # Build transition record
+    _transition_record = {
+        "era": _old_era,
+        "closed_on_day": gs.current_day,
+        "trigger": _trigger,
+        "days_in_era": _days_in_era,
+        "regime_at_close": gs.state_identity.get('regime_type', 'Managed Democracy'),
+        "stability_at_close": gs.stability,
+        "approval_at_close": gs.public_approval,
+        "budget_at_close": round(gs.budget, 1),
+        "relations_at_close": dict(gs.relations),
+    }
+
+    # Append to era_transitions log
+    if not hasattr(gs, 'era_transitions') or gs.era_transitions is None:
+        gs.era_transitions = []
+    gs.era_transitions.append(_transition_record)
+
+    # Generate historian summary for the closed era
+    _historian_text = None
+    try:
+        _historian_text = npc_engine.generate_historian_summary(gs)
+        print(f"  [ERA] Historian summary for era {_old_era}: '{(_historian_text or '')[:60]}...'")
+    except Exception as _hist_err:
+        print(f"  [ERA] Historian summary error (non-fatal): {_hist_err}")
+        _historian_text = f"Era {_old_era} has concluded. The record speaks for itself."
+
+    _transition_record['historian_summary'] = _historian_text
+
+    # Advance to next era
+    gs.current_era += 1
+    gs.era_start_day = gs.current_day
+    gs.pending_era_transition = False
+    gs.last_threshold_event = None
+    gs.last_threshold_day = 0
+
+    print(f"[ERA] Era {_old_era} closed on day {gs.current_day}, trigger={_trigger}, days_in_era={_days_in_era}")
+
+    _save_gs(session_id, gs)
+
+    return {
+        "success": True,
+        "closed_era": _old_era,
+        "new_era": gs.current_era,
+        "trigger": _trigger,
+        "days_in_era": _days_in_era,
+        "historian_summary": _historian_text,
+        "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/historian_summary")
+async def get_historian_summary(session_id: str, user: User = Depends(get_optional_user)):
+    """
+    Session 7A Step 5: On-demand historian assessment (mid-game).
+    Generates a historian write-up for the current state without closing an era.
+    """
+    _verify_game_ownership(session_id, user)
+    gs = _load_gs(session_id)
+
+    print(f"[ERA] Historian assessment requested for era {gs.current_era}, day {gs.current_day}")
+
+    _historian_text = None
+    try:
+        _historian_text = npc_engine.generate_historian_summary(gs)
+        print(f"  [ERA] On-demand historian: '{(_historian_text or '')[:60]}...'")
+    except Exception as _hist_err:
+        print(f"  [ERA] On-demand historian error (non-fatal): {_hist_err}")
+        _historian_text = "The historian is currently unavailable. The record remains unwritten."
+
+    return {
+        "success": True,
+        "historian_summary": _historian_text,
+        "era": gs.current_era,
+        "day": gs.current_day,
     }
 
 

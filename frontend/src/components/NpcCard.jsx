@@ -2,9 +2,37 @@
  * NpcCard — Single NPC relationship card for the right sidebar.
  * Shows portrait, name, relation bar (color-coded), and one-line status.
  * Border color reflects relationship health.
- * Session 7A Step 1.
+ * Session 7A Step 1.  Session 7C Step 4: isPassive for Russia/China.
+ * Session 7D Step 2: Backchannel button with detection risk.
  */
-export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWarning, isPlaceholder, color }) {
+
+// Client-side detection risk calculator (mirrors npc_engine.calculate_detection_risk)
+const BASE_RISK = { usa: 0.25, arabia: 0.20, eu: 0.15, dprg: 0.10 }
+const OPSEC_MULT = { 0: 1.0, 1: 0.7, 2: 0.45 }
+
+function calcDetectionRisk(npcKey, gs) {
+  const base = BASE_RISK[npcKey] ?? 0.20
+  const opsec = gs?.opsec_level ?? 0
+  const mult = OPSEC_MULT[opsec] ?? 1.0
+  let risk = base * mult
+
+  // NPC-specific modifiers
+  const rel = gs?.relations || {}
+  if (npcKey === 'usa' && (rel.usa ?? 50) < 30) risk *= 1.3
+  if (npcKey === 'eu' && (rel.eu ?? 50) < 30) risk *= 1.2
+  if (npcKey === 'dprg') risk *= 0.8
+
+  return Math.min(1.0, risk)
+}
+
+function riskTier(risk) {
+  if (risk < 0.15) return { label: 'LOW',      color: '#4db6ac' }
+  if (risk < 0.30) return { label: 'MODERATE', color: '#ffb74d' }
+  if (risk < 0.50) return { label: 'HIGH',     color: '#ff8a65' }
+  return              { label: 'CRITICAL', color: '#ef5350' }
+}
+
+export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWarning, isPlaceholder, isPassive, color, onContact, contactDisabled, onBackchannel, backchannelDisabled, gs }) {
   // Determine health tier
   const healthClass = isPlaceholder ? 'placeholder'
     : relation >= 60 ? 'health-good'
@@ -19,6 +47,12 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
 
   // Status text derived from relation level
   const statusText = isPlaceholder ? ''
+    : isPassive ? (
+      relation >= 60 ? 'Aligned'
+      : relation >= 40 ? 'Neutral'
+      : relation >= 20 ? 'Wary'
+      : 'Hostile'
+    )
     : relation >= 80 ? 'Strong ally'
     : relation >= 60 ? 'Cooperative'
     : relation >= 40 ? 'Neutral'
@@ -29,7 +63,7 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
   const portraitBg = isPlaceholder ? '#1a1a1a' : (color || 'var(--ws-chrome)')
 
   return (
-    <div className={`npc-card ${healthClass}`}>
+    <div className={`npc-card ${healthClass} ${isPassive ? 'npc-passive' : ''}`}>
       <div className="npc-card-header">
         <div
           className="npc-portrait"
@@ -65,6 +99,33 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
               {npcKey === 'usa' ? '⚠ Sanctions active' : '⚠ Embargo active'}
             </div>
           )}
+          {/* Active NPCs get Contact button; passive observers do not */}
+          {onContact && !isPassive && (
+            <button
+              className="npc-contact-btn"
+              onClick={() => onContact(npcKey)}
+              disabled={contactDisabled}
+              title={contactDisabled ? 'Contact unavailable' : `Open diplomatic channel with ${label}`}
+            >
+              Contact
+            </button>
+          )}
+          {/* Session 7D: Backchannel button — active NPCs only */}
+          {onBackchannel && !isPassive && gs && (() => {
+            const risk = calcDetectionRisk(npcKey, gs)
+            const tier = riskTier(risk)
+            return (
+              <button
+                className="npc-backchannel-btn"
+                onClick={() => onBackchannel(npcKey)}
+                disabled={backchannelDisabled}
+                title={backchannelDisabled ? 'Backchannel unavailable' : `Open covert channel with ${label}`}
+                style={{ '--risk-color': tier.color }}
+              >
+                🔒 BACKCHANNEL — <span className="backchannel-risk-label" style={{ color: tier.color }}>{tier.label}</span>
+              </button>
+            )
+          })()}
         </>
       )}
     </div>
