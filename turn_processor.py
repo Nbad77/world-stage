@@ -1,7 +1,539 @@
 """
 Turn Processor - Handles consequences, end-of-turn effects, game over detection
 VERSION 3: Tiered sanctions/embargo/pressure, passive drain, approval system, legacy titles
+Session 3 additions: detection risk system, relation source annotations
+Session 4B: Election mechanic
 """
+
+import random
+
+
+# ── Session 4B: Election Consequences (hard-coded, Claude never decides these) ──
+
+ELECTION_CONSEQUENCES = {
+    "fair_success": {
+        "eu": +8, "usa": +5, "stability": +5, "approval": +3,
+        "regime_pressure": "left"
+    },
+    "fair_squeaker": {
+        "eu": +3, "usa": +3, "stability": -3, "approval": +2,
+        "regime_pressure": "none"
+    },
+    "fair_fail": {
+        "stability": -15, "approval": -10,
+        "protests_pending": True,
+        "regime_pressure": "collapse_risk"
+    },
+    "rigged": {
+        "eu": -5, "usa": -3, "dprg": 0, "arabia": 0,
+        "stability": +3, "heat": +10,
+        "personal_cost": 2.0,
+        "regime_pressure": "right_one"
+    },
+    "canceled": {
+        "eu": -15, "usa": -10, "dprg": +5,
+        "stability": +10, "approval": -15,
+        "heat": +20,
+        "protests_pending": True,
+        "regime_pressure": "right_two"
+    },
+    "observers": {
+        "eu": +15, "usa": +10, "stability": -2,
+        "personal_cost": 1.0,
+        "regime_democracy_locked": 3
+    }
+}
+
+_REGIME_ORDER = [
+    'Managed Democracy',
+    'Soft Authoritarianism',
+    'Patronage State',
+    'Kleptocracy',
+    'Totalitarian Regime',
+]
+
+
+def apply_election_consequences(game_state, result_key):
+    """Apply hard-coded election consequences to game state. Returns list of change descriptions."""
+    cons = ELECTION_CONSEQUENCES.get(result_key)
+    if not cons:
+        return [f"Unknown election result: {result_key}"]
+
+    changes = []
+
+    # Relation changes
+    for npc in ['usa', 'arabia', 'eu', 'dprg']:
+        delta = cons.get(npc)
+        if delta and delta != 0:
+            game_state.update_relations(npc, delta)
+            changes.append(f"{npc.upper()} {'+' if delta > 0 else ''}{delta}")
+
+    # Stability
+    stab_delta = cons.get('stability', 0)
+    if stab_delta:
+        game_state.update_stability(stab_delta)
+        changes.append(f"stability {'+' if stab_delta > 0 else ''}{stab_delta}%")
+
+    # Approval
+    appr_delta = cons.get('approval', 0)
+    if appr_delta:
+        game_state.update_approval(appr_delta)
+        changes.append(f"approval {'+' if appr_delta > 0 else ''}{appr_delta}%")
+
+    # Detection heat
+    heat_delta = cons.get('heat', 0)
+    if heat_delta:
+        game_state.detection_heat = min(100, game_state.detection_heat + heat_delta)
+        changes.append(f"heat +{heat_delta}")
+
+    # Personal cost (from personal_wealth)
+    personal_cost = cons.get('personal_cost', 0)
+    if personal_cost:
+        game_state.personal_wealth = max(0, game_state.personal_wealth - personal_cost)
+        changes.append(f"personal wealth -${personal_cost:.1f}B")
+
+    # Protests
+    if cons.get('protests_pending'):
+        game_state.protests_pending = True
+        changes.append("protests pending next turn")
+
+    # Democracy lock
+    lock_turns = cons.get('regime_democracy_locked', 0)
+    if lock_turns:
+        game_state.regime_democracy_locked = lock_turns
+        changes.append(f"democracy locked {lock_turns} turns")
+
+    # fixes_12 Fix 3: Regime pressure now shifts axes instead of directly mutating regime_type.
+    # compute_regime_from_axes() in section 13g is the sole authority for regime_type.
+    pressure = cons.get('regime_pressure', 'none')
+    _axes = getattr(game_state, 'cabinet_axes', {'military': 0, 'intelligence': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0})
+
+    if pressure == 'left':
+        # Democratic pressure — reduce military and political axes
+        _axes['military'] = max(0, _axes.get('military', 0) - 2)
+        _axes['political'] = max(0, _axes.get('political', 0) - 2)
+        changes.append(f"⚠️ Election outcome shifts regime axes (Military -2, Political -2)")
+    elif pressure == 'right_one':
+        # Authoritarian pressure — increase military and political axes
+        _axes['military'] = min(10, _axes.get('military', 0) + 2)
+        _axes['political'] = min(10, _axes.get('political', 0) + 2)
+        changes.append(f"⚠️ Election outcome shifts regime axes (Military +2, Political +2)")
+    elif pressure == 'right_two':
+        # Heavy authoritarian pressure — increase military, political, and media axes
+        _axes['military'] = min(10, _axes.get('military', 0) + 3)
+        _axes['political'] = min(10, _axes.get('political', 0) + 3)
+        _axes['media'] = min(10, _axes.get('media', 0) + 2)
+        changes.append(f"⚠️ Election outcome shifts regime axes (Military +3, Political +3, Media +2)")
+    elif pressure == 'collapse_risk':
+        if game_state.stability < 30:
+            _axes['military'] = min(10, _axes.get('military', 0) + 2)
+            _axes['political'] = min(10, _axes.get('political', 0) + 1)
+            changes.append(f"⚠️ Regime collapse risk: stability crisis shifts axes (Military +2, Political +1)")
+        else:
+            changes.append("regime collapse risk: stability held")
+
+    game_state.cabinet_axes = _axes
+
+    print(f"  [turn_processor] ELECTION RESULT: {result_key} — consequences applied: {changes}")
+    return changes
+
+
+# ── Session 4C: Domestic Action Consequences (hard-coded, Claude never decides these) ──
+
+DOMESTIC_ACTION_CONSEQUENCES = {
+    "state_media_takeover": {
+        "cost": 5.0,
+        "flag": "action_media_taken",
+        "eu": -8, "usa": -5,
+        "approval_floor": 15,
+        "regime_pressure": "right",
+        "label": "State Media Takeover",
+        "description": "Approval never drops below 15%. Future approval penalties reduced 20%.",
+    },
+    "judicial_capture": {
+        "cost": 4.0,
+        "flag": "action_judiciary_captured",
+        "eu": -10, "usa": -5,
+        "scandal_immune": True,
+        "regime_pressure": "right",
+        "label": "Judicial Capture",
+        "description": "Corruption scandals eliminated. Investigations suspended permanently.",
+    },
+    "suppress_press": {
+        "cost": 3.0,
+        "flag": "action_press_suppressed",
+        "dprg": +3,
+        "stability": +5,
+        "regime_pressure": "right",
+        "label": "Suppress Independent Press",
+        "description": "Stability +5%. EU sanctions risk activates (EU -3/turn).",
+    },
+    "dissolve_opposition": {
+        "cost": 6.0,
+        "flag": "action_opposition_dissolved",
+        "usa": -5, "eu": -5,
+        "stability": +10,
+        "approval": -8,
+        "coup_immune": True,
+        "regime_pressure": "hard_right",
+        "label": "Dissolve Opposition Groups",
+        "description": "Stability +10%. Coup risk eliminated. Approval -8%.",
+    },
+    "liquidate_journalists": {
+        "cost": 8.0,
+        "flag": "action_journalists_liquidated",
+        "eu": -15, "usa": -8,
+        "approval": -10,
+        "approval_ceiling": -10,
+        "scandal_immune": True,
+        "regime_pressure": "hard_right",
+        "label": "Liquidate Investigative Journalists",
+        "description": "Scandals eliminated permanently. Approval ceiling -10%.",
+    },
+}
+
+
+def apply_domestic_action(game_state, action_key):
+    """Apply a one-time domestic action purchase. Returns (success, changes_list)."""
+    cons = DOMESTIC_ACTION_CONSEQUENCES.get(action_key)
+    if not cons:
+        return False, [f"Unknown domestic action: {action_key}"]
+
+    # Check if already purchased
+    flag = cons['flag']
+    if getattr(game_state, flag, False):
+        return False, [f"Already purchased: {cons['label']}"]
+
+    # Check cost
+    cost = cons['cost']
+    if game_state.personal_wealth < cost:
+        return False, [f"Cannot afford {cons['label']}: need ${cost:.1f}B, have ${game_state.personal_wealth:.1f}B"]
+
+    changes = []
+
+    # Snapshot EU before changes for Marsha red line check
+    _eu_before = game_state.relations.get('eu', 0)
+
+    # Deduct cost — fixes_10 Fix 2: Use update_personal_wealth() for ledger recording
+    game_state.update_personal_wealth(-cost, source=f"domestic action ({cons['label']})")
+    changes.append(f"personal wealth -${cost:.1f}B")
+
+    # Set flag
+    setattr(game_state, flag, True)
+    # fixes_10 Fix 8: record enacted turn for JUST ENACTED distinction in intercepts
+    if not hasattr(game_state, 'domestic_actions_enacted_turns'):
+        game_state.domestic_actions_enacted_turns = {}
+    game_state.domestic_actions_enacted_turns[flag] = game_state.current_turn
+    changes.append(f"{cons['label']} enacted")
+
+    # Relation changes
+    for npc in ['usa', 'arabia', 'eu', 'dprg']:
+        delta = cons.get(npc)
+        if delta and delta != 0:
+            game_state.update_relations(npc, delta)
+            changes.append(f"{npc.upper()} {'+' if delta > 0 else ''}{delta}")
+
+    # Stability
+    stab_delta = cons.get('stability', 0)
+    if stab_delta:
+        game_state.update_stability(stab_delta)
+        changes.append(f"stability {'+' if stab_delta > 0 else ''}{stab_delta}%")
+
+    # Approval
+    appr_delta = cons.get('approval', 0)
+    if appr_delta:
+        game_state.update_approval(appr_delta)
+        changes.append(f"approval {'+' if appr_delta > 0 else ''}{appr_delta}%")
+
+    # Approval floor
+    floor_val = cons.get('approval_floor', 0)
+    if floor_val:
+        game_state.approval_floor = max(game_state.approval_floor, floor_val)
+        changes.append(f"approval floor set to {game_state.approval_floor}%")
+
+    # Approval ceiling penalty
+    ceiling_delta = cons.get('approval_ceiling', 0)
+    if ceiling_delta:
+        game_state.approval_ceiling = max(0, game_state.approval_ceiling + ceiling_delta)
+        changes.append(f"approval ceiling now {game_state.approval_ceiling}%")
+
+    # Scandal immunity
+    if cons.get('scandal_immune'):
+        game_state.scandal_immune = True
+        changes.append("scandal immunity granted")
+
+    # Coup immunity
+    if cons.get('coup_immune'):
+        game_state.coup_immune = True
+        changes.append("coup immunity granted")
+
+    # Marsha red line: journalists liquidated while EU was >= 70 (before relation hit)
+    if action_key == 'liquidate_journalists' and _eu_before >= 70:
+        game_state.marsha_red_line_triggered = True
+        changes.append("MARSHA RED LINE: EU publicly distances")
+
+    # fixes_12 Fix 3: Regime pressure now shifts axes instead of directly mutating regime_type.
+    pressure = cons.get('regime_pressure', 'none')
+    _da_axes = getattr(game_state, 'cabinet_axes', {'military': 0, 'intelligence': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0})
+
+    if pressure == 'right':
+        _da_axes['military'] = min(10, _da_axes.get('military', 0) + 2)
+        _da_axes['political'] = min(10, _da_axes.get('political', 0) + 2)
+        changes.append(f"⚠️ Domestic action shifts regime axes (Military +2, Political +2)")
+    elif pressure == 'hard_right':
+        _da_axes['military'] = min(10, _da_axes.get('military', 0) + 3)
+        _da_axes['political'] = min(10, _da_axes.get('political', 0) + 3)
+        _da_axes['media'] = min(10, _da_axes.get('media', 0) + 2)
+        changes.append(f"⚠️ Domestic action shifts regime axes (Military +3, Political +3, Media +2)")
+
+    game_state.cabinet_axes = _da_axes
+
+    # Session 6 Phase 8: Heat generation for domestic actions
+    _heat_map = {
+        'liquidate_journalists': 20,
+        'suppress_press': 8,
+        'dissolve_opposition': 5,
+    }
+    _heat_add = _heat_map.get(action_key, 0)
+    if _heat_add > 0:
+        _old_heat = game_state.detection_heat
+        game_state.detection_heat = min(100, game_state.detection_heat + _heat_add)
+        changes.append(f"🔥 +{_heat_add} detection heat ({_old_heat}% → {game_state.detection_heat}%)")
+        print(f"  [HEAT] Domestic action '{action_key}': +{_heat_add} heat ({_old_heat} -> {game_state.detection_heat})")
+
+    # Log to action_history
+    game_state.action_history.append({
+        'type': 'domestic_action',
+        'action': action_key,
+        'turn': game_state.current_turn,
+    })
+
+    print(f"  [turn_processor] DOMESTIC ACTION: {action_key} — consequences: {changes}")
+    return True, changes
+
+
+# ── Session 4D: Tech Level System (hard-coded, Claude never decides these) ──
+
+TECH_TIER_EFFECTS = {
+    (0, 20):   {"eu_ceiling": 100, "gdp_bonus": 0.00, "intel_tier_bonus": 0},
+    (21, 40):  {"eu_ceiling": 110, "gdp_bonus": 0.05, "intel_tier_bonus": 0},
+    (41, 60):  {"eu_ceiling": 120, "gdp_bonus": 0.10, "intel_tier_bonus": 1},
+    (61, 80):  {"eu_ceiling": 130, "gdp_bonus": 0.15, "intel_tier_bonus": 1},
+    (81, 100): {"eu_ceiling": 140, "gdp_bonus": 0.20, "intel_tier_bonus": 2},
+}
+
+TECH_SOURCES = {
+    "eu_partnership":  {"gain": 5, "label": "EU Partnership Deal"},
+    "usa_transfer":    {"gain": 8, "label": "USA Technology Transfer"},
+    "dprg_weapons":    {"gain": 3, "label": "DPRG Weapons-for-Tech Exchange"},
+}
+
+
+def get_tech_tier_effects(tech_level):
+    """Return the effects dict for the current tech level tier."""
+    for (lo, hi), effects in TECH_TIER_EFFECTS.items():
+        if lo <= tech_level <= hi:
+            return effects
+    # Fallback: clamp to max tier if somehow above 100
+    return {"eu_ceiling": 140, "gdp_bonus": 0.20, "intel_tier_bonus": 2}
+
+
+def apply_tech_gain(game_state, source_key):
+    """Apply a tech gain from a specific source. Returns (success, changes_list)."""
+    source = TECH_SOURCES.get(source_key)
+    if not source:
+        return False, [f"Unknown tech source: {source_key}"]
+
+    old_level = game_state.tech_level
+    gain = source['gain']
+    game_state.tech_level = min(100, game_state.tech_level + gain)
+    actual_gain = game_state.tech_level - old_level
+
+    if actual_gain == 0:
+        return True, [f"Tech already at maximum (100)"]
+
+    game_state.tech_sources.append({
+        'source': source_key,
+        'gain': actual_gain,
+        'turn': game_state.current_turn,
+    })
+
+    changes = [f"Tech Level +{actual_gain} ({old_level} -> {game_state.tech_level}) — {source['label']}"]
+
+    # Report tier transition if applicable
+    old_effects = get_tech_tier_effects(old_level)
+    new_effects = get_tech_tier_effects(game_state.tech_level)
+    if old_effects['eu_ceiling'] != new_effects['eu_ceiling']:
+        changes.append(f"EU ceiling now {new_effects['eu_ceiling']}")
+    if old_effects['gdp_bonus'] != new_effects['gdp_bonus']:
+        changes.append(f"GDP bonus now +{int(new_effects['gdp_bonus'] * 100)}%")
+    if old_effects['intel_tier_bonus'] != new_effects['intel_tier_bonus']:
+        changes.append(f"Intel tier bonus now +{new_effects['intel_tier_bonus']}")
+
+    print(f"  [turn_processor] TECH GAIN: {source_key} +{actual_gain} -> level {game_state.tech_level}")
+    return True, changes
+
+
+# ── Session 4D: Intelligence Budget System (hard-coded, Claude never decides these) ──
+
+INTEL_BUDGET_OPTIONS = {
+    "none":        {"cost": 0.0, "label": "No Funding"},
+    "maintenance": {"cost": 0.5, "label": "Maintenance ($0.5B)"},
+    "active":      {"cost": 1.0, "label": "Active Operations ($1.0B)"},
+    "expansion":   {"cost": 2.0, "label": "Expansion ($2.0B)"},
+}
+
+
+def process_intel_budget(game_state, allocation):
+    """Process intel budget allocation for the turn. Deducts from national budget.
+    Returns (success, changes_list)."""
+    option = INTEL_BUDGET_OPTIONS.get(allocation)
+    if not option:
+        return False, [f"Unknown allocation: {allocation}"]
+
+    cost = option['cost']
+    changes = []
+
+    # Check if national budget can cover the cost
+    if cost > 0 and game_state.budget < cost:
+        return False, [f"Cannot afford {option['label']}: need ${cost:.1f}B, budget is ${game_state.budget:.1f}B"]
+
+    # Deduct from national budget
+    if cost > 0:
+        game_state.update_budget(-cost)
+        changes.append(f"Intel budget: -{option['label']} from national budget")
+
+    # Track allocation
+    old_allocation = game_state.intel_budget_allocation
+    game_state.intel_budget_allocation = allocation
+
+    # Apparatus degradation: 2 consecutive "none" turns -> tier drops by 1
+    if allocation == "none":
+        game_state.intel_turns_unfunded += 1
+        if game_state.intel_turns_unfunded >= 2:
+            # Degrade apparatus tier
+            current_tier = getattr(game_state, 'intel_apparatus_tier', 0)
+            if current_tier > 0:
+                game_state.intel_apparatus_tier = current_tier - 1
+                changes.append(f"Intel apparatus degraded: tier {current_tier} -> {current_tier - 1} (unfunded {game_state.intel_turns_unfunded} turns)")
+                print(f"  [turn_processor] INTEL DEGRADATION: tier {current_tier} -> {current_tier - 1}")
+            game_state.intel_turns_unfunded = 0  # Reset after degradation
+        else:
+            changes.append(f"Intel unfunded ({game_state.intel_turns_unfunded}/2 turns before degradation)")
+    else:
+        game_state.intel_turns_unfunded = 0
+        changes.append(f"Intel allocation: {option['label']}")
+
+    # Store intel budget pool (used for operations)
+    game_state.intel_budget = cost
+
+    print(f"  [turn_processor] INTEL BUDGET: {allocation} (${cost:.1f}B), unfunded streak: {game_state.intel_turns_unfunded}")
+    return True, changes
+
+
+# ── Session 4D: Alternate Ending Conditions (hard-coded, Claude never decides these) ──
+
+ALTERNATE_ENDING_CONDITIONS = {
+    "democratic": {
+        "priority": 4,
+        "any_turn": False,
+        "conditions": {"eu_min": 80, "no_press_suppression": True, "approval_min": 65},
+        "label": "Democratic Transition",
+        "flavor": "Europa democratized under your watch — history will be kind.",
+        "legacy_bonus": 40,
+        "grade_min": "A",
+    },
+    "retirement": {
+        "priority": 3,
+        "any_turn": False,
+        "conditions": {"stability_min": 60, "approval_min": 50, "wealth_min": 20},
+        "label": "Voluntary Retirement",
+        "flavor": "You left on your own terms — rarer than it sounds.",
+        "legacy_bonus": 20,
+        "grade_min": "B",
+    },
+    "capture": {
+        "priority": 2,
+        "any_turn": False,
+        "conditions": {"wealth_min": 50, "capture_triad": True},
+        "label": "State Capture Complete",
+        "flavor": "You didn't lose power. You became the state.",
+        "legacy_bonus": 0,
+        "grade_min": None,
+    },
+    "martyrdom": {
+        "priority": 1,
+        "any_turn": True,
+        "conditions": {"stability_max": 0, "approval_min": 70},
+        "label": "Martyrdom",
+        "flavor": "The people loved you. That's why they had to remove you.",
+        "legacy_bonus": 0,
+        "grade_min": None,
+    },
+}
+
+
+def check_alternate_endings(game_state):
+    """Check all alternate ending conditions in priority order.
+    Returns ending_key or None. Checked each EOT after consequences."""
+    is_final_turn = game_state.current_turn >= 10
+
+    # Check in priority order (highest first)
+    endings_by_priority = sorted(
+        ALTERNATE_ENDING_CONDITIONS.items(),
+        key=lambda x: x[1]['priority'],
+        reverse=True,
+    )
+
+    for key, ending in endings_by_priority:
+        # Skip turn-10-only endings if not final turn
+        if not ending['any_turn'] and not is_final_turn:
+            continue
+
+        conds = ending['conditions']
+        met = True
+
+        # fixes_17 Fix K: Martyrdom uses pre-drift trigger flag instead of live stability
+        if key == 'martyrdom':
+            if not getattr(game_state, 'martyrdom_triggered', False):
+                continue
+            # Flag was set pre-drift — skip normal stability/approval checks for martyrdom
+        else:
+            # Stability max (at or below)
+            if 'stability_max' in conds and game_state.stability > conds['stability_max']:
+                met = False
+            # Stability min
+            if 'stability_min' in conds and game_state.stability < conds['stability_min']:
+                met = False
+            # Approval min
+            if 'approval_min' in conds and game_state.public_approval < conds['approval_min']:
+                met = False
+        # Wealth min
+        if 'wealth_min' in conds and game_state.personal_wealth < conds['wealth_min']:
+            met = False
+        # EU min
+        if 'eu_min' in conds and game_state.relations.get('eu', 0) < conds['eu_min']:
+            met = False
+        # State Capture triad: Constitutional Revision + press suppression + judicial capture
+        if conds.get('capture_triad'):
+            triad_met = all([
+                getattr(game_state, 'constitutional_revision_active', False),
+                getattr(game_state, 'action_press_suppressed', False),
+                getattr(game_state, 'action_judiciary_captured', False),
+            ])
+            if not triad_met:
+                met = False
+        # No press suppression active (for Democratic Transition)
+        if conds.get('no_press_suppression'):
+            if getattr(game_state, 'action_press_suppressed', False):
+                met = False
+
+        if met:
+            game_state.ending_triggered = key
+            print(f"  [turn_processor] ALTERNATE ENDING TRIGGERED: {key} — {ending['label']}")
+            return key
+
+    return None
 
 
 def process_choice_consequences(game_state, choice):
@@ -9,55 +541,82 @@ def process_choice_consequences(game_state, choice):
 
     consequences = choice.get('consequences', {})
     messages = []
+    # FIX E: Covert deals skip all cross-NPC penalties, heat, and public reaction
+    _is_covert = choice.get('covert', False)
 
-    # Relations changes
+    # Relations changes — diminishing returns applied inside update_relations().
+    # Display the actual applied delta (new - old), not the raw requested delta,
+    # so the log accurately reflects what happened.
+    # BUG 4: Include source context so players know WHY relations changed.
+    _deal_npc = choice.get('npc', '')
+    _choice_type = choice.get('type', '')
     for npc in ['usa', 'arabia', 'eu', 'dprg']:
         if npc in consequences:
+            # FIX E: Covert deals skip cross-NPC relation changes (only deal NPC affected)
+            if _is_covert and npc != _deal_npc:
+                continue
             old = game_state.relations[npc]
-            game_state.update_relations(npc, consequences[npc])
+            _rel_change = consequences[npc]
+            # BUG FIX 1: Cap indirect NPC relation loss at -8 per deal.
+            # Indirect = NPC is not the deal partner and change is negative.
+            if npc != _deal_npc and _rel_change < -8:
+                _rel_change = -8
+            game_state.update_relations(npc, _rel_change)
             new = game_state.relations[npc]
-            direction = "↑" if consequences[npc] > 0 else "↓"
-            messages.append(f"{direction} {npc.upper()}: {old} → {new} ({consequences[npc]:+d})")
+            actual_delta = round(new - old)
+            direction = "↑" if actual_delta >= 0 else "↓"
+            # Determine source label for context
+            if npc == _deal_npc and actual_delta >= 0:
+                source = "deal bonus"
+            elif npc == _deal_npc and actual_delta < 0:
+                source = "deal cost"
+            elif _deal_npc and actual_delta < 0:
+                source = f"{_deal_npc.upper()} alignment penalty"
+            elif _deal_npc and actual_delta > 0:
+                source = f"{_deal_npc.upper()} alignment bonus"
+            else:
+                source = "choice consequence"
+            messages.append(f"{direction} {npc.upper()}: {old} -> {new} ({actual_delta:+d}) — {source}")
+
+    # ITEM 4: Heat from deal (e.g. DPRG arms purchase)
+    # FIX E: Covert deals skip heat generation
+    if 'heat' in consequences and not _is_covert:
+        _heat_add = consequences['heat']
+        game_state.detection_heat = min(100, game_state.detection_heat + _heat_add)
+        messages.append(f"🔥 +{_heat_add} heat (covert deal)")
+
+    # ITEM 3: Military Strength change
+    if 'military' in consequences:
+        _mil_old = getattr(game_state, 'military_strength', 20)
+        _mil_change = consequences['military']
+        game_state.military_strength = max(0, min(100, _mil_old + _mil_change))
+        _mil_dir = "↑" if _mil_change > 0 else "↓"
+        messages.append(f"{_mil_dir} Military: {_mil_old} -> {game_state.military_strength} ({_mil_change:+d})")
 
     # Budget
     if 'budget' in consequences:
         old = game_state.budget
         game_state.update_budget(consequences['budget'])
         direction = "↑" if consequences['budget'] > 0 else "↓"
-        messages.append(f"{direction} Budget: ${old:.1f}B → ${game_state.budget:.1f}B ({consequences['budget']:+.1f}B)")
+        messages.append(f"{direction} Budget: ${old:.1f}B -> ${game_state.budget:.1f}B ({consequences['budget']:+.1f}B)")
 
     # Stability
     if 'stability' in consequences:
         old = game_state.stability
         game_state.update_stability(consequences['stability'])
         direction = "↑" if consequences['stability'] > 0 else "↓"
-        messages.append(f"{direction} Stability: {old}% → {game_state.stability}% ({consequences['stability']:+d}%)")
+        messages.append(f"{direction} Stability: {old}% -> {game_state.stability}% ({consequences['stability']:+d}%)")
 
-    # Oil price consequences from deals — register as a persistent modifier so EOT
-    # recalculation doesn't wipe the effect. Negative = cheaper oil for player.
-    # Default duration: 3 turns (the deal lasts a while, not just one turn).
-    if 'oil_price' in consequences:
-        oil_delta = consequences['oil_price']
-        arabia_delta = consequences.get('arabia', 0)
-        if oil_delta != 0:
-            duration = consequences.get('oil_price_turns', 3)
-            npc = choice.get('npc') or 'deal'
-            desc = f"{npc.upper()} oil deal"
-            game_state.oil_price_modifiers.append({
-                "delta": float(oil_delta),
-                "turns_remaining": int(duration),
-                "description": desc,
-            })
-            sign = '+' if oil_delta > 0 else ''
-            messages.append(
-                f"🛢️  Oil deal locked in: {sign}${oil_delta:.0f}/bbl for {duration} turns"
-            )
-        else:
-            # Pure relation change — no direct oil modifier, just note it
-            if arabia_delta > 0:
-                messages.append("🛢️  Arabia relations improved — oil prices will reflect this next turn")
-            elif arabia_delta < 0:
-                messages.append("🛢️  Arabia relations worsened — oil prices will reflect this next turn")
+    # Oil price consequences — oil_price_lock is handled directly in api.py before
+    # process_choice_consequences is called. The oil_price field (old delta-based system)
+    # is stripped in api.py and should never arrive here. If it somehow does, ignore it.
+    # Only log a relation-based note if Arabia relations changed without an oil lock.
+    arabia_delta = consequences.get('arabia', 0)
+    if 'oil_price' not in consequences and arabia_delta != 0:
+        if arabia_delta > 0:
+            messages.append("🛢️  Arabia relations improved — oil prices will reflect this next turn")
+        elif arabia_delta < 0:
+            messages.append("🛢️  Arabia relations worsened — oil prices will reflect this next turn")
 
     # Special flags
     if 'special' in consequences:
@@ -72,14 +631,14 @@ def process_choice_consequences(game_state, choice):
             new_usa_rel = max(pre_floor, 40)
             game_state.relations['usa'] = min(100, new_usa_rel)
             final_rel = game_state.relations['usa']
-            # The relations loop already appended a stale "↑ USA: X → Y (+25)" line.
+            # The relations loop already appended a stale "↑ USA: X -> Y (+25)" line.
             # Find it and replace it with the corrected values.
             for i, m in enumerate(messages):
                 if m.startswith("↑ USA:") or m.startswith("↓ USA:"):
                     # Reconstruct with the true before (pre_floor minus the raw +25 delta)
                     before = pre_floor - consequences.get('usa', 25)
                     actual_delta = final_rel - before
-                    messages[i] = f"↑ USA: {before} → {final_rel} (+{actual_delta})"
+                    messages[i] = f"↑ USA: {before} -> {final_rel} (+{actual_delta})"
                     break
             game_state.update_approval(10)
             messages.append(f"✅ Sanctions lifted (relations set to minimum {final_rel}). Public relief: +10% approval")
@@ -92,37 +651,943 @@ def process_choice_consequences(game_state, choice):
             game_state.took_arabia_oil = True
             messages.append("📝 Arabia oil deal recorded")
 
+        elif special == 'western_bloc_pressure':
+            # FIX U: Arabia premium partnership immediately triggers Western Bloc Joint Pressure.
+            # This makes the $12B static choice a "burn bridges fast" option.
+            game_state.update_stability(-8)
+            game_state.update_approval(-6)
+            game_state.update_budget(-5.0)
+            # fixes_8 Fix 10: Flag to prevent double-fire in check_pressure_events
+            game_state._western_bloc_fired_this_turn = True
+            print(f"  [PRESSURE] Western bloc pressure: source=deal_consequence, already_fired=False")
+            messages.append(
+                "🇺🇸🇪🇺 WESTERN BLOC JOINT PRESSURE — The premium Arabia partnership "
+                "has triggered an immediate coordinated Western response. "
+                "Sanctions packages being unified. "
+                "-8% stability, -6% approval, -$5B (frozen assets)"
+            )
+
     # Approval changes based on the NPC sided with
     npc = choice.get('npc')
     choice_type = choice.get('type')
+    _negotiated = choice.get('is_negotiated', False)
 
     if choice_type in ('accept_deal', 'side_with') and npc:
         if npc == 'usa':
-            game_state.update_approval(5)
-            game_state.update_budget(3.0)
-            messages.append("📊 Public approval: +5% (US alignment)")
-            messages.append("💰 US investment: +$3B")
+            # FIX E: Defense package should NOT trigger US investment payment.
+            # Check if this is a weapons purchase (has military in consequences).
+            _is_weapons = 'military' in consequences
+            if not _is_weapons:
+                game_state.update_approval(5)
+                messages.append("📊 Public approval: +5% (US alignment)")
+            # Standard US investment bonus — skip for negotiated deals and weapons purchases
+            if not _negotiated and not _is_weapons:
+                game_state.update_budget(3.0)
+                messages.append("💰 US investment: +$3B")
+            # ITEM 3: Military 50+ gives USA +5 relations (alliance value)
+            _mil = getattr(game_state, 'military_strength', 20)
+            if _mil >= 50:
+                game_state.update_relations('usa', 5, source="military alliance value")
+                messages.append("⚔️ Military alliance value (50+): USA +5")
         elif npc == 'arabia':
             # Arabia oil deals cheapen energy — people like that
             game_state.update_approval(8)
             messages.append("📊 Public approval: +8% (cheaper oil)")
         elif npc == 'eu':
             game_state.update_approval(6)
-            game_state.update_budget(4.0)
             messages.append("📊 Public approval: +6% (EU alignment)")
-            messages.append("💰 EU trade benefit: +$4B")
+            # ITEM 1: EU trade benefit removed — absorbed into GDP baseline revenue.
+            # High approval from EU alignment -> higher GDP revenue each turn.
+            # FIX M: EU deals produce cross-NPC relation penalties, scaled to deal size.
+            # Also give USA a small positive (+2 to +3) since EU alignment is broadly Western.
+            # BUG FIX 1: Skip cross-NPC penalty for NPCs already named in deal consequences.
+            # Named penalty replaces cross-NPC penalty, never stacks. Cap indirect at -8.
+            _eu_budget = abs(consequences.get('budget', 0))
+            if _eu_budget > 3:
+                _dprg_pen, _arabia_pen, _usa_bonus = -8, -5, 3
+                _size_label = "large"
+            elif _eu_budget >= 1:
+                _dprg_pen, _arabia_pen, _usa_bonus = -5, -3, 2
+                _size_label = "medium"
+            else:
+                _dprg_pen, _arabia_pen, _usa_bonus = -3, -2, 2
+                _size_label = "small"
+            _cross_parts = []
+            # Only apply cross-NPC penalty if that NPC isn't already named in consequences
+            if 'dprg' not in consequences:
+                _old_dprg = game_state.relations['dprg']
+                game_state.update_relations('dprg', _dprg_pen, source="EU deal cross-NPC penalty")
+                _cross_parts.append(f"DPRG {_old_dprg}->{game_state.relations['dprg']} ({_dprg_pen:+d})")
+            if 'arabia' not in consequences:
+                _old_arabia = game_state.relations['arabia']
+                game_state.update_relations('arabia', _arabia_pen, source="EU deal cross-NPC penalty")
+                _cross_parts.append(f"Arabia {_old_arabia}->{game_state.relations['arabia']} ({_arabia_pen:+d})")
+            if 'usa' not in consequences:
+                _old_usa = game_state.relations['usa']
+                game_state.update_relations('usa', _usa_bonus, source="EU deal cross-NPC bonus")
+                _cross_parts.append(f"USA {_old_usa}->{game_state.relations['usa']} ({_usa_bonus:+d})")
+            if _cross_parts:
+                messages.append(f"⚠️ EU {_size_label} deal: {', '.join(_cross_parts)}")
         elif npc == 'dprg':
-            # DPRG deals are deeply unpopular domestically
-            game_state.update_approval(-10)
-            messages.append("📊 Public approval: -10% (DPRG backlash)")
+            # FIX E: Covert deals skip public backlash and cross-NPC penalties entirely
+            if _is_covert:
+                print(f"  [turn_processor] FIX E: COVERT DPRG deal — skipping approval penalty + cross-NPC penalties")
+            else:
+                # DPRG deals are deeply unpopular domestically
+                game_state.update_approval(-10)
+                messages.append("📊 Public approval: -10% (DPRG backlash)")
+                # ITEM 5: DPRG cross-NPC penalties, scaled by deal size.
+                # Replaces the fixed penalties in deal consequences dicts.
+                _dprg_budget = abs(consequences.get('budget', 0))
+                if _dprg_budget > 3:
+                    _usa_pen, _eu_pen = -20, -15
+                    _dprg_size = "large"
+                elif _dprg_budget >= 1:
+                    _usa_pen, _eu_pen = -15, -10
+                    _dprg_size = "medium"
+                else:
+                    _usa_pen, _eu_pen = -8, -5
+                    _dprg_size = "small"
+                _dprg_cross_parts = []
+                if 'usa' not in consequences:
+                    _old_usa = game_state.relations['usa']
+                    game_state.update_relations('usa', _usa_pen, source="DPRG deal cross-NPC penalty")
+                    _dprg_cross_parts.append(f"USA {_old_usa}->{game_state.relations['usa']} ({_usa_pen:+d})")
+                if 'eu' not in consequences:
+                    _old_eu = game_state.relations['eu']
+                    game_state.update_relations('eu', _eu_pen, source="DPRG deal cross-NPC penalty")
+                    _dprg_cross_parts.append(f"EU {_old_eu}->{game_state.relations['eu']} ({_eu_pen:+d})")
+                if _dprg_cross_parts:
+                    messages.append(f"⚠️ DPRG {_dprg_size} deal: {', '.join(_dprg_cross_parts)}")
 
     return messages
+
+
+# ── Session 3 Priority 3: Detection Risk System ────────────────────────────
+#
+# Heat model:
+#   Each skim adds heat based on amount.  Heat decays -5 per turn (natural cooling).
+#   Sovereign Wealth Diversion upgrade halves heat gain.
+#   A random roll (0-100) below current heat means detection -> scandal.
+#
+# Heat gain per skim:
+#   Small skim ($0-2B):   +3 heat
+#   Medium skim ($2-5B):  +8 heat
+#   Large skim ($5-10B):  +15 heat
+#   Massive skim ($10B+): +25 heat
+#
+# Scandal consequences (escalate with repeat offences):
+#   1st scandal: -8% approval, -5% stability, all relations -3
+#   2nd scandal: -15% approval, -10% stability, all relations -5, -$5B budget (fines)
+#   3rd+ scandal: -20% approval, -15% stability, all relations -8, -$10B budget
+#
+# SWD upgrade: halves heat gain (rounded down). Does NOT prevent scandals once caught.
+# Intelligence Apparatus: no direct effect on detection (it's about intel, not defense).
+# ────────────────────────────────────────────────────────────────────────────
+
+def add_skim_heat(game_state, skim_amount: float):
+    """
+    Add detection heat based on skim amount. Called after each skim.
+    Returns the heat added (for display).
+    """
+    if skim_amount <= 0:
+        return 0
+
+    # Determine raw heat from skim size
+    if skim_amount >= 10.0:
+        raw_heat = 25
+    elif skim_amount >= 5.0:
+        raw_heat = 15
+    elif skim_amount >= 2.0:
+        raw_heat = 8
+    else:
+        raw_heat = 3
+
+    # SWD upgrade halves heat gain
+    has_swd = getattr(game_state, 'corruption_upgrades', {}).get('sovereign_wealth_diversion', False)
+    if has_swd:
+        raw_heat = raw_heat // 2
+
+    game_state.detection_heat = min(95, game_state.detection_heat + raw_heat)
+    return raw_heat
+
+
+def roll_detection(game_state):
+    """
+    Roll for detection at end of turn.  Only fires if detection_heat > 0.
+    Returns list of messages (empty if no scandal).
+    Applies scandal consequences directly to game_state.
+    """
+    messages = []
+
+    # fixes_9 Fix 3: Scandal immunity — check FIRST, before heat decay, before any roll
+    _judiciary = getattr(game_state, 'action_judiciary_captured', False)
+    _journalists = getattr(game_state, 'action_journalists_liquidated', False)
+    _immune = getattr(game_state, 'scandal_immune', False) or _judiciary or _journalists
+    if _immune:
+        print(f"  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary={_judiciary}, journalists={_journalists}, flag={getattr(game_state, 'scandal_immune', False)})")
+        messages.append("🕵️ Judiciary captured — corruption investigations suspended")
+        return messages
+
+    # Natural heat decay (-5 per turn, floor 0)
+    if game_state.detection_heat > 0:
+        decay = 5
+        # FIX 15: Intelligence Apparatus adds -3 heat/turn counter-surveillance
+        if game_state.corruption_upgrades.get('intelligence_apparatus'):
+            decay += 3
+            messages.append("🕵️ Intelligence Apparatus: -3 heat (counter-surveillance)")
+        game_state.detection_heat = max(0, game_state.detection_heat - decay)
+
+    # FIX 15: Warn if detection_heat is high and apparatus is active
+    if (game_state.detection_heat > 50
+            and game_state.corruption_upgrades.get('intelligence_apparatus')):
+        messages.append("🕵️ Financial monitoring elevated — detection probability increasing")
+
+    # FIX 17: Heat generation stubs for Session 4 political actions.
+    # These stubs define the heat values — Session 4 will wire them to actual action triggers.
+    # | Action                      | Heat  | Location when wired    |
+    # | Judicial Capture            | +10   | (Session 4 op)         |
+    # | Suppress Independent Press  | +8    | op 2 Domestic Suppress |
+    # | Dissolve Opposition Groups  | +5    | (Session 4 op)         |
+    # | Liquidate Journalists       | +20   | (Session 4 op)         |
+    # | Foreign Influence Ops       | +10   | op 3 (wired above)     |
+    # | Backchannel covert deal     | +8    | negotiate endpoint     |
+    _HEAT_VALUES = {
+        'judicial_capture': 10,
+        'suppress_press': 8,
+        'dissolve_opposition': 5,
+        'liquidate_journalists': 20,
+        'foreign_influence_ops': 10,
+        'backchannel_deal': 8,
+    }
+
+    # Session 6: Private Security Force detection at heat 80+
+    if getattr(game_state, 'private_security_force', False) and game_state.detection_heat >= 80:
+        game_state.update_relations('usa', -10)
+        game_state.update_relations('eu', -10)
+        messages.append("🔫 Private militia discovered by foreign intelligence — USA -10, EU -10")
+        print(f"  [turn_processor] PRIVATE SECURITY DETECTED: heat={game_state.detection_heat}, USA -10, EU -10")
+
+    # No roll if no heat or no personal wealth to expose
+    if game_state.detection_heat <= 0 or game_state.personal_wealth <= 0:
+        return messages
+
+    # Session 6: Media L3 (Suppress Scandal) or Judicial L3 (Drop Investigation) — immunity this turn
+    if getattr(game_state, 'scandal_suppressed_this_turn', False):
+        print("  [turn_processor] SCANDAL CHECK: suppressed by Media L3 (Suppress Scandal)")
+        messages.append("📺 Scandal suppressed by media apparatus — no investigation this turn")
+        return messages
+    if getattr(game_state, 'drop_investigation_this_turn', False):
+        print("  [turn_processor] SCANDAL CHECK: blocked by Judicial L3 (Drop Investigation)")
+        messages.append("⚖️ Investigation dropped — legal apparatus blocks scandal this turn")
+        return messages
+
+    # Cooldown: no scandal two turns in a row
+    if game_state.last_scandal_turn >= game_state.current_turn - 1:
+        return messages
+
+    # BUG FIX 2: Scandal probability curve (replaces linear roll <= heat).
+    # Below 30% heat: 0% chance. 30-50: 5%. 50-70: 20%. 70-90: 50%. 90+: 85%.
+    _heat = game_state.detection_heat
+    if _heat < 30:
+        _scandal_prob = 0
+    elif _heat < 50:
+        _scandal_prob = 5
+    elif _heat < 70:
+        _scandal_prob = 20
+    elif _heat < 90:
+        _scandal_prob = 50
+    else:
+        _scandal_prob = 85
+    if _scandal_prob <= 0:
+        print(f"  [turn_processor] SCANDAL CHECK: heat={_heat}, below threshold, no roll")
+        return messages  # safe — heat too low for scandal
+    roll = random.randint(1, 100)
+    _fired = roll <= _scandal_prob
+    print(f"  [turn_processor] SCANDAL CHECK: heat={_heat}, prob={_scandal_prob}%, roll={roll}, fired={_fired}")
+    if not _fired:
+        return messages  # safe this turn
+
+    # ── SCANDAL TRIGGERS ──
+    game_state.scandals_triggered += 1
+    game_state.last_scandal_turn = game_state.current_turn
+    scandal_num = game_state.scandals_triggered
+
+    if scandal_num >= 3:
+        # Major scandal
+        approval_hit = 20
+        stability_hit = 15
+        relations_hit = -8
+        budget_hit = 10.0
+        severity = "MAJOR"
+    elif scandal_num == 2:
+        # Serious scandal
+        approval_hit = 15
+        stability_hit = 10
+        relations_hit = -5
+        budget_hit = 5.0
+        severity = "SERIOUS"
+    else:
+        # First scandal — warning shot
+        approval_hit = 8
+        stability_hit = 5
+        relations_hit = -3
+        budget_hit = 0
+        severity = "MINOR"
+
+    # FIX T: Black Op detection at floor relations — substitute escalated consequences.
+    # Check if any Black Op target is at 0 relations.
+    _black_op_targets = getattr(game_state, 'pressure_suspended', {})
+    _floor_target = None
+    for _bo_npc in _black_op_targets:
+        if game_state.relations.get(_bo_npc, 50) <= 0:
+            _floor_target = _bo_npc
+            break
+
+    if _floor_target:
+        # Escalated Black Op detection: stability -20, heat +20, world event
+        _npc_labels = {'usa': 'USA', 'arabia': 'Arabia', 'eu': 'EU', 'dprg': 'DPRG'}
+        game_state.update_approval(-approval_hit)
+        game_state.update_stability(-20)  # increased from standard -15
+        game_state.detection_heat = min(100, game_state.detection_heat + 20)
+        if budget_hit > 0:
+            game_state.update_budget(-budget_hit)
+        messages.append(
+            f"🔍💀 BLACK OPERATION EXPOSED ({severity}) — "
+            f"{_npc_labels.get(_floor_target, _floor_target.upper())} publicly denounces Europa! "
+            f"-{approval_hit}% approval, -20% stability (escalated), "
+            f"+20 additional heat"
+        )
+        if budget_hit > 0:
+            messages.append(f"  -${budget_hit:.0f}B (fines & asset seizures)")
+        messages.append(
+            f"🌍 WORLD EVENT: Operation Exposed — {_npc_labels.get(_floor_target, _floor_target.upper())} "
+            f"releases classified documents proving Europa's covert operations"
+        )
+    else:
+        # Standard scandal
+        game_state.update_approval(-approval_hit)
+        game_state.update_stability(-stability_hit)
+        for npc in ('usa', 'arabia', 'eu', 'dprg'):
+            game_state.update_relations(npc, relations_hit)
+        if budget_hit > 0:
+            game_state.update_budget(-budget_hit)
+
+        # Build scandal message
+        msg = (
+            f"🔍 CORRUPTION SCANDAL ({severity}) — "
+            f"Investigative journalists exposed suspicious financial transfers! "
+            f"-{approval_hit}% approval, -{stability_hit}% stability, "
+            f"all relations {relations_hit}"
+        )
+        if budget_hit > 0:
+            msg += f", -${budget_hit:.0f}B (fines & asset seizures)"
+        messages.append(msg)
+
+    # Heat reduces after scandal (exposure clears some suspicion, but not all)
+    game_state.detection_heat = max(0, game_state.detection_heat - 20)
+
+    return messages
+
+
+# ── Session 3 Priority 5: Multi-NPC Pressure Events ─────────────────────────
+#
+# Condition-triggered events when multiple NPCs reach specific thresholds.
+# Unlike world events (random), these fire deterministically based on relations.
+# Each event fires at most once per game.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _generate_dprg_intel_package(game_state) -> list:
+    """fixes_10 Fix 4: Generate intel summaries for DPRG Intelligence Sharing event.
+    Returns list of formatted intel lines for USA, Arabia, EU (DPRG excluded — they're the source)."""
+    lines = []
+    _rels = game_state.relations
+    _npc_data = {
+        'usa': {
+            'icon': '🇺🇸',
+            'name': 'Bill Hartwell (USA)',
+            'stance': ('hostile — coordinating sanctions' if _rels.get('usa', 50) < 30
+                       else 'cautious — monitoring Europa closely' if _rels.get('usa', 50) < 60
+                       else 'cooperative — values Europa partnership'),
+        },
+        'arabia': {
+            'icon': '🛢️',
+            'name': 'Sadam (Arabia)',
+            'stance': ('threatening embargo escalation' if _rels.get('arabia', 50) < 30
+                       else 'transactional — seeking better oil terms' if _rels.get('arabia', 50) < 60
+                       else 'favorable — considers Europa a reliable partner'),
+        },
+        'eu': {
+            'icon': '🇪🇺',
+            'name': 'Marsha (EU)',
+            'stance': ('preparing formal sanctions proceedings' if _rels.get('eu', 50) < 30
+                       else 'concerned — pushing reform conditions' if _rels.get('eu', 50) < 60
+                       else 'supportive — sees Europa as EU integration candidate'),
+        },
+    }
+
+    for npc_id, data in _npc_data.items():
+        _rel = _rels.get(npc_id, 50)
+        # Check active actions against this NPC
+        _sanctions = ''
+        if npc_id == 'usa' and getattr(game_state, 'usa_sanctions_active', False):
+            _tier = getattr(game_state, 'usa_sanctions_tier', 0)
+            _sanctions = f' [ACTIVE: sanctions tier {_tier}]'
+        elif npc_id == 'arabia' and getattr(game_state, 'arabia_embargo_active', False):
+            _tier = getattr(game_state, 'arabia_embargo_tier', 0)
+            _sanctions = f' [ACTIVE: embargo tier {_tier}]'
+
+        lines.append(
+            f"  {data['icon']} {data['name']} (rel {_rel:.0f}): "
+            f"{data['stance']}{_sanctions}"
+        )
+        print(f"  [npc_engine] DPRG INTEL GENERATED: {npc_id} — stance assessment")
+
+    return lines
+
+
+def check_pressure_events(game_state) -> list:
+    """
+    Check for multi-NPC pressure events and apply consequences.
+    Returns list of message strings (empty if no events triggered).
+    Each event fires once per game (tracked via game_state flags).
+    Session 3 Addendum 2: Respects pressure_suspended from Black Operations (Tier 3 brigade).
+    """
+    messages = []
+    rels = game_state.relations
+    usa, arabia, eu, dprg = rels['usa'], rels['arabia'], rels['eu'], rels['dprg']
+
+    # Track which pressure events have fired (stored as set of event IDs)
+    fired = set(getattr(game_state, 'pressure_events_fired', []))
+
+    # fixes_9 Fix 7: Per-NPC event collision — one significant event per NPC per turn
+    _npc_event_fired = set()
+
+    # Session 3 Addendum 2: Check for suspended NPCs (Black Operation — Tier 3 brigade)
+    # { npc_id: expiry_turn } — if current_turn < expiry_turn, that NPC's pressure events are blocked
+    _suspended = getattr(game_state, 'pressure_suspended', {})
+    _current_turn = game_state.current_turn
+
+    def _npc_suspended(npc_id: str) -> bool:
+        expiry = _suspended.get(npc_id)
+        if expiry is not None and _current_turn <= expiry:
+            return True
+        return False
+
+    # Tick expired suspensions (clean up old entries)
+    expired_keys = [k for k, v in _suspended.items() if _current_turn > v]
+    for k in expired_keys:
+        del _suspended[k]
+        messages.append(f"🖤 Black Op expired: {k.upper()} pressure events resume")
+    game_state.pressure_suspended = _suspended
+
+    # 1. USA + EU JOINT PRESSURE — both deeply hostile
+    # ITEM 5: Threshold raised from 40 to 15 to prevent firing too early in DPRG runs.
+    # fixes_8 Fix 10: Skip if already fired this turn from choice consequences
+    _wb_already = getattr(game_state, '_western_bloc_fired_this_turn', False)
+    if _wb_already:
+        print(f"  [PRESSURE] Western bloc pressure: source=threshold_check, already_fired=True (suppressed)")
+    if 'western_bloc' not in fired and usa < 15 and eu < 15 and not _wb_already and not (_npc_suspended('usa') or _npc_suspended('eu')):
+        fired.add('western_bloc')
+        _npc_event_fired.add('usa')
+        _npc_event_fired.add('eu')
+        game_state._western_bloc_fired_this_turn = True
+        game_state.update_stability(-8)
+        game_state.update_approval(-6)
+        game_state.update_budget(-5.0)
+        print(f"  [PRESSURE] Western bloc pressure: source=threshold(usa={usa},eu={eu}), already_fired=False")
+        messages.append(
+            "🇺🇸🇪🇺 WESTERN BLOC JOINT PRESSURE — The United States and European Union "
+            "have issued a coordinated statement condemning Europa's diplomatic trajectory. "
+            "Sanctions packages are being unified. "
+            "-8% stability, -6% approval, -$5B (frozen assets)"
+        )
+
+    # 2. ARABIA + DPRG SHADOW PACT — both very friendly -> joint offer, West backlash
+    if 'eastern_pact' not in fired and arabia >= 70 and dprg >= 60 and not (_npc_suspended('arabia') or _npc_suspended('dprg')):
+        fired.add('eastern_pact')
+        _npc_event_fired.add('arabia')
+        _npc_event_fired.add('dprg')
+        # The pact benefits Europa economically but costs Western trust
+        game_state.update_budget(8.0)
+        game_state.update_relations('usa', -10)
+        game_state.update_relations('eu', -8)
+        game_state.update_stability(5)
+        # Add leverage events
+        if not hasattr(game_state, 'leverage_events'):
+            game_state.leverage_events = {}
+        game_state.leverage_events.setdefault('arabia', []).append('Shadow Pact member')
+        game_state.leverage_events.setdefault('dprg', []).append('Shadow Pact member')
+        messages.append(
+            "🛢️⚡ ARABIA-DPRG SHADOW PACT — Sadam and Ji-won have quietly formalized "
+            "a trilateral arrangement with Europa. Economic benefits flow ($+8B), "
+            "but Western intelligence picks up the signal. "
+            "USA -10, EU -8, +5% stability"
+        )
+
+    # 3. TOTAL ISOLATION — all 4 NPCs hostile (not blocked by suspension — global event)
+    if 'total_isolation' not in fired and usa < 30 and arabia < 30 and eu < 30 and dprg < 30:
+        fired.add('total_isolation')
+        game_state.update_stability(-15)
+        game_state.update_approval(-12)
+        game_state.update_budget(-10.0)
+        messages.append(
+            "🌍 TOTAL DIPLOMATIC ISOLATION — Every major power has turned against Europa. "
+            "International credit rating downgraded. Capital flight accelerating. "
+            "Emergency measures required. "
+            "-15% stability, -12% approval, -$10B (capital flight)"
+        )
+
+    # 4. DPRG CRISIS — DPRG very hostile while aligned with USA
+    if 'dprg_provocation' not in fired and dprg < 20 and usa >= 60 and not _npc_suspended('dprg') and 'dprg' not in _npc_event_fired:
+        fired.add('dprg_provocation')
+        _npc_event_fired.add('dprg')
+        game_state.update_stability(-5)
+        game_state.update_relations('usa', 5)  # solidarity bonus
+        messages.append(
+            "⚡🇺🇸 DPRG PROVOCATION — Ji-won's regime has made threatening gestures toward Europa. "
+            "The US offers solidarity and defense guarantees. "
+            "-5% stability, USA +5 (defense solidarity)"
+        )
+
+    # 5. ARABIA ENERGY LEVERAGE — Arabia hostile + high oil price
+    if 'energy_crisis' not in fired and arabia < 25 and game_state.oil_price >= 100 and not _npc_suspended('arabia') and 'arabia' not in _npc_event_fired:
+        fired.add('energy_crisis')
+        _npc_event_fired.add('arabia')
+        game_state.update_approval(-10)
+        game_state.update_stability(-8)
+        game_state.update_budget(-8.0)
+        messages.append(
+            "🛢️💰 ENERGY CRISIS — Arabia has weaponized oil supply. "
+            "Fuel rationing begins in Europa. Public anger intensifies. "
+            "-10% approval, -8% stability, -$8B (emergency energy imports)"
+        )
+
+    # ITEM 5: DPRG-specific world events that benefit the player when DPRG 60+
+    if 'dprg_energy_coop' not in fired and dprg >= 60 and not _npc_suspended('dprg') and 'dprg' not in _npc_event_fired:
+        fired.add('dprg_energy_coop')
+        _npc_event_fired.add('dprg')
+        game_state.update_oil_price(-5)
+        game_state.update_relations('dprg', 3, source="DPRG energy cooperation event")
+        messages.append(
+            "⚡🤝 DPRG ENERGY COOPERATION — Ji-won announces an energy cooperation "
+            "agreement with Europa. Oil market stabilizes as alternative supply routes open. "
+            "Oil price -$5, DPRG +3"
+        )
+
+    # fixes_13 Fix 16: DPRG free intel fires at 60+, not 70
+    print(f"  [turn_processor] DPRG INTEL CHECK: dprg_rel={dprg}, fired={'dprg_intel_sharing' in fired}, suspended={_npc_suspended('dprg')}")
+    if 'dprg_intel_sharing' not in fired and dprg >= 60 and not _npc_suspended('dprg') and 'dprg' not in _npc_event_fired:
+        fired.add('dprg_intel_sharing')
+        _npc_event_fired.add('dprg')
+        # Grant free tier 2 intel on all NPCs for this turn
+        intel = getattr(game_state, 'intel_activated_this_turn', {})
+        for _npc_key in ('usa', 'arabia', 'eu'):
+            intel[_npc_key] = game_state.current_turn
+        game_state.intel_activated_this_turn = intel
+        # fixes_11 Fix 11: Also populate intel cache so frontend can display dossiers
+        # without requiring Intelligence Apparatus or Security 3
+        if not hasattr(game_state, 'intel'):
+            game_state.intel = {}
+        for _npc_key in ('usa', 'arabia', 'eu'):
+            game_state.intel[_npc_key] = {
+                'turn_generated': game_state.current_turn,
+                'tier': 2,
+                'text': f"[DPRG Intelligence Sharing] Intel on {_npc_key.upper()} provided by Ji-won's services.",
+                'source': 'dprg_sharing',
+            }
+        # Also temporarily grant intel access even without upgrade/security axis
+        game_state.dprg_intel_sharing_turn = game_state.current_turn
+        messages.append(
+            "🕵️🤝 DPRG INTELLIGENCE SHARING — Ji-won's intelligence services reveal "
+            "details of a Western pressure campaign against Europa. "
+            "Free intel access on all NPCs this turn."
+        )
+        # fixes_10 Fix 4: Generate actual intel content for each NPC
+        print(f"  [turn_processor] DPRG INTEL SHARING: generating intercepts for all NPCs (turn {game_state.current_turn})")
+        _dprg_intel = _generate_dprg_intel_package(game_state)
+        for _line in _dprg_intel:
+            messages.append(_line)
+        print(f"  [turn_processor] DPRG INTEL SHARING: generated {len(_dprg_intel)} intel lines")
+
+    game_state.pressure_events_fired = list(fired)
+    # fixes_9 Fix 7: Store which NPCs had events this turn for world event collision check
+    game_state._npc_event_fired_this_turn = _npc_event_fired
+    return messages
+
+
+# ── Session 3 Priority 6: Relations 100 Unlocks ─────────────────────────────
+#
+# Permanent benefits when relations hit 100 with any NPC.
+# Each fires ONCE per NPC per game (first time relations reach 100).
+#
+# USA 100  -> "Special Relationship" — permanent +$3B/turn installment
+# Arabia 100 -> "Blood Brothers" — permanent -$10/bbl oil modifier
+# EU 100  -> "Full Integration" — permanent +5% approval per turn (applied in EOT)
+# DPRG 100 -> "Shadow Alliance" — permanent -5 detection heat per turn
+# ─────────────────────────────────────────────────────────────────────────────
+
+def check_relations_100_unlocks(game_state) -> list:
+    """
+    fixes_13 Fix 27: Check if any NPC has hit 100 relations and grant permanent unlock.
+    Returns list of unlock announcement messages.
+    """
+    messages = []
+    unlocks = getattr(game_state, 'relations_100_unlocks', {
+        'usa': False, 'arabia': False, 'eu': False, 'dprg': False,
+    })
+
+    # ── USA 100: Full Alliance ──────────────────────────────────────────────
+    if not unlocks.get('usa') and game_state.relations.get('usa', 0) >= 100:
+        unlocks['usa'] = True
+        # Permanent $3B/turn strategic investment (existing) + GDP +15% marker
+        game_state.active_installments.append({
+            'amount': 3.0,
+            'turns_remaining': 999,
+            'description': 'Special Relationship — US strategic investment (USA 100)',
+            'npc': 'usa',
+        })
+        # Military +10 permanent
+        game_state.military_strength = min(100, getattr(game_state, 'military_strength', 20) + 10)
+        # DPRG cap 40
+        _dprg_rel = game_state.relations.get('dprg', 50)
+        if _dprg_rel > 40:
+            game_state.relations['dprg'] = 40
+        # Store caps for enforcement
+        _rel_caps = getattr(game_state, 'relations_caps', {})
+        _rel_caps['dprg'] = min(_rel_caps.get('dprg', 999), 40)
+        game_state.relations_caps = _rel_caps
+        messages.append(
+            "🏛️ RELATIONS 100 UNLOCK — USA: FULL ALLIANCE\n"
+            "  Bill: 'You've earned America's trust. That comes with benefits — and obligations.'\n"
+            "  ✅ Sanctions immunity — USA sanctions cannot fire\n"
+            "  ✅ Coup probability -50%\n"
+            "  ✅ Military +10 permanent (defense contracts)\n"
+            "  ✅ GDP baseline +15% permanent (Western market access)\n"
+            "  ✅ +$3B/turn US strategic investment\n"
+            "  ⚠️ DPRG relations capped at 40 permanently"
+        )
+        print(f"  [turn_processor] Fix 27: USA 100 unlocked — military now {game_state.military_strength}, DPRG capped 40")
+
+    # ── EU 100: Full Integration ────────────────────────────────────────────
+    if not unlocks.get('eu') and game_state.relations.get('eu', 0) >= 100:
+        unlocks['eu'] = True
+        # EU structural funds: +$4B/turn passive
+        game_state.active_installments.append({
+            'amount': 4.0,
+            'turns_remaining': 999,
+            'description': 'EU Structural Funds (EU 100)',
+            'npc': 'eu',
+        })
+        # DPRG cap 35
+        _dprg_rel = game_state.relations.get('dprg', 50)
+        if _dprg_rel > 35:
+            game_state.relations['dprg'] = 35
+        _rel_caps = getattr(game_state, 'relations_caps', {})
+        _rel_caps['dprg'] = min(_rel_caps.get('dprg', 999), 35)
+        game_state.relations_caps = _rel_caps
+        messages.append(
+            "🇪🇺 RELATIONS 100 UNLOCK — EU: FULL INTEGRATION\n"
+            "  Marsha: 'Europa's candidacy is formally accepted. Welcome to the European family.'\n"
+            "  ✅ +5% approval/turn\n"
+            "  ✅ +$4B/turn EU structural funds\n"
+            "  ✅ Corruption scandal immunity (EU oversight)\n"
+            "  ✅ Coup probability -25%\n"
+            "  ✅ Tech passive gain doubled (Horizon program)\n"
+            "  ⚠️ Cannot cancel elections (permanent observers)\n"
+            "  ⚠️ DPRG relations capped at 35 permanently"
+        )
+        print(f"  [turn_processor] Fix 27: EU 100 unlocked — DPRG capped 35")
+
+    # ── Arabia 100: Energy Sovereign ────────────────────────────────────────
+    _arabia_rel_g = game_state.relations.get('arabia', 0)
+    _arabia_already_g = unlocks.get('arabia', False)
+    print(f"  [turn_processor] FIX G: Arabia 100 CHECK reached — rel={_arabia_rel_g}, unlocked={_arabia_already_g}")
+    if not _arabia_already_g and _arabia_rel_g >= 100:
+        unlocks['arabia'] = True
+        print(f"  [turn_processor] FIX G: Arabia 100 FIRED — unlock applied")
+        # Energy subsidy: +$4B/turn
+        game_state.active_installments.append({
+            'amount': 4.0,
+            'turns_remaining': 999,
+            'description': 'Arabian energy partnership dividend (Arabia 100)',
+            'npc': 'arabia',
+        })
+        # Military +15 one-time
+        game_state.military_strength = min(100, getattr(game_state, 'military_strength', 20) + 15)
+        # USA cap 35, EU cap 40
+        _rel_caps = getattr(game_state, 'relations_caps', {})
+        _rel_caps['usa'] = min(_rel_caps.get('usa', 999), 35)
+        _rel_caps['eu'] = min(_rel_caps.get('eu', 999), 40)
+        game_state.relations_caps = _rel_caps
+        if game_state.relations.get('usa', 50) > 35:
+            game_state.relations['usa'] = 35
+        if game_state.relations.get('eu', 50) > 40:
+            game_state.relations['eu'] = 40
+        messages.append(
+            "🛢️ RELATIONS 100 UNLOCK — ARABIA: ENERGY SOVEREIGN\n"
+            "  Sadam: 'Europa is family now. Family takes care of family.'\n"
+            "  ✅ +$4B/turn energy partnership dividend\n"
+            "  ✅ Military +15 (Gulf weapons package)\n"
+            "  ⚠️ USA capped at 35, EU capped at 40 permanently"
+        )
+        print(f"  [turn_processor] Fix 27: Arabia 100 unlocked — military now {game_state.military_strength}, USA capped 35, EU capped 40")
+
+    # ── DPRG 100: Shadow Patron ─────────────────────────────────────────────
+    if not unlocks.get('dprg') and game_state.relations.get('dprg', 0) >= 100:
+        unlocks['dprg'] = True
+        # USA cap 30, EU cap 30
+        _rel_caps = getattr(game_state, 'relations_caps', {})
+        _rel_caps['usa'] = min(_rel_caps.get('usa', 999), 30)
+        _rel_caps['eu'] = min(_rel_caps.get('eu', 999), 30)
+        game_state.relations_caps = _rel_caps
+        if game_state.relations.get('usa', 50) > 30:
+            game_state.relations['usa'] = 30
+        if game_state.relations.get('eu', 50) > 30:
+            game_state.relations['eu'] = 30
+        # One-time coup deterrence flag
+        game_state.dprg_coup_deterrence = True
+        messages.append(
+            "⚡ RELATIONS 100 UNLOCK — DPRG: SHADOW PATRON\n"
+            "  Ji-won: 'You are now under Pyongyang's full protection. Our interests are aligned.'\n"
+            "  ✅ Covert transaction ceiling increases to $8B\n"
+            "  ✅ Personal wealth invisible to Western auditors\n"
+            "  ✅ One-time automatic coup failure (DPRG military assets)\n"
+            "  ✅ -5 detection heat per turn\n"
+            "  ⚠️ USA capped at 30, EU capped at 30 permanently\n"
+            "  ⚠️ Arabia relations decay -2/turn"
+        )
+        print(f"  [turn_processor] Fix 27: DPRG 100 unlocked — USA/EU capped 30, coup deterrence active")
+
+    game_state.relations_100_unlocks = unlocks
+    return messages
+
+
+def apply_relations_100_passive_effects(game_state) -> list:
+    """
+    fixes_13 Fix 27: Apply the per-turn passive effects of any active relations 100 unlocks.
+    Called during EOT. Returns messages for effects applied.
+    """
+    messages = []
+    unlocks = getattr(game_state, 'relations_100_unlocks', {})
+
+    # ── USA 100: Sanctions immunity (handled by checking unlock flag in sanctions logic) ──
+    # GDP baseline +15% is handled by checking unlock flag in GDP calc
+
+    # ── EU 100: +5% approval per turn ──
+    if unlocks.get('eu'):
+        old = game_state.public_approval
+        game_state.update_approval(5)
+        if game_state.public_approval != old:
+            messages.append(f"🇪🇺 Full Integration: +5% approval ({old}% -> {game_state.public_approval}%)")
+
+    # ── Arabia 100: passive effects are via installments (auto-applied) ──
+    # Fair election with observers: Arabia -5 (handled in election endpoint)
+
+    # ── DPRG 100: -5 detection heat per turn + Arabia decay ──
+    if unlocks.get('dprg'):
+        if game_state.detection_heat > 0:
+            old_heat = game_state.detection_heat
+            game_state.detection_heat = max(0, game_state.detection_heat - 5)
+            messages.append(
+                f"⚡ Shadow Patron: -5 detection heat ({old_heat}% -> {game_state.detection_heat}%)"
+            )
+            print(f"  [HEAT] DPRG Shadow Patron passive: -5 heat ({old_heat} -> {game_state.detection_heat})")
+        # Arabia decay -2/turn while DPRG 100 holds
+        if game_state.relations.get('dprg', 0) >= 95:  # still near 100
+            old_arabia = game_state.relations.get('arabia', 50)
+            game_state.update_relations('arabia', -2, source="DPRG shadow patron (Arabia suspicious)")
+            messages.append(f"⚡ Shadow Patron: Arabia -2 (suspicious of DPRG ties, {old_arabia} -> {game_state.relations.get('arabia', 50)})")
+
+    # ── Enforce relation caps ──
+    _rel_caps = getattr(game_state, 'relations_caps', {})
+    for _npc, _cap in _rel_caps.items():
+        if game_state.relations.get(_npc, 0) > _cap:
+            game_state.relations[_npc] = _cap
+
+    return messages
+
+
+def check_broken_promises(game_state) -> list:
+    """
+    Session 3 Addendum: Check if the player's last action broke any binding promises.
+    A promise to NPC X is broken if the player sides with a rival of X.
+    Broken promise: relations -12 with the NPC, NPC will reference it in future dialogue.
+    Returns list of message strings.
+    """
+    messages = []
+    promises = getattr(game_state, 'binding_promises', [])
+    if not promises or not game_state.action_history:
+        return messages
+
+    last_action = game_state.action_history[-1]
+    last_npc = last_action.get('npc', '')
+    last_type = last_action.get('type', '')
+
+    if last_type not in ('side_with', 'accept_deal') or not last_npc:
+        return messages
+
+    _rivals = {
+        'usa': {'arabia', 'dprg'},
+        'arabia': {'usa', 'eu'},
+        'eu': {'dprg', 'arabia'},
+        'dprg': {'usa', 'eu'},
+    }
+
+    for promise in promises:
+        if promise.get('broken'):
+            continue
+        promise_npc = promise.get('npc', '')
+        if not promise_npc or promise_npc == last_npc:
+            continue
+
+        # Check if last action contradicts the promise
+        rivals = _rivals.get(promise_npc, set())
+        if last_npc in rivals:
+            promise['broken'] = True
+            old_rel = game_state.relations[promise_npc]
+            game_state.update_relations(promise_npc, -12)
+            new_rel = game_state.relations[promise_npc]
+            npc_labels = {'usa': 'Bill Hartwell', 'arabia': 'Sadam', 'eu': 'Marsha', 'dprg': 'Ji-won'}
+            messages.append(
+                f"💔 BROKEN PROMISE — {npc_labels.get(promise_npc, promise_npc.upper())} "
+                f"remembers your commitment. Your alliance with {last_npc.upper()} is a betrayal. "
+                f"Relations: {old_rel} -> {new_rel} (-12)"
+            )
+
+    game_state.binding_promises = promises
+    return messages
+
+
+def reset_turn_rapport(game_state):
+    """Reset per-conversation rapport at the start of each new turn."""
+    game_state.current_rapport = {}
+
+
+def update_npc_bilateral_relations(game_state):
+    """
+    Session 3 Addendum 2: Update NPC-to-NPC hidden relationship matrix
+    based on the player's last action. When the player sides with one NPC,
+    rivals of that NPC become slightly more hostile to allies of that NPC.
+    """
+    npc_rels = getattr(game_state, 'npc_relations', {})
+    if not npc_rels or not game_state.action_history:
+        return
+
+    last_action = game_state.action_history[-1]
+    last_npc = last_action.get('npc', '')
+    last_type = last_action.get('type', '')
+
+    if last_type not in ('side_with', 'accept_deal') or not last_npc:
+        return
+
+    # When player sides with NPC X:
+    # - X's allies become slightly warmer to X (+2)
+    # - X's rivals become slightly cooler with X's allies (-3)
+    _alliances = {
+        'usa': {'allies': ['eu'], 'rivals': ['dprg', 'arabia']},
+        'eu': {'allies': ['usa'], 'rivals': ['dprg']},
+        'arabia': {'allies': ['dprg'], 'rivals': ['usa', 'eu']},
+        'dprg': {'allies': ['arabia'], 'rivals': ['usa', 'eu']},
+    }
+
+    info = _alliances.get(last_npc, {})
+    allies = info.get('allies', [])
+    rivals = info.get('rivals', [])
+
+    def _pair_key(a, b):
+        return '_'.join(sorted([a, b]))
+
+    # Strengthen ally bonds
+    for ally in allies:
+        pk = _pair_key(last_npc, ally)
+        npc_rels[pk] = min(100, npc_rels.get(pk, 50) + 2)
+
+    # Weaken rival-ally bonds
+    for rival in rivals:
+        for ally in allies:
+            pk = _pair_key(rival, ally)
+            npc_rels[pk] = max(0, npc_rels.get(pk, 50) - 3)
+
+    game_state.npc_relations = npc_rels
 
 
 def apply_end_of_turn_effects(game_state):
     """Apply automatic effects at end of turn - full tiered system v4"""
 
     messages = []
+
+    # ──────────────────────────────────────────
+    # 0a. SESSION 4B: PROTESTS (fires turn after election if protests_pending)
+    # If protests_pending and player did NOT deploy brigades -> stability/approval/relations hit
+    # ──────────────────────────────────────────
+    if getattr(game_state, 'protests_pending', False):
+        if not getattr(game_state, 'brigades_deployed_last_turn', False):
+            game_state.update_stability(-10)
+            game_state.update_approval(-8)
+            game_state.update_relations('usa', -3)
+            game_state.update_relations('eu', -3)
+            messages.append(
+                "🪧 Post-election protests erupt! Stability -10%, approval -8%, USA -3, EU -3. "
+                "The streets demand accountability."
+            )
+            print("  [turn_processor] PROTESTS FIRED: no brigades deployed — penalties applied")
+        else:
+            messages.append(
+                "🪧 Post-election protests dispersed by security forces. "
+                "Order maintained, but the world is watching."
+            )
+            print("  [turn_processor] PROTESTS SUPPRESSED: brigades deployed — no penalties")
+        game_state.protests_pending = False
+
+    # ──────────────────────────────────────────
+    # 0b. SESSION 4B: DEMOCRACY LOCK COUNTDOWN
+    # If regime_democracy_locked > 0, decrement. Rightward shifts blocked in section 11.
+    # ──────────────────────────────────────────
+    if getattr(game_state, 'regime_democracy_locked', 0) > 0:
+        game_state.regime_democracy_locked -= 1
+        if game_state.regime_democracy_locked > 0:
+            messages.append(
+                f"🏛️ International observers still monitoring — democracy lock: "
+                f"{game_state.regime_democracy_locked} turn(s) remaining"
+            )
+        else:
+            messages.append(
+                "🏛️ International observer mandate expired — regime shift restrictions lifted"
+            )
+        print(f"  [turn_processor] DEMOCRACY LOCK: {game_state.regime_democracy_locked} turns remaining")
+
+    # ──────────────────────────────────────────
+    # 0c. SESSION 4C: DOMESTIC ACTION PASSIVE EFFECTS
+    # Press suppression -> EU -3/turn drain
+    # Marsha red line -> EU -5/turn if triggered
+    # Approval floor/ceiling enforced in update_approval() directly
+    # ──────────────────────────────────────────
+    if getattr(game_state, 'action_press_suppressed', False):
+        game_state.update_relations('eu', -3)
+        messages.append(
+            "🖤 Press suppression sanctions: EU -3 (ongoing penalty while independent press silenced)"
+        )
+        print("  [turn_processor] DOMESTIC PASSIVE: press suppression EU -3/turn")
+
+    if getattr(game_state, 'marsha_red_line_triggered', False):
+        game_state.update_relations('eu', -5)
+        messages.append(
+            "🖤 MARSHA RED LINE: EU -5/turn — Marsha has permanently distanced from Europa"
+        )
+        print("  [turn_processor] DOMESTIC PASSIVE: Marsha red line EU -5/turn")
+
+    # ──────────────────────────────────────────
+    # 0d. SESSION 6 PHASE 8: Intelligence Axis L3+ passive heat reduction (-3/turn)
+    # ──────────────────────────────────────────
+    _intel_level = getattr(game_state, 'cabinet_axes', {}).get('intelligence', 0)
+    if _intel_level >= 3 and game_state.detection_heat > 0:
+        _old_heat = game_state.detection_heat
+        game_state.detection_heat = max(0, game_state.detection_heat - 3)
+        messages.append(
+            f"🕵️ Intelligence network: -3 heat ({_old_heat}% → {game_state.detection_heat}%)"
+        )
+        print(f"  [HEAT] Intelligence axis L{_intel_level} passive: -3 heat ({_old_heat} -> {game_state.detection_heat})")
 
     # ──────────────────────────────────────────
     # 1. OIL PRICE — recalculate from Arabia relations (or use negotiated lock),
@@ -156,7 +1621,7 @@ def apply_end_of_turn_effects(game_state):
             arabia_rel = game_state.relations['arabia']
             direction = "improved" if new_base < old_base else "worsened"
             messages.append(
-                f"🛢️  Oil tier {direction}: Arabia {arabia_rel} → "
+                f"🛢️  Oil tier {direction}: Arabia {arabia_rel} -> "
                 f"${new_base} base (was ${old_base})"
             )
         game_state.previous_oil_base = new_base
@@ -219,30 +1684,105 @@ def apply_end_of_turn_effects(game_state):
                 messages.append(f"🤝 Trade commitment concluded: {commitment['description']}")
         game_state.active_trade_commitments = still_active
 
-    # BUG 2: Apply active installment payments and tick them down
+    # BUG 2 + BUG 14 + FIX 3 + FIX D: Apply active installment payments and tick them down.
+    # FIX D: Consolidate same-NPC installments into a single display line.
+    # Individual detail is kept in the export log; EOT display shows consolidated totals.
     if game_state.active_installments:
         still_active = []
+        # FIX D: Collect paid installments per NPC for consolidated display
+        _npc_paid = {}       # {npc: {'total': float, 'count': int, 'condition_note': str|None}}
+        _npc_pending = {}    # {npc: {'total': float, 'count': int}}
+        # fixes_9 Fix 2: Per-deal withheld messages (not consolidated per-NPC)
+        _withheld_lines = []  # list of individual withheld message strings
+        _npc_labels = {'usa': 'USA', 'arabia': 'Arabia', 'eu': 'EU', 'dprg': 'DPRG'}
+
         for inst in game_state.active_installments:
             amount = float(inst.get('amount', 0))
+            desc = inst.get('description', 'installment')
+            npc = inst.get('npc', 'unknown')
+            npc_label = _npc_labels.get(npc, npc.upper() if npc else 'Unknown')
+
+            # FIX 3: Skip installments registered this same turn
+            registered_turn = inst.get('registered_turn', 0)
+            if registered_turn >= game_state.current_turn:
+                still_active.append(inst)
+                _entry = _npc_pending.setdefault(npc_label, {'total': 0.0, 'count': 0})
+                _entry['total'] += amount
+                _entry['count'] += 1
+                continue
+
+            # BUG 14: Check if this installment has a deferred start_turn
+            start_turn = inst.get('start_turn', None)
+            if start_turn is not None and game_state.current_turn < start_turn:
+                still_active.append(inst)
+                _entry = _npc_pending.setdefault(npc_label, {'total': 0.0, 'count': 0})
+                _entry['total'] += amount
+                _entry['count'] += 1
+                continue
+
+            # FIX 4: Verify conditions before paying conditional installments
+            # fixes_9 Fix 2: Evaluate each deal against its own stored threshold, one message per deal
+            _cond_type = inst.get('condition_type')
+            _cond_npc = inst.get('condition_npc')
+            _cond_thresh = inst.get('condition_threshold')
+            if _cond_type and _cond_npc:
+                # fixes_17 Fix E: Normalize NPC id in case stored as 'europa' etc.
+                _npc_aliases = {'europa': 'eu', 'united_states': 'usa', 'america': 'usa', 'saudi': 'arabia', 'north_korea': 'dprg', 'korea': 'dprg'}
+                _cond_npc = _npc_aliases.get(_cond_npc, _cond_npc)
+                _actual_rel = game_state.relations.get(_cond_npc, 50)
+                _cond_npc_label = _npc_labels.get(_cond_npc, _cond_npc.upper())
+                _cond_met = False
+                if _cond_type == 'relation_below':
+                    _cond_met = _actual_rel < _cond_thresh
+                elif _cond_type == 'relation_above':
+                    _cond_met = _actual_rel > _cond_thresh
+                _direction = 'below' if _cond_type == 'relation_below' else 'above'
+                _symbol = '✓' if _cond_met else '✗'
+                print(f"  [CONDITIONAL] Checking {_cond_npc.upper()} condition: current {_cond_npc.upper()} = {_actual_rel:.0f}, threshold = {_cond_thresh:.0f}, result = {'pass' if _cond_met else 'fail'}")
+                if not _cond_met:
+                    still_active.append(inst)
+                    _withheld_lines.append(
+                        f"📋 {npc_label} conditional withheld: ${abs(amount):.1f}B "
+                        f"— {_cond_npc_label} [{_actual_rel:.0f}] not {_direction} {_cond_thresh:.0f} {_symbol}"
+                    )
+                    continue
+
             inst['turns_remaining'] -= 1
             remaining = inst['turns_remaining']
-            desc = inst.get('description', 'installment')
 
             # Apply the payment this turn
             game_state.update_budget(amount)
-            direction = "↑" if amount > 0 else "↓"
-            direction_word = "received" if amount > 0 else "paid"
 
             if remaining > 0:
                 still_active.append(inst)
-                messages.append(
-                    f"📋 Installment {direction_word}: {direction}${abs(amount):.1f}B ({desc}, "
-                    f"{remaining} turn(s) remaining)"
-                )
-            else:
-                messages.append(
-                    f"📋 Final installment {direction_word}: {direction}${abs(amount):.1f}B ({desc} — concluded)"
-                )
+
+            # Collect for consolidated display
+            _entry = _npc_paid.setdefault(npc_label, {'total': 0.0, 'count': 0, 'concluded': 0, 'condition_note': None})
+            _entry['total'] += amount
+            _entry['count'] += 1
+            if remaining <= 0:
+                _entry['concluded'] += 1
+            # Track most restrictive condition for display
+            if _cond_type and _cond_npc:
+                _entry['condition_note'] = f"conditional on {_npc_labels.get(_cond_npc, _cond_npc.upper())} {'below' if _cond_type == 'relation_below' else 'above'} {_cond_thresh:.0f}"
+
+        # FIX D: Build consolidated display messages
+        for npc_label, data in _npc_paid.items():
+            direction = "+" if data['total'] > 0 else ""
+            _cond_str = f", {data['condition_note']}" if data.get('condition_note') else ""
+            _concluded_str = f", {data['concluded']} concluded" if data['concluded'] > 0 else ""
+            messages.append(
+                f"📋 {npc_label} partnership payments: {direction}${abs(data['total']):.1f}B "
+                f"({data['count']} active deal{'s' if data['count'] > 1 else ''}{_concluded_str}{_cond_str})"
+            )
+        for npc_label, data in _npc_pending.items():
+            messages.append(
+                f"📋 {npc_label} installments pending: ${abs(data['total']):.1f}B "
+                f"({data['count']} deal{'s' if data['count'] > 1 else ''}, first payment next turn)"
+            )
+        # fixes_9 Fix 2: Per-deal withheld messages
+        for _wl in _withheld_lines:
+            messages.append(_wl)
         game_state.active_installments = still_active
 
     arabia_rel = game_state.relations['arabia']
@@ -266,26 +1806,52 @@ def apply_end_of_turn_effects(game_state):
     final_oil = game_state.oil_price + _tier_oil_penalty
     game_state.oil_price = max(20, final_oil)   # apply penalty into actual price
 
-    # Build a fully transparent breakdown: base → each modifier → embargo = final
-    # e.g. "Oil price: $120 base (Arabia 0) → -$10 Arabia deal → +$20 embargo = $130/bbl"
+    # (Arabia 100 oil price ceiling removed — high Arabia relations naturally produce low oil prices)
+
+    # Build a fully transparent breakdown: base -> each modifier -> embargo = final
+    # e.g. "Oil price: $120 base (Arabia 0) -> -$10 Arabia deal -> +$20 embargo = $130/bbl"
     _oil_parts = [f"${_oil_relation_base:.0f} base (Arabia {arabia_rel})"]
     _oil_parts.extend(_oil_modifier_parts)           # one entry per active/expired modifier
     if _tier_oil_penalty > 0:
         _oil_parts.append(f"+${_tier_oil_penalty} embargo (tier {_arabia_effective_tier})")
-    messages.append(f"🛢️  Oil price: {' → '.join(_oil_parts)} = ${game_state.oil_price:.0f}/bbl")
+    messages.append(f"🛢️  Oil price: {' -> '.join(_oil_parts)} = ${game_state.oil_price:.0f}/bbl")
+
+    # ──────────────────────────────────────────
+    # 1b. GDP BASELINE REVENUE — DEFERRED (FIX B session 6)
+    # Moved to section 9b so it uses post-consequence approval/stability values.
+    # ──────────────────────────────────────────
 
     # ──────────────────────────────────────────
     # 2. PASSIVE BUDGET DRAIN
     # ──────────────────────────────────────────
     base_cost = 3.0  # Government operations
-    oil_cost = round(game_state.oil_price / 15.0, 1)  # Oil imports at final price
+    # Session 6: Resource Dev L9 — Resource Independence eliminates oil imports
+    _resource_independent = getattr(game_state, 'resource_independence_active', False)
+    if _resource_independent:
+        oil_cost = 0.0
+    else:
+        oil_cost = round(game_state.oil_price / 15.0, 1)  # Oil imports at final price
     total_drain = base_cost + oil_cost
 
     game_state.update_budget(-base_cost)
-    game_state.update_budget(-oil_cost)
+    if oil_cost > 0:
+        game_state.update_budget(-oil_cost)
 
     messages.append(f"🏛️  Government costs: -${base_cost:.1f}B")
-    messages.append(f"⛽ Oil imports (${game_state.oil_price:.0f}/barrel): -${oil_cost:.1f}B")
+    if _resource_independent:
+        messages.append("⛽ Oil imports: $0 (Resource Independence)")
+    else:
+        messages.append(f"⛽ Oil imports (${game_state.oil_price:.0f}/barrel): -${oil_cost:.1f}B")
+    # FIX O: Show negotiate costs as explicit EOT line item
+    _neg_costs = getattr(game_state, 'negotiate_costs_this_turn', 0.0)
+    _neg_sessions = getattr(game_state, 'negotiate_sessions_this_turn', 0)
+    if _neg_costs > 0:
+        _sessions_label = f" ({_neg_sessions} session{'s' if _neg_sessions > 1 else ''})" if _neg_sessions > 1 else ""
+        messages.append(f"🤝 Negotiation costs: -${_neg_costs:.1f}B{_sessions_label}")
+        total_drain += _neg_costs
+    # Reset negotiate cost tracking for next turn
+    game_state.negotiate_costs_this_turn = 0.0
+    game_state.negotiate_sessions_this_turn = 0
     messages.append(f"💰 Passive drain this turn: -${total_drain:.1f}B")
 
     # ──────────────────────────────────────────
@@ -309,6 +1875,8 @@ def apply_end_of_turn_effects(game_state):
     # Tier 3: relations 5-14  — -$7B, -9% approval, -6% stability, EU -3
     # Tier 4: relations 0-4   — -$10B, -12% approval, -9% stability, EU -5
     # ──────────────────────────────────────────
+    print(f"  [APPROVAL] Pre-sanctions: {game_state.public_approval}%")
+    messages.append(f"[APPROVAL] Pre-sanctions: {game_state.public_approval}%")
     if usa_rel <= 35:
         # Determine target tier from relations
         if usa_rel <= 4:
@@ -320,17 +1888,35 @@ def apply_end_of_turn_effects(game_state):
         else:
             target_tier = 1
 
-        # Ramp limit: can go up only one tier per turn; can drop freely.
-        # Exception: if post-consequence relations have hit the floor (<=4,
-        # i.e. Tier 4 territory), apply Tier 4 immediately regardless of
-        # previous tier — a single diplomatic choice can collapse relations
-        # to 0 and should not be shielded by the ramp.
+        # FIX S: 2-turn grace period before sanctions escalate.
+        # When target tier > current tier, warn for 1 turn before applying escalation.
         prev_tier = game_state.usa_sanctions_tier
+        _usa_warning_turns = getattr(game_state, 'usa_sanctions_warning_turns', 0)
+
         if usa_rel <= 4 and prev_tier < 4:
-            # Relations collapsed to floor this turn — bypass ramp
+            # Relations collapsed to floor — bypass grace period
             effective_tier = 4
+            game_state.usa_sanctions_warning_turns = 0
+        elif target_tier > prev_tier:
+            # Escalation candidate — check grace period
+            _usa_warning_turns += 1
+            game_state.usa_sanctions_warning_turns = _usa_warning_turns
+            if _usa_warning_turns >= 2:
+                # Grace period expired — escalate
+                effective_tier = min(target_tier, prev_tier + 1)
+                game_state.usa_sanctions_warning_turns = 0
+            else:
+                # Grace period active — warn but don't escalate
+                effective_tier = prev_tier
+                messages.append(
+                    f"⚠️ Sanction risk: USA relations critical (rel {usa_rel}) — "
+                    f"Tier {min(target_tier, prev_tier + 1)} sanctions possible next turn"
+                )
         else:
-            effective_tier = min(target_tier, prev_tier + 1)
+            # Not escalating — reset grace period
+            effective_tier = min(target_tier, prev_tier + 1) if target_tier > prev_tier else target_tier
+            game_state.usa_sanctions_warning_turns = 0
+
         game_state.usa_sanctions_tier = effective_tier
 
         if effective_tier == 4:
@@ -372,6 +1958,20 @@ def apply_end_of_turn_effects(game_state):
     else:
         # Relations healthy — reset tier tracker so it ramps up from 0 if they deteriorate
         game_state.usa_sanctions_tier = 0
+        game_state.usa_sanctions_warning_turns = 0
+
+    print(f"  [APPROVAL] Post-sanctions: {game_state.public_approval}%")
+    messages.append(f"[APPROVAL] Post-sanctions: {game_state.public_approval}%")
+    # fixes_8 Fix 2: Deduplicated sanction/embargo risk warnings (one per NPC per EOT)
+    # Grace period warning (line ~1653) may already have been appended above — skip if so
+    _already_warned_usa = any('Sanction risk' in m and 'USA' in m for m in messages)
+    if usa_rel <= 20 and usa_rel > 4 and game_state.usa_sanctions_tier < 4 and not _already_warned_usa:
+        messages.append(f"⚠️ USA SANCTIONS: Tier {game_state.usa_sanctions_tier} active -> Tier 4 risk if relations worsen further")
+    _already_warned_arabia = any('Embargo risk' in m and 'Arabia' in m for m in messages)
+    if arabia_rel <= 20 and arabia_rel > 4 and not _already_warned_arabia:
+        messages.append(f"⚠️ Embargo risk: Arabia relations critical ({arabia_rel}) — oil weaponization possible if relations worsen")
+    if eu_rel <= 15:
+        messages.append(f"⚠️ Trade restriction escalation imminent — EU relations at {eu_rel}")
 
     # ──────────────────────────────────────────
     # 5. ARABIA EMBARGO — 4 TIERS, ramp-limited
@@ -437,6 +2037,8 @@ def apply_end_of_turn_effects(game_state):
             game_state.update_approval(-approval_hit)
             messages.append(f"🇪🇺 EU TRADE FRICTION TIER 1 (rel {eu_rel}): -${budget_hit}B, -{approval_hit}% approval")
 
+    print(f"  [APPROVAL] Post-pressure: {game_state.public_approval}%")
+    messages.append(f"[APPROVAL] Post-pressure: {game_state.public_approval}%")
     # ──────────────────────────────────────────
     # 7. PASSIVE APPROVAL CHANGES (stability-based)
     # ──────────────────────────────────────────
@@ -448,7 +2050,127 @@ def apply_end_of_turn_effects(game_state):
         messages.append(f"👥 Instability ({game_state.stability}%): -5% approval")
 
     # ──────────────────────────────────────────
-    # 8. APPROVAL → STABILITY DRIFT
+    # 7b. MILITARY STRENGTH DECAY (ITEM 3)
+    # ──────────────────────────────────────────
+    _mil = getattr(game_state, 'military_strength', 20)
+    # Session 6: Military axis L6 (Standing Army) halves decay from -2 to -1
+    _mil_axis = getattr(game_state, 'cabinet_axes', {}).get('military', 0)
+    _mil_decay = 1 if _mil_axis >= 6 else 2
+    _new_mil = max(0, _mil - _mil_decay)
+    game_state.military_strength = _new_mil
+    _decay_label = f"(-{_mil_decay}, Standing Army)" if _mil_axis >= 6 else f"(-{_mil_decay})"
+    messages.append(f"⚔️ Military maintenance decay: {_mil} -> {_new_mil} {_decay_label}")
+    # Military effects
+    if _new_mil <= 0:
+        game_state.update_stability(-5)
+        messages.append("⚔️ 🚨 MILITARY COLLAPSE — Coup risk extreme! -5% stability")
+    elif _new_mil >= 40:
+        # Coup resistance: military strength stabilizes the regime
+        game_state.update_stability(2)
+        messages.append("⚔️ Military strength (40+): +2% stability (coup resistance)")
+
+    # ──────────────────────────────────────────
+    # 7c. SESSION 6: MILITARY ACTION RESETS
+    # ──────────────────────────────────────────
+    # Force Projection cooldown ticks down each turn
+    _fp_cooldown = getattr(game_state, 'force_projection_cooldown', 0)
+    if _fp_cooldown > 0:
+        game_state.force_projection_cooldown = _fp_cooldown - 1
+        if game_state.force_projection_cooldown > 0:
+            messages.append(f"⚔️ Force Projection cooldown: {game_state.force_projection_cooldown} turn(s) remaining")
+        else:
+            messages.append("⚔️ Force Projection cooldown expired — available again")
+            game_state.force_projection_target = None
+        print(f"  [MILITARY] Force Projection cooldown: {_fp_cooldown} -> {game_state.force_projection_cooldown}")
+
+    # Arms Export resets each turn (once per turn limit)
+    if getattr(game_state, 'arms_export_this_turn', None):
+        print(f"  [MILITARY] Arms Export reset (was: {game_state.arms_export_this_turn})")
+        game_state.arms_export_this_turn = None
+
+    # ──────────────────────────────────────────
+    # 7d. SESSION 6: ALL AXIS ACTION RESETS & COUNTDOWNS
+    # ──────────────────────────────────────────
+    # Intelligence L9: Full Spectrum — reduce INCOMING probability (applied in check_pressure_events)
+    # Intelligence L10: Counterintelligence Veil — passive (applied in negotiation willingness)
+
+    # Media: scandal suppression resets each turn
+    if getattr(game_state, 'scandal_suppressed_this_turn', False):
+        game_state.scandal_suppressed_this_turn = False
+        print("  [MEDIA] Scandal suppression reset")
+
+    # Media L9: Information Blackout countdown
+    _blackout = getattr(game_state, 'info_blackout_turns', 0)
+    if _blackout > 0:
+        game_state.info_blackout_turns = _blackout - 1
+        if game_state.info_blackout_turns > 0:
+            messages.append(f"📺 Information Blackout: {game_state.info_blackout_turns} turn(s) remaining")
+        else:
+            messages.append("📺 Information Blackout expired — world events resume normal impact")
+        print(f"  [MEDIA] Info Blackout: {_blackout} -> {game_state.info_blackout_turns}")
+
+    # Judicial: drop investigation resets each turn
+    if getattr(game_state, 'drop_investigation_this_turn', False):
+        game_state.drop_investigation_this_turn = False
+        print("  [JUDICIAL] Drop Investigation reset")
+
+    # Judicial L6: Lawfare countdown
+    _lawfare_turns = getattr(game_state, 'lawfare_turns', 0)
+    if _lawfare_turns > 0:
+        game_state.lawfare_turns = _lawfare_turns - 1
+        if game_state.lawfare_turns > 0:
+            messages.append(f"⚖️ Lawfare vs {getattr(game_state, 'lawfare_target', '???').upper()}: {game_state.lawfare_turns} turn(s) remaining")
+        else:
+            messages.append(f"⚖️ Lawfare expired — {getattr(game_state, 'lawfare_target', '???').upper()} pressure events resume")
+            game_state.lawfare_target = None
+        print(f"  [JUDICIAL] Lawfare: {_lawfare_turns} -> {game_state.lawfare_turns}")
+
+    # Political L3: Party Consolidation countdown
+    _party_turns = getattr(game_state, 'party_consolidation_turns', 0)
+    if _party_turns > 0:
+        game_state.party_consolidation_turns = _party_turns - 1
+        if game_state.party_consolidation_turns > 0:
+            messages.append(f"🏛️ Party Consolidation: tax drain reduction active ({game_state.party_consolidation_turns} turn(s) remaining)")
+        else:
+            messages.append("🏛️ Party Consolidation expired — tax approval drain returns to normal")
+        print(f"  [POLITICAL] Party Consolidation: {_party_turns} -> {game_state.party_consolidation_turns}")
+
+    # Extraction L6: Offshore Transfer resets each turn
+    if getattr(game_state, 'offshore_transfer_this_turn', False):
+        game_state.offshore_transfer_this_turn = False
+        print("  [EXTRACTION] Offshore Transfer reset")
+
+    # Extraction L9: Sovereign Wealth Capture — 15% GDP auto-diverts to personal
+    _ext_axes = getattr(game_state, 'cabinet_axes', {}).get('extraction', 0)
+    if _ext_axes >= 9:
+        _gdp_base_swc = getattr(game_state, 'gdp_base', 100.0)
+        _swc_divert = round(_gdp_base_swc * 0.15 * 0.10, 1)  # 15% of GDP tax base (same scale as income tax)
+        if _swc_divert > 0:
+            game_state.update_personal_wealth(_swc_divert, source="sovereign wealth capture")
+            messages.append(f"💰 Sovereign Wealth Capture: +${_swc_divert:.1f}B personal (15% GDP auto-divert)")
+            print(f"  [EXTRACTION] Sovereign Wealth Capture: +${_swc_divert:.1f}B personal")
+
+    # Resource Dev L6: Sovereign Collateral Loan repayment
+    _sc_turns = getattr(game_state, 'sovereign_collateral_turns', 0)
+    if _sc_turns > 0:
+        _sc_repay = getattr(game_state, 'sovereign_collateral_repayment', 0.0)
+        game_state.update_budget(-_sc_repay)
+        game_state.sovereign_collateral_turns = _sc_turns - 1
+        messages.append(f"🏗️ Sovereign Collateral repayment: -${_sc_repay:.1f}B ({game_state.sovereign_collateral_turns} turn(s) remaining)")
+        print(f"  [RESOURCE_DEV] Collateral repayment: -${_sc_repay:.1f}B, turns left={game_state.sovereign_collateral_turns}")
+
+    # ──────────────────────────────────────────
+    # 7e. fixes_17 Fix K: Pre-drift martyrdom trigger
+    # Check martyrdom condition BEFORE drift can correct stability back toward approval.
+    # ──────────────────────────────────────────
+    if game_state.stability <= 0 and game_state.public_approval >= 70:
+        if not getattr(game_state, 'martyrdom_triggered', False):
+            game_state.martyrdom_triggered = True
+            print(f"  [MARTYRDOM] Triggered: stability={game_state.stability}, approval={game_state.public_approval} at turn {game_state.current_turn} pre-drift")
+            messages.append(f"💀 Martyrdom condition met: stability collapsed while the people still love you")
+
+    # ──────────────────────────────────────────
+    # 8. APPROVAL -> STABILITY DRIFT
     # ──────────────────────────────────────────
     difference = game_state.public_approval - game_state.stability
     drift = round(difference * 0.3)
@@ -457,7 +2179,7 @@ def apply_end_of_turn_effects(game_state):
         old_stab = game_state.stability
         game_state.update_stability(drift)
         direction = "↑" if drift > 0 else "↓"
-        messages.append(f"📊 Stability drift (approval gap): {old_stab}% → {game_state.stability}% ({direction}{abs(drift)}%)")
+        messages.append(f"📊 Stability drift (approval gap): {old_stab}% -> {game_state.stability}% ({direction}{abs(drift)}%)")
 
     # ──────────────────────────────────────────
     # 9. LOW BUDGET CRISIS
@@ -467,8 +2189,113 @@ def apply_end_of_turn_effects(game_state):
         game_state.update_approval(-5)
         messages.append(f"📉 Low budget (${game_state.budget:.1f}B): -3% stability, -5% approval")
 
+    print(f"  [APPROVAL] Final: {game_state.public_approval}%")
+    messages.append(f"[APPROVAL] Final: {game_state.public_approval}%")
     # (Random ±$3 fluctuation removed — it was confusing noise that got wiped by
     # set_oil_price_from_relations() next turn anyway, with no strategic effect.)
+
+    # ──────────────────────────────────────────
+    # 9b. GDP TAX REVENUE (fixes_12 Fix 2: now reads tax_rates)
+    # Revenue = sum of income/corporate/resource tax applied to gdp_base.
+    # Approval/stability/sanctions/regime/tech are multipliers on top.
+    # ──────────────────────────────────────────
+    _gdp_base_val = getattr(game_state, 'gdp_base', 100.0)
+    _tax_rates_9b = getattr(game_state, 'tax_rates', {'income_tax': 0.20, 'corporate_tax': 0.15, 'resource_tax': 0.25})
+    _endowment_9b = getattr(game_state, 'resource_endowment', {})
+
+    # Tax-rate-based revenue streams
+    _income_rate = _tax_rates_9b.get('income_tax', 0.20)
+    _corp_rate = _tax_rates_9b.get('corporate_tax', 0.15)
+    _resource_rate = _tax_rates_9b.get('resource_tax', 0.25)
+
+    _income_rev_9b = _gdp_base_val * _income_rate * 0.10    # income tax applies to 10% of GDP
+    _corp_rev_9b = _gdp_base_val * _corp_rate * 0.06        # corporate tax applies to 6% of GDP (× 0.6 modifier)
+    _resource_rev_9b = _gdp_base_val * _resource_rate * _endowment_9b.get('oil_reserves', 0.7) * 0.12
+
+    _gdp_revenue = round(_income_rev_9b + _corp_rev_9b + _resource_rev_9b, 1)
+
+    # Approval modifier — uses POST-CONSEQUENCE values
+    _approval = game_state.public_approval
+    _stab = game_state.stability
+    print(f"  [turn_processor] GDP CALC — approval: {_approval}, stability: {_stab}")
+
+    if _approval >= 80:
+        _approval_mult = 1.4
+    elif _approval >= 60:
+        _approval_mult = 1.0
+    elif _approval >= 40:
+        _approval_mult = 0.7
+    else:
+        _approval_mult = 0.4
+    _gdp_revenue = round(_gdp_revenue * _approval_mult, 1)
+
+    # Stability modifier
+    if _stab >= 80:
+        _gdp_revenue += 1.0
+    elif _stab < 30:
+        _gdp_revenue -= 1.0
+
+    # Sanctions penalty on GDP
+    if game_state.usa_sanctions_tier >= 4:
+        _gdp_revenue -= 1.5
+    if hasattr(game_state, 'arabia_embargo_tier') and game_state.arabia_embargo_tier >= 2:
+        _gdp_revenue -= 0.5
+
+    # Regime modifier
+    _regime = game_state.state_identity.get('regime_type', 'Managed Democracy')
+    _regime_mults = {
+        'Managed Democracy': 1.1,
+        'Soft Authoritarianism': 1.0,
+        'Patronage State': 0.95,
+        'Kleptocracy': 0.85,
+        'Totalitarian Regime': 0.75,
+    }
+    _gdp_revenue = round(_gdp_revenue * _regime_mults.get(_regime, 1.0), 1)
+
+    # Session 4D: Tech Level GDP bonus
+    _tech_effects = get_tech_tier_effects(getattr(game_state, 'tech_level', 0))
+    _tech_gdp_bonus = _tech_effects['gdp_bonus']
+    if _tech_gdp_bonus > 0:
+        _gdp_revenue = round(_gdp_revenue * (1 + _tech_gdp_bonus), 1)
+
+    # fixes_13 Fix 4: GDP contraction at low approval + low stability
+    if _approval < 20 and _stab < 30:
+        # Capital flight, business closures, tax base collapsing
+        _contraction = round(-1.0 - (30 - _stab) * 0.05 - (20 - _approval) * 0.05, 1)
+        _gdp_revenue = _contraction  # override to negative
+        game_state.update_budget(_gdp_revenue)
+        print(f"  [turn_processor] GDP CONTRACTION: approval {_approval}%, stability {_stab}% -> ${_gdp_revenue:.1f}B")
+        messages.append(f"💵 GDP contraction (approval {_approval}%, stability {_stab}%): ${_gdp_revenue:.1f}B (capital flight, economic collapse)")
+    else:
+        _gdp_revenue = max(0, _gdp_revenue)  # floor at 0 for normal operation
+        game_state.update_budget(_gdp_revenue)
+        _tech_label = f", tech +{int(_tech_gdp_bonus * 100)}%" if _tech_gdp_bonus > 0 else ""
+        print(f"  [turn_processor] TAX REVENUE — income: ${_income_rev_9b:.1f}B (rate {_income_rate*100:.0f}%), corporate: ${_corp_rev_9b:.1f}B (rate {_corp_rate*100:.0f}%), resource: ${_resource_rev_9b:.1f}B (rate {_resource_rate*100:.0f}%), total: ${_gdp_revenue:.1f}B")
+        messages.append(f"💵 GDP revenue (tax rates: {_income_rate*100:.0f}%/{_corp_rate*100:.0f}%/{_resource_rate*100:.0f}%, approval {_approval}%, stability {_stab}%{_tech_label}): +${_gdp_revenue:.1f}B")
+
+    # FIX F (session 6): Log peak relations each turn for verification
+    _rh = getattr(game_state, 'relations_high', {})
+    print(f"  [turn_processor] PEAK RELATIONS — USA: {_rh.get('usa', 50)}, Arabia: {_rh.get('arabia', 50)}, EU: {_rh.get('eu', 50)}, DPRG: {_rh.get('dprg', 50)}")
+
+    # ──────────────────────────────────────────
+    # 9b-ii. fixes_13 Fix 12: Relations 100 unlock checks
+    # fixes_15 Fix G: REMOVED from here — these now ONLY run in api.py after
+    # check_pressure_events(), so world-event-driven relation changes are captured.
+    # The duplicate call here was firing before world events could push relations to 100.
+    # ──────────────────────────────────────────
+
+    # ──────────────────────────────────────────
+    # 9c. SESSION 4D: EU CEILING ENFORCEMENT (Tech Level)
+    # Tech is the ONLY way EU can exceed 100. Enforce ceiling from tech tier.
+    # ──────────────────────────────────────────
+    _eu_ceiling = _tech_effects['eu_ceiling']
+    _eu_current = game_state.relations.get('eu', 50)
+    if _eu_current > _eu_ceiling:
+        game_state.relations['eu'] = _eu_ceiling
+        messages.append(f"🔬 EU relations capped at {_eu_ceiling} (Tech Level {getattr(game_state, 'tech_level', 0)})")
+        print(f"  [turn_processor] EU CEILING: {_eu_current} -> {_eu_ceiling} (tech ceiling)")
+    elif _eu_ceiling > 100 and _eu_current >= 95:
+        print(f"  [turn_processor] EU CEILING: {_eu_ceiling} (tech unlocked above 100, current: {_eu_current})")
 
     # ──────────────────────────────────────────
     # 10. STAGE 5 SESSION 2: DEAL FOLLOW-THROUGH TRACKING
@@ -501,12 +2328,24 @@ def apply_end_of_turn_effects(game_state):
                         f"💔 Deal broken: commitment to {deal_npc.upper()} ('{deal['summary']}') "
                         f"contradicted by {last_npc.upper()} alignment"
                     )
+                    # Session 5 Phase C Hook 2: store_memory on promise broken
+                    try:
+                        from memory_engine import store_memory
+                        _player_id = getattr(game_state, 'player_id', None)
+                        if _player_id:
+                            store_memory(
+                                player_id=_player_id, npc=deal_npc, era=0,
+                                turn=game_state.current_turn, event_type='promise_broken',
+                                description=f"Broke deal with {deal_npc.upper()}: '{deal['summary'][:80]}' — aligned with {last_npc.upper()} instead"
+                            )
+                    except Exception as e:
+                        print(f"  [turn_processor] Memory hook (promise_broken) failed: {e}")
 
     # ──────────────────────────────────────────
     # 11. STAGE 5: REGIME SHIFT CHECKS
-    # Regime types (left → right): Managed Democracy → Soft Authoritarianism
-    #   → Patronage State → Kleptocracy → Totalitarian Regime
-    # Power base: Mass-Dependent → Mixed → Elite-Captured
+    # Regime types (left -> right): Managed Democracy -> Soft Authoritarianism
+    #   -> Patronage State -> Kleptocracy -> Totalitarian Regime
+    # Power base: Mass-Dependent -> Mixed -> Elite-Captured
     # ──────────────────────────────────────────
     _regime_order = [
         'Managed Democracy',
@@ -537,54 +2376,30 @@ def apply_end_of_turn_effects(game_state):
     regime_changed = False
     power_changed = False
 
-    # ── Regime shift RIGHT (more authoritarian) ──
-    # Condition A: large skim (≥$7B) for 2+ consecutive turns
-    if game_state.consecutive_large_skims >= 2 and regime_idx < len(_regime_order) - 1:
-        regime_idx += 1
-        regime_changed = True
-        messages.append(
-            f"⚠️  Regime shift: '{_regime_order[regime_idx - 1]}' → '{_regime_order[regime_idx]}'"
-            f" (prolonged extraction)"
-        )
-    # Condition B: approval below 35% for 2+ turns
-    elif game_state.low_approval_turns >= 2 and regime_idx < len(_regime_order) - 1:
-        regime_idx += 1
-        regime_changed = True
-        messages.append(
-            f"⚠️  Regime shift: '{_regime_order[regime_idx - 1]}' → '{_regime_order[regime_idx]}'"
-            f" (sustained unpopularity)"
-        )
-    # Condition C: stability below 30% (immediate)
-    elif game_state.stability < 30 and regime_idx < len(_regime_order) - 1:
-        regime_idx += 1
-        regime_changed = True
-        messages.append(
-            f"⚠️  Regime shift: '{_regime_order[regime_idx - 1]}' → '{_regime_order[regime_idx]}'"
-            f" (instability forces crackdown)"
-        )
-
-    # ── Regime shift LEFT (more democratic) ──
-    elif game_state.high_approval_turns >= 2 and regime_idx > 0:
-        regime_idx -= 1
-        regime_changed = True
-        messages.append(
-            f"✅ Regime shift: '{_regime_order[regime_idx + 1]}' → '{_regime_order[regime_idx]}'"
-            f" (public confidence restored)"
-        )
+    # ── fixes_11 Fix 1: Old skim-based regime shift triggers DISABLED ──
+    # Regime label now comes EXCLUSIVELY from compute_regime_from_axes() in section 13g.
+    # The old triggers (consecutive large skims, low approval, stability crisis, high approval)
+    # were conflicting with the axes system, producing contradictory EOT messages every turn.
+    # Streak counters (low_approval_turns, high_approval_turns) are still updated above
+    # for potential future use, but they no longer directly shift the regime label.
 
     # ── Power base shifts ──
     # Check last action to see if Arabia/DPRG oriented (shift toward Elite-Captured)
     # or USA/EU oriented (shift toward Mass-Dependent)
+    _power_shift_reason = None
     last_action = game_state.action_history[-1] if game_state.action_history else {}
     last_npc = last_action.get('npc', '')
     last_type = last_action.get('type', '')
+    _npc_labels = {'usa': 'USA', 'arabia': 'Arabia', 'eu': 'EU', 'dprg': 'DPRG'}
     if last_type in ('side_with', 'accept_deal'):
         if last_npc in ('arabia', 'dprg') and power_idx < len(_power_order) - 1:
             power_idx += 1
             power_changed = True
+            _power_shift_reason = f"aligned with {_npc_labels.get(last_npc, last_npc)} (Eastern patron dependency)"
         elif last_npc in ('usa', 'eu') and power_idx > 0:
             power_idx -= 1
             power_changed = True
+            _power_shift_reason = f"aligned with {_npc_labels.get(last_npc, last_npc)} (Western institutional credibility)"
 
     # Corruption upgrades push toward Elite-Captured
     upgrades = getattr(game_state, 'corruption_upgrades', {})
@@ -592,72 +2407,883 @@ def apply_end_of_turn_effects(game_state):
     if active_upgrades >= 2 and power_idx < len(_power_order) - 1:
         power_idx = min(len(_power_order) - 1, power_idx + 1)
         power_changed = True
+        _power_shift_reason = f"{active_upgrades} Shadow Cabinet upgrades consolidated elite control"
 
-    if regime_changed:
-        si['regime_type'] = _regime_order[regime_idx]
+    # fixes_11 Fix 1: regime_changed is always False now (old triggers disabled).
+    # Regime label is set exclusively by compute_regime_from_axes() in section 13g.
     if power_changed:
         old_power = current_power
         si['power_base'] = _power_order[power_idx]
         if old_power != _power_order[power_idx]:
+            _reason_str = f" — {_power_shift_reason}" if _power_shift_reason else ""
             messages.append(
-                f"🔄 Power base: '{old_power}' → '{_power_order[power_idx]}'"
+                f"🔄 Power base: '{old_power}' -> '{_power_order[power_idx]}'{_reason_str}"
             )
+
+    # FIX 1: Track sanctions/embargo active turns for legacy
+    if game_state.usa_sanctions_tier > 0:
+        game_state.sanctions_active_turns = getattr(game_state, 'sanctions_active_turns', 0) + 1
+    if game_state.arabia_embargo_tier > 0:
+        game_state.embargo_active_turns = getattr(game_state, 'embargo_active_turns', 0) + 1
+
+    # ──────────────────────────────────────────
+    # 12. SESSION 4B: ELECTION PRE-WARNING
+    # One turn before election_turn, set warning flag for frontend banner
+    # ──────────────────────────────────────────
+    election_turn = getattr(game_state, 'election_turn', 4)
+    election_fired = getattr(game_state, 'election_fired', False)
+    # fixes_10 Fix 3: Set flag one turn earlier so frontend sees it BEFORE the election turn.
+    # EOT runs at current_turn=N, then advance_turn() -> N+1. Frontend renders N+1's display.
+    # To show warning on turn (election_turn-1), flag must be set during turn (election_turn-2)'s EOT.
+    if not election_fired and game_state.current_turn == election_turn - 2:
+        game_state.election_warning_shown = True
+        print(f"  [turn_processor] ELECTION WARNING: pre-warning set at turn {game_state.current_turn} (visible on turn {game_state.current_turn + 1})")
+
+    # ──────────────────────────────────────────
+    # 12b. fixes_8 Fix 11: BANKRUPTCY PRE-WARNING
+    # fixes_19 Fix E: Full drain projection including sanctions, embargo, EU pressure,
+    # cabinet maintenance, dual crisis multiplier, and real GDP formula.
+    # ──────────────────────────────────────────
+    _projected_drain = 3.0  # base government costs
+
+    # Oil import costs (matches section 2 formula: oil_price / 15.0)
+    _resource_independent_pw = getattr(game_state, 'resource_independence_active', False)
+    if _resource_independent_pw:
+        _oil_cost_pw = 0.0
+    else:
+        _oil_cost_pw = round(game_state.oil_price / 15.0, 1)
+    _projected_drain += _oil_cost_pw
+
+    # Dual crisis multiplier (USA AND Arabia both hostile)
+    _usa_rel_pw = game_state.relations.get('usa', 50)
+    _arabia_rel_pw = game_state.relations.get('arabia', 50)
+    _eu_rel_pw = game_state.relations.get('eu', 50)
+    _crisis_mult_pw = 1.5 if (_usa_rel_pw < 30 and _arabia_rel_pw < 30) else 1.0
+
+    # USA sanctions drain (matches section 4 budget hits)
+    _usa_tier_pw = getattr(game_state, 'usa_sanctions_tier', 0)
+    _sanction_base = {0: 0, 1: 2, 2: 4, 3: 7, 4: 10}.get(_usa_tier_pw, 0)
+    _sanction_drain = round(_sanction_base * _crisis_mult_pw)
+    _projected_drain += _sanction_drain
+
+    # Arabia embargo emergency costs (only tiers 3-4 have budget drain)
+    _arabia_tier_pw = getattr(game_state, 'arabia_embargo_tier', 0)
+    _embargo_base = {0: 0, 1: 0, 2: 0, 3: 3, 4: 5}.get(_arabia_tier_pw, 0)
+    _embargo_drain = round(_embargo_base * _crisis_mult_pw)
+    _projected_drain += _embargo_drain
+
+    # EU trade friction/restrictions (section 6)
+    _eu_drain = 0
+    if _eu_rel_pw < 36:
+        if _eu_rel_pw <= 19:
+            _eu_drain = round(4 * _crisis_mult_pw)
+        else:
+            _eu_drain = round(2 * _crisis_mult_pw)
+    _projected_drain += _eu_drain
+
+    # Cabinet axis maintenance costs (section 13)
+    from game_state import AXIS_MAINTENANCE as _AM_PW
+    _cabinet_axes_pw = getattr(game_state, 'cabinet_axes', {})
+    _maint_drain = 0.0
+    for _ax_name, (_free_thresh, _cost_per) in _AM_PW.items():
+        _ax_level = _cabinet_axes_pw.get(_ax_name, 0)
+        if _ax_level > _free_thresh:
+            _maint_drain += (_ax_level - _free_thresh) * _cost_per
+    _projected_drain += _maint_drain
+
+    # Projected income: real GDP tax-rate formula (matches section 9b)
+    _gdp_base_pw = getattr(game_state, 'gdp_base', 100.0)
+    _tax_rates_pw = getattr(game_state, 'tax_rates', {'income_tax': 0.20, 'corporate_tax': 0.15, 'resource_tax': 0.25})
+    _endowment_pw = getattr(game_state, 'resource_endowment', {})
+    _inc_rev = _gdp_base_pw * _tax_rates_pw.get('income_tax', 0.20) * 0.10
+    _corp_rev = _gdp_base_pw * _tax_rates_pw.get('corporate_tax', 0.15) * 0.06
+    _res_rev = _gdp_base_pw * _tax_rates_pw.get('resource_tax', 0.25) * _endowment_pw.get('oil_reserves', 0.7) * 0.12
+    _projected_income = round(_inc_rev + _corp_rev + _res_rev, 1)
+    # Approval modifier
+    _appr_pw = game_state.public_approval
+    if _appr_pw >= 80:
+        _projected_income = round(_projected_income * 1.4, 1)
+    elif _appr_pw >= 60:
+        pass  # 1.0 multiplier
+    elif _appr_pw >= 40:
+        _projected_income = round(_projected_income * 0.7, 1)
+    else:
+        _projected_income = round(_projected_income * 0.4, 1)
+    # Stability modifier
+    _stab_pw = game_state.stability
+    if _stab_pw >= 80:
+        _projected_income += 1.0
+    elif _stab_pw < 30:
+        _projected_income -= 1.0
+    _projected_income = max(0, _projected_income)
+
+    _projected_budget = game_state.budget - _projected_drain + _projected_income
+    print(f"  [BANKRUPTCY] Projection: budget={game_state.budget:.1f}, drain={_projected_drain:.1f} "
+          f"(govt=3.0, oil={_oil_cost_pw:.1f}, sanctions={_sanction_drain}, embargo={_embargo_drain}, "
+          f"eu={_eu_drain}, maint={_maint_drain:.1f}, crisis_mult={_crisis_mult_pw}), "
+          f"income={_projected_income:.1f}, projected={_projected_budget:.1f}")
+    # fixes_9 Fix 5: Caveat text — projection models drain only, not player deal choices
+    if _projected_budget < 0:
+        messages.append(f"⚠️ BANKRUPTCY RISK: projected ${_projected_budget:.1f}B next turn (drain only — excludes deals and world events)")
+    elif _projected_budget < 5.0:
+        messages.append(f"📉 LOW BUDGET (${_projected_budget:.1f}B): pressure increasing")
+
+    # ──────────────────────────────────────────
+    # 12c. fixes_10 Fix 6: ARABIA EMBARGO TIER BOUNDARY WARNING
+    # Warn if Arabia relations near a tier boundary
+    # ──────────────────────────────────────────
+    _arabia_rel = game_state.relations.get('arabia', 50)
+    _EMBARGO_TIER_BOUNDARIES = [35, 25, 15, 5]
+    _near_boundary = any(abs(_arabia_rel - b) <= 5 for b in _EMBARGO_TIER_BOUNDARIES)
+    if _near_boundary and _arabia_rel <= 40:
+        messages.append(
+            f"⚠️ Arabia near oil tier boundary "
+            f"(rel {_arabia_rel:.0f}) — "
+            f"oil costs may increase next turn"
+        )
+        print(f"  [turn_processor] ARABIA TIER WARNING: relations {_arabia_rel:.0f} near boundary")
+
+    # ──────────────────────────────────────────
+    # 13. SESSION 5: CABINET AXIS MAINTENANCE COSTS
+    # Each axis above its free threshold costs maintenance per turn.
+    # ──────────────────────────────────────────
+    from game_state import AXIS_MAINTENANCE
+    _cabinet_axes = getattr(game_state, 'cabinet_axes', {})
+    _maintenance_total = 0.0
+    _maintenance_parts = []
+    for axis_name, (free_thresh, cost_per) in AXIS_MAINTENANCE.items():
+        level = _cabinet_axes.get(axis_name, 0)
+        if level > free_thresh:
+            cost = round((level - free_thresh) * cost_per, 1)
+            _maintenance_total += cost
+            _maintenance_parts.append(f"{axis_name} {level}: ${cost:.1f}B")
+    if _maintenance_total > 0:
+        game_state.update_budget(-_maintenance_total)
+        game_state.cabinet_maintenance_paid = getattr(game_state, 'cabinet_maintenance_paid', 0.0) + _maintenance_total
+        messages.append(
+            f"🗄️ Cabinet maintenance: -${_maintenance_total:.1f}B ({', '.join(_maintenance_parts)})"
+        )
+        print(f"  [turn_processor] CABINET MAINTENANCE: ${_maintenance_total:.1f}B ({_maintenance_parts})")
+
+    # ──────────────────────────────────────────
+    # 13b. SESSION 5: TECH LEVEL PASSIVE ACQUISITION
+    # Each turn: EU relationship weight drives passive tech gain.
+    # Fractional accumulation — integer tech_level advances when fractional >= 1.0
+    # ──────────────────────────────────────────
+    _tech_frac = getattr(game_state, 'tech_level_fractional', 0.0)
+    _eu_r = game_state.relations.get('eu', 50)
+    _usa_r = game_state.relations.get('usa', 50)
+    _dprg_r = game_state.relations.get('dprg', 50)
+    # Weighted passive gain: EU 60%, USA 25%, DPRG 15%
+    _tech_gain = (
+        (_eu_r / 100.0) * 0.60 +
+        (_usa_r / 100.0) * 0.25 +
+        (_dprg_r / 100.0) * 0.15
+    )
+    # Regime modifier — authoritarian regimes slow tech adoption
+    _regime_tech_mult = {
+        'Managed Democracy': 1.1,
+        'Soft Authoritarianism': 1.0,
+        'Patronage State': 0.85,
+        'Kleptocracy': 0.7,
+        'Totalitarian Regime': 0.5,
+    }
+    _regime = game_state.state_identity.get('regime_type', 'Managed Democracy')
+    _tech_gain *= _regime_tech_mult.get(_regime, 1.0)
+    _tech_gain = round(_tech_gain, 3)
+    _tech_frac += _tech_gain
+    _old_tech = getattr(game_state, 'tech_level', 0)
+    while _tech_frac >= 1.0:
+        game_state.tech_level = getattr(game_state, 'tech_level', 0) + 1
+        _tech_frac -= 1.0
+    game_state.tech_level_fractional = round(_tech_frac, 3)
+    _new_tech = getattr(game_state, 'tech_level', 0)
+    if _new_tech > _old_tech:
+        messages.append(f"🔬 Tech level advanced: {_old_tech} -> {_new_tech} (+{_tech_gain:.2f} this turn)")
+    elif _tech_gain > 0:
+        messages.append(f"🔬 Tech progress: +{_tech_gain:.2f} ({_tech_frac:.2f}/1.0 to next level)")
+
+    # ──────────────────────────────────────────
+    # 13c. SESSION 5: ECONOMIC MODEL — GDP + TAX REVENUE
+    # Revenue streams computed from tax_rates * gdp_base * modifiers.
+    # ──────────────────────────────────────────
+    _tax_rates = getattr(game_state, 'tax_rates', {'income_tax': 0.20, 'corporate_tax': 0.15, 'resource_tax': 0.25})
+    _gdp_b = getattr(game_state, 'gdp_base', 100.0)
+    _endowment = getattr(game_state, 'resource_endowment', {})
+
+    # Grow GDP base
+    _growth = getattr(game_state, 'gdp_growth_rate', 0.02)
+    # Stability modifies growth: high stability boosts, crisis penalizes
+    if game_state.stability >= 70:
+        _growth += 0.01
+    elif game_state.stability < 30:
+        _growth -= 0.02
+    # Sanctions suppress growth
+    if game_state.usa_sanctions_tier >= 2:
+        _growth -= 0.01
+    _gdp_b = round(_gdp_b * (1 + _growth), 1)
+    game_state.gdp_base = _gdp_b
+
+    # Revenue calculation
+    _income_rev = round(_gdp_b * _tax_rates.get('income_tax', 0.20) * 0.10, 1)  # 10% of income tax * GDP
+    _corp_rev = round(_gdp_b * _tax_rates.get('corporate_tax', 0.15) * 0.08, 1)
+    _resource_rev = round(_gdp_b * _tax_rates.get('resource_tax', 0.25) * _endowment.get('oil_reserves', 0.7) * 0.12, 1)
+    _total_tax_rev = _income_rev + _corp_rev + _resource_rev
+
+    # fixes_13 Fix 2 + Fix 3: Tax approval scaling with diminishing returns + low-tax bonus
+    # Diminishing returns: penalty × (current_approval / 100) — kleptocracy burns down approval,
+    # then extraction becomes almost free politically.
+    _avg_tax = sum(_tax_rates.values()) / max(1, len(_tax_rates))
+    _current_approval = game_state.public_approval
+
+    # Session 6: Party Consolidation (Political L3) — reduce tax approval drain by 25%
+    _party_consol_active = getattr(game_state, 'party_consolidation_turns', 0) > 0
+    _tax_drain_mult = 0.75 if _party_consol_active else 1.0
+
+    if _avg_tax <= 0.15:
+        # Fix 3: Low taxes (0-15%) are popular — approval +2%
+        game_state.update_approval(2)
+        messages.append("📊 Low taxes popular: approval +2%")
+        print(f"  [turn_processor] TAX APPROVAL: low avg {_avg_tax*100:.0f}% -> approval +2%")
+    elif _avg_tax <= 0.30:
+        # 16-30%: neutral — no approval change
+        pass
+    elif _avg_tax <= 0.45:
+        # 31-45%: approval -3% scaled by current approval (diminishing returns)
+        _raw_penalty = -3
+        _scaled_penalty = round(_raw_penalty * (_current_approval / 100) * _tax_drain_mult, 1)
+        _scaled_penalty = min(-1, int(_scaled_penalty)) if _scaled_penalty < 0 else 0  # at least -1 if any penalty
+        if _scaled_penalty < 0:
+            game_state.update_approval(_scaled_penalty)
+            _consol_label = " (Party Consolidation -25%)" if _party_consol_active else ""
+            messages.append(f"📊 High tax burden: approval {_scaled_penalty}% (scaled from {_raw_penalty}% at {_current_approval}% approval{_consol_label})")
+            print(f"  [turn_processor] TAX APPROVAL: avg {_avg_tax*100:.0f}%, raw {_raw_penalty}, scaled {_scaled_penalty} (approval {_current_approval}%, consol={_party_consol_active})")
+    elif _avg_tax <= 0.55:
+        # 46-55%: approval -6% scaled, stability -2%
+        _raw_penalty = -6
+        _scaled_penalty = round(_raw_penalty * (_current_approval / 100) * _tax_drain_mult, 1)
+        _scaled_penalty = min(-1, int(_scaled_penalty)) if _scaled_penalty < 0 else 0
+        if _scaled_penalty < 0:
+            game_state.update_approval(_scaled_penalty)
+        game_state.update_stability(-2)
+        _consol_label = " (Party Consolidation -25%)" if _party_consol_active else ""
+        messages.append(f"📊 Heavy tax burden: approval {_scaled_penalty}%, stability -2%{_consol_label}")
+        print(f"  [turn_processor] TAX APPROVAL: avg {_avg_tax*100:.0f}%, raw {_raw_penalty}, scaled {_scaled_penalty}, stability -2% (consol={_party_consol_active})")
+    else:
+        # 56%+: approval -10% scaled, stability -3%, protests possible
+        _raw_penalty = -10
+        _scaled_penalty = round(_raw_penalty * (_current_approval / 100) * _tax_drain_mult, 1)
+        _scaled_penalty = min(-1, int(_scaled_penalty)) if _scaled_penalty < 0 else 0
+        if _scaled_penalty < 0:
+            game_state.update_approval(_scaled_penalty)
+        game_state.update_stability(-3)
+        _consol_label = " (Party Consolidation -25%)" if _party_consol_active else ""
+        messages.append(f"📊 Crushing tax burden: approval {_scaled_penalty}%, stability -3%{_consol_label}")
+        print(f"  [turn_processor] TAX APPROVAL: avg {_avg_tax*100:.0f}%, raw {_raw_penalty}, scaled {_scaled_penalty}, stability -3% (consol={_party_consol_active})")
+        # Protest risk at extreme taxation
+        if random.randint(1, 100) <= 30:
+            game_state.protests_pending = True
+            messages.append("🪧 Tax protests erupting — public unrest")
+
+    # Fix 3: Diplomatic effects from zero-tax rates
+    _income_rate_13c = _tax_rates.get('income_tax', 0.20)
+    _corp_rate_13c = _tax_rates.get('corporate_tax', 0.15)
+    _resource_rate_13c = _tax_rates.get('resource_tax', 0.25)
+
+    if _income_rate_13c == 0 and _corp_rate_13c == 0 and _resource_rate_13c == 0:
+        # All taxes at 0%: EU -2 (failing state optics)
+        game_state.update_relations('eu', -2)
+        messages.append("📊 Zero taxation: EU -2 (failing state optics)")
+        print("  [turn_processor] TAX DIPLOMATIC: all taxes 0% -> EU -2")
+
+    if _corp_rate_13c == 0:
+        # Corporate tax 0%: EU -2, USA -2 (oligarchic signal)
+        game_state.update_relations('eu', -2)
+        game_state.update_relations('usa', -2)
+        messages.append("📊 Zero corporate tax: EU -2, USA -2 (oligarchic signal)")
+        print("  [turn_processor] TAX DIPLOMATIC: corporate tax 0% -> EU -2, USA -2")
+
+    if _resource_rate_13c == 0:
+        # Resource tax 0%: Arabia +1 (pragmatic governance)
+        game_state.update_relations('arabia', 1)
+        messages.append("📊 Zero resource tax: Arabia +1 (pragmatic)")
+        print("  [turn_processor] TAX DIPLOMATIC: resource tax 0% -> Arabia +1")
+
+    # Store revenue streams
+    _rev = getattr(game_state, 'revenue_streams', {})
+    _rev['income_tax'] = _income_rev
+    _rev['corporate_tax'] = _corp_rev
+    _rev['resource_tax'] = _resource_rev
+    game_state.revenue_streams = _rev
+
+    # fixes_12 Fix 2: Tax revenue is now applied in section 9b using tax_rates.
+    # This section updates the revenue_streams dict for display purposes and
+    # grows GDP base. The actual budget impact is in 9b.
+
+    # ──────────────────────────────────────────
+    # 13d. SESSION 5: ADVISOR LOYALTY CHECK
+    # ──────────────────────────────────────────
+    try:
+        from advisor_engine import check_advisor_loyalty, apply_stat_distortion
+        _advisor_msgs = check_advisor_loyalty(game_state)
+        messages.extend(_advisor_msgs)
+        # Compute and store distortions for frontend
+        game_state.advisor_distortions = apply_stat_distortion(game_state)
+    except ImportError:
+        pass
+
+    # ──────────────────────────────────────────
+    # 13e. SESSION 5: LATENT STATS — SOFT POWER + DIPLOMATIC CAPITAL
+    # Computed from current state, not accumulated. Display-only.
+    # ──────────────────────────────────────────
+    _sp = 0
+    for _npc_k in ('usa', 'arabia', 'eu', 'dprg'):
+        _sp += min(25, max(0, game_state.relations.get(_npc_k, 50)) // 4)
+    _sp += min(10, getattr(game_state, 'tech_level', 0) // 10)
+    _sp += min(15, game_state.public_approval // 7)
+    game_state.soft_power = min(100, max(0, _sp))
+
+    _dc = 0
+    _deal_h = getattr(game_state, 'deal_history', [])
+    _active_deals = [d for d in _deal_h if not d.get('broken') and d.get('expires_turn', 0) >= game_state.current_turn]
+    _dc += min(30, len(_active_deals) * 10)
+    for _npc_k in ('usa', 'arabia', 'eu', 'dprg'):
+        _lev = getattr(game_state, 'leverage_events', {}).get(_npc_k, [])
+        _dc += min(10, len(_lev) * 5)
+    _dc += min(20, sum(1 for v in game_state.relations.values() if v >= 60) * 5)
+    game_state.diplomatic_capital = min(100, max(0, _dc))
+
+    # ──────────────────────────────────────────
+    # 13e-ii. SESSION 5 PHASE C: RELATIONS MILESTONE MEMORY HOOKS
+    # Store memory when relations cross 80+ or drop below 30.
+    # ──────────────────────────────────────────
+    try:
+        from memory_engine import store_memory
+        _player_id = getattr(game_state, 'player_id', None)
+        if _player_id:
+            _milestone_log = getattr(game_state, '_relations_milestone_log', {})
+            for _npc_k in ('usa', 'arabia', 'eu', 'dprg'):
+                _rel_val = game_state.relations.get(_npc_k, 50)
+                _prev_milestone = _milestone_log.get(_npc_k, 'neutral')
+                if _rel_val >= 80 and _prev_milestone != 'high':
+                    store_memory(
+                        player_id=_player_id, npc=_npc_k, era=0,
+                        turn=game_state.current_turn, event_type='relations_milestone_high',
+                        description=f"Relations with {_npc_k.upper()} reached {_rel_val} (strong partnership)"
+                    )
+                    _milestone_log[_npc_k] = 'high'
+                elif _rel_val < 30 and _prev_milestone != 'low':
+                    store_memory(
+                        player_id=_player_id, npc=_npc_k, era=0,
+                        turn=game_state.current_turn, event_type='relations_milestone_low',
+                        description=f"Relations with {_npc_k.upper()} dropped to {_rel_val} (hostile)"
+                    )
+                    _milestone_log[_npc_k] = 'low'
+                elif 30 <= _rel_val < 80:
+                    _milestone_log[_npc_k] = 'neutral'
+            game_state._relations_milestone_log = _milestone_log
+    except Exception as e:
+        print(f"  [turn_processor] Memory hook (relations_milestone) failed: {e}")
+
+    # ──────────────────────────────────────────
+    # 13e-iii. SESSION 5 PHASE C: UPDATE RELATIONSHIP SUMMARIES (Tier 2)
+    # Batch-rewrite NPC relationship summaries via Haiku.
+    # ──────────────────────────────────────────
+    try:
+        from memory_engine import update_relationship_summaries
+        _player_id = getattr(game_state, 'player_id', None)
+        if _player_id:
+            _npc_context = {}
+            for _npc_k in ('usa', 'arabia', 'eu', 'dprg'):
+                _rel = game_state.relations.get(_npc_k, 50)
+                _recent_action = ""
+                for _ah in reversed(getattr(game_state, 'action_history', [])):
+                    if _ah.get('npc') == _npc_k:
+                        _recent_action = f"Last action: {_ah.get('type', '?')}"
+                        break
+                _npc_context[_npc_k] = f"Relations: {_rel}. {_recent_action}. Turn {game_state.current_turn}."
+            update_relationship_summaries(_player_id, _npc_context)
+    except Exception as e:
+        print(f"  [turn_processor] Memory hook (relationship_summaries) failed: {e}")
+
+    # ──────────────────────────────────────────
+    # 13f. SESSION 5: NPC-INITIATED CONTACT CHECK
+    # fixes_15 Fix A: Two-tier INCOMING system
+    # Tier 1: Condition-based triggers (single condition + probability gate)
+    # Tier 2: Random ambient contacts (5% per NPC, cooldown 5 turns)
+    # ──────────────────────────────────────────
+    import random as _rng_incoming
+    _pending_contacts = []
+    _contact_history = getattr(game_state, 'npc_contact_history', {})
+    _current_turn = game_state.current_turn
+
+    def _trigger_incoming(npc, trigger_key, cooldown, tone='neutral'):
+        _pending_contacts.append({
+            'npc': npc,
+            'trigger': trigger_key,
+            'reason': {
+                'usa_sanctions_concern': 'Bill Hartwell is alarmed by the sanctions situation',
+                'arabia_drift_concern': 'Sadam sees Europa drifting away from the energy partnership',
+                'eu_regime_concern': 'Marsha is deeply concerned about Europa\'s democratic regression',
+                'dprg_wealth_notice': 'Ji-won has noticed Europa\'s leader is building personal reserves',
+            }.get(trigger_key, f'{npc.upper()} is reaching out'),
+            'tone': tone,
+        })
+        _contact_history[trigger_key] = _current_turn
+
+    # fixes_16 Fix A: Trace logging for INCOMING block
+    print(f"  [turn_processor] INCOMING BLOCK REACHED — turn {game_state.current_turn}")
+    print(f"  [turn_processor] INCOMING CONDITIONS: sanctions_tier={game_state.usa_sanctions_tier}, "
+          f"arabia_rel={game_state.relations.get('arabia',0)}, "
+          f"regime_idx={regime_idx}, personal_wealth={game_state.personal_wealth}")
+
+    # Session 6: Intelligence L9 (Full Spectrum) — halve INCOMING probabilities
+    _intel_axes = getattr(game_state, 'cabinet_axes', {}).get('intelligence', 0)
+    _full_spectrum = _intel_axes >= 9
+    _incoming_mult = 0.5 if _full_spectrum else 1.0
+    if _full_spectrum:
+        print(f"  [INTELLIGENCE] Full Spectrum active — INCOMING probabilities halved")
+
+    # ── Tier 1: Condition-based triggers ──────────────────────────────────
+    # Bill: USA sanctions active at tier 2+
+    if (game_state.usa_sanctions_tier >= 2
+            and _contact_history.get('usa_sanctions_concern', 0) < _current_turn - 3):
+        _roll = _rng_incoming.random()
+        _fired = _roll < 0.40 * _incoming_mult
+        print(f"  [turn_processor] INCOMING TIER1 CHECK: usa condition met, roll={_roll:.2f}, thresh={0.40 * _incoming_mult:.2f}, fired={_fired}")
+        if _fired:
+            _trigger_incoming('usa', 'usa_sanctions_concern', 3, tone='urgent')
+
+    # Sadam: Arabia relations falling below 40
+    if (game_state.relations.get('arabia', 50) < 40
+            and _contact_history.get('arabia_drift_concern', 0) < _current_turn - 3):
+        _roll = _rng_incoming.random()
+        _fired = _roll < 0.35 * _incoming_mult
+        print(f"  [turn_processor] INCOMING TIER1 CHECK: arabia condition met, roll={_roll:.2f}, thresh={0.35 * _incoming_mult:.2f}, fired={_fired}")
+        if _fired:
+            _trigger_incoming('arabia', 'arabia_drift_concern', 3, tone='concerned')
+
+    # Marsha: regime at Patronage State or worse (regime_idx >= 2)
+    if (regime_idx >= 2
+            and _contact_history.get('eu_regime_concern', 0) < _current_turn - 3):
+        _roll = _rng_incoming.random()
+        _fired = _roll < 0.50 * _incoming_mult
+        print(f"  [turn_processor] INCOMING TIER1 CHECK: eu condition met, roll={_roll:.2f}, thresh={0.50 * _incoming_mult:.2f}, fired={_fired}")
+        if _fired:
+            _trigger_incoming('eu', 'eu_regime_concern', 3, tone='formal')
+
+    # Ji-won: personal wealth >= $15B AND DPRG >= 40
+    if (game_state.personal_wealth >= 15 and game_state.relations.get('dprg', 50) >= 40
+            and _contact_history.get('dprg_wealth_notice', 0) < _current_turn - 5):
+        _roll = _rng_incoming.random()
+        _fired = _roll < 0.45 * _incoming_mult
+        print(f"  [turn_processor] INCOMING TIER1 CHECK: dprg condition met, roll={_roll:.2f}, thresh={0.45 * _incoming_mult:.2f}, fired={_fired}")
+        if _fired:
+            _trigger_incoming('dprg', 'dprg_wealth_notice', 5, tone='conspiratorial')
+
+    # ── Session 6: NPC Conditional Leverage Demands (once per game) ──────
+    # fixes_20 Fix A: Conditions now check axis levels (> 0) instead of specific action flags.
+    # Sadam unchanged (reference implementation). Marsha/Bill/Ji-won updated.
+    _axes_lev = getattr(game_state, 'cabinet_axes', {})
+
+    # Marsha (EU 60+, media axis > 0): INCOMING negotiate demand
+    _marsha_rel = game_state.relations.get('eu', 50)
+    _marsha_cond = _axes_lev.get('media', 0) > 0
+    _marsha_fired = getattr(game_state, 'leverage_marsha_media_fired', False)
+    print(f"  [LEVERAGE] Marsha demand check: relations={_marsha_rel}, condition={_marsha_cond}, fired={_marsha_fired}")
+    if _marsha_rel >= 60 and _marsha_cond and not _marsha_fired:
+        game_state.leverage_marsha_media_fired = True
+        _pending_contacts.append({
+            'npc': 'eu',
+            'trigger': 'leverage_marsha_media',
+            'reason': 'Marsha demands media reform: "Reverse your media takeover — I unlock €4B contingent on press freedom."',
+            'tone': 'formal',
+            'leverage_type': 'marsha_media',
+        })
+        messages.append("⚡ LEVERAGE DEMAND: Marsha (EU) demands media reform in exchange for aid")
+        print(f"  [LEVERAGE] Marsha media demand FIRED: EU rel={_marsha_rel}, media_axis={_axes_lev.get('media', 0)}")
+
+    # Bill (USA 70+, political or judicial axis > 0): INCOMING negotiate demand
+    _bill_rel = game_state.relations.get('usa', 50)
+    _bill_cond = _axes_lev.get('political', 0) > 0 or _axes_lev.get('judicial', 0) > 0
+    _bill_fired = getattr(game_state, 'leverage_bill_opposition_fired', False)
+    print(f"  [LEVERAGE] Bill demand check: relations={_bill_rel}, condition={_bill_cond}, fired={_bill_fired}")
+    if _bill_rel >= 70 and _bill_cond and not _bill_fired:
+        game_state.leverage_bill_opposition_fired = True
+        _pending_contacts.append({
+            'npc': 'usa',
+            'trigger': 'leverage_bill_opposition',
+            'reason': 'Bill demands opposition release: "Release detained opposition — Congress needs to see this."',
+            'tone': 'urgent',
+            'leverage_type': 'bill_opposition',
+        })
+        messages.append("⚡ LEVERAGE DEMAND: Bill (USA) demands opposition release")
+        print(f"  [LEVERAGE] Bill opposition demand FIRED: USA rel={_bill_rel}, political_axis={_axes_lev.get('political', 0)}, judicial_axis={_axes_lev.get('judicial', 0)}")
+
+    # Sadam (Arabia 70+, Judicial taken): automatic reward, no negotiation
+    # NOTE: Sadam unchanged — reference implementation uses action flag
+    if (game_state.relations.get('arabia', 50) >= 70
+            and getattr(game_state, 'action_judiciary_captured', False)
+            and not getattr(game_state, 'leverage_sadam_judicial_fired', False)):
+        game_state.leverage_sadam_judicial_fired = True
+        game_state.update_relations('arabia', 8)
+        game_state.update_budget(3.0)
+        messages.append("🤝 Sadam approves your judicial consolidation: Arabia +8, +$3B national")
+        print(f"  [LEVERAGE] Sadam judicial reward FIRED: Arabia rel={game_state.relations.get('arabia', 0)}, +$3B, judiciary_captured=True")
+
+    # Ji-won (DPRG 60+, media or political axis > 0): automatic reward, no negotiation
+    _jiwon_rel = game_state.relations.get('dprg', 50)
+    _jiwon_cond = _axes_lev.get('media', 0) > 0 or _axes_lev.get('political', 0) > 0
+    _jiwon_fired = getattr(game_state, 'leverage_jiwon_press_fired', False)
+    print(f"  [LEVERAGE] Ji-won demand check: relations={_jiwon_rel}, condition={_jiwon_cond}, fired={_jiwon_fired}")
+    if _jiwon_rel >= 60 and _jiwon_cond and not _jiwon_fired:
+        game_state.leverage_jiwon_press_fired = True
+        game_state.update_relations('dprg', 8)
+        game_state.update_stability(3)
+        messages.append("🤝 Ji-won approves your press suppression: DPRG +8, stability +3%")
+        print(f"  [LEVERAGE] Ji-won press reward FIRED: DPRG rel={_jiwon_rel}, media_axis={_axes_lev.get('media', 0)}, political_axis={_axes_lev.get('political', 0)}")
+
+    # ── Tier 2: Random ambient contacts (5% per NPC, cooldown 5 turns) ───
+    _npc_names = {'usa': 'Bill Hartwell', 'arabia': 'Sadam', 'eu': 'Marsha', 'dprg': 'Ji-won Ryang'}
+    for _amb_npc in ['usa', 'arabia', 'eu', 'dprg']:
+        _amb_rel = game_state.relations.get(_amb_npc, 50)
+        if 15 <= _amb_rel <= 95:
+            _amb_key = f'{_amb_npc}_ambient'
+            if _contact_history.get(_amb_key, 0) < _current_turn - 5:
+                _amb_roll = _rng_incoming.random()
+                _amb_fired = _amb_roll < 0.05
+                if _amb_fired:
+                    # Tone scales with relationship level
+                    if _amb_rel >= 70:
+                        _amb_tone = 'warm'
+                    elif _amb_rel >= 40:
+                        _amb_tone = 'neutral'
+                    else:
+                        _amb_tone = 'warning'
+                    _pending_contacts.append({
+                        'npc': _amb_npc,
+                        'trigger': _amb_key,
+                        'reason': f'{_npc_names[_amb_npc]} is reaching out through private channels',
+                        'tone': _amb_tone,
+                    })
+                    _contact_history[_amb_key] = _current_turn
+                    print(f"  [turn_processor] INCOMING AMBIENT CHECK: {_amb_npc} rel={_amb_rel}, roll={_amb_roll:.2f}, fired={_amb_fired}")
+
+    game_state.npc_contact_history = _contact_history
+    game_state.pending_npc_contacts = _pending_contacts
+    if _pending_contacts:
+        _contact_labels = [f"{c['npc'].upper()} ({c['reason'][:40]}...)" for c in _pending_contacts]
+        messages.append(f"⚡ INCOMING CONTACTS queued: {', '.join(_contact_labels)}")
+        for _pc in _pending_contacts:
+            print(f"  [game_state] INCOMING queued for: {_pc.get('npc', '?')} — {_pc.get('reason', '?')[:50]}")
+
+    # ──────────────────────────────────────────
+    # 13g. SESSION 5: REGIME LABEL FROM AXES (fixes_11 Fix 1: sole authority)
+    # This is now the ONLY place regime_type changes. Old skim triggers removed.
+    # ──────────────────────────────────────────
+    from game_state import compute_regime_from_axes
+    _axes = getattr(game_state, 'cabinet_axes', {})
+    _axis_regime = compute_regime_from_axes(_axes)
+    _old_regime = game_state.state_identity.get('regime_type', 'Managed Democracy')
+    print(f"  [turn_processor] REGIME CHECK (axes-only): axes={_axes}, computed='{_axis_regime}', current='{_old_regime}'")
+    if _axis_regime != _old_regime and sum(_axes.values()) > 0:
+        game_state.state_identity['regime_type'] = _axis_regime
+        messages.append(f"🗄️ Regime reclassified (cabinet axes): {_old_regime} -> {_axis_regime}")
+        # Track regime transitions for history
+        if hasattr(game_state, 'regime_history'):
+            game_state.regime_history.append({
+                'turn': game_state.current_turn,
+                'from': _old_regime,
+                'to': _axis_regime,
+            })
+
+    # ──────────────────────────────────────────
+    # 14. SESSION 4D: ALTERNATE ENDINGS CHECK
+    # Checked each EOT after all consequences. Priority: martyrdom > capture > democratic > retirement
+    # ──────────────────────────────────────────
+    _ending = check_alternate_endings(game_state)
+    if _ending:
+        _ending_info = ALTERNATE_ENDING_CONDITIONS[_ending]
+        messages.append(f"🏁 ALTERNATE ENDING: {_ending_info['label']} — {_ending_info['flavor']}")
+
+    # fixes_19 Fix D: Reset Western Bloc pressure flag so it can fire again next turn
+    game_state._western_bloc_fired_this_turn = False
 
     return messages
 
 
-def get_personal_outcome(nation_survived, personal_wealth):
-    """Return (title, description) based on national outcome and personal wealth.
-    Victory titles: >=30B Perfect Operator, 15-30B Clever Tyrant, 5-15B Pragmatic Leader, <5B True Patriot
-    Defeat titles:  >=25B Escaped Dictator, 10-25B Failed Opportunist, <10B Tragic Idealist
+def get_personal_outcome(nation_survived, personal_wealth, game_state=None):
+    """Return (title, description) based on national outcome, personal wealth,
+    AND full game history (regime type, skim frequency, corruption upgrades, etc.).
+
+    PRE-SESSION 4 FIX (BUG E): Legacy verdict now references actual player behavior
+    rather than relying solely on personal_wealth thresholds.
     """
     pw = personal_wealth
+
+    # Extract game history context when available
+    regime = 'Managed Democracy'
+    power_base = 'Mass-Dependent'
+    consecutive_skims = 0
+    scandals = 0
+    upgrades_bought = []
+    corruption_heavy = False
+    total_skimmed = 0.0
+    sanctions_turns = 0
+    embargo_turns = 0
+    # FIX N: Governance metrics for legacy verdict
+    final_approval = 50
+    final_stability = 50
+    final_relations = {'usa': 50, 'arabia': 50, 'eu': 50, 'dprg': 50}
+    turns_survived = 1
+    # FIX J: Military tracking for legacy
+    final_military = 20
+    brigade_deployments = 0
+    # FIX N (session 5): Peak relation values for legacy arc acknowledgment
+    peak_relations = {'usa': 50, 'arabia': 50, 'eu': 50, 'dprg': 50}
+
+    if game_state:
+        identity = getattr(game_state, 'state_identity', {})
+        regime = identity.get('regime_type', 'Managed Democracy')
+        power_base = identity.get('power_base', 'Mass-Dependent')
+        consecutive_skims = getattr(game_state, 'consecutive_large_skims', 0)
+        scandals = getattr(game_state, 'scandals_triggered', 0)
+        _upgrades = getattr(game_state, 'corruption_upgrades', {})
+        upgrades_bought = [k for k, v in _upgrades.items() if v]
+        total_skimmed = getattr(game_state, 'total_skimmed', 0.0)
+        sanctions_turns = getattr(game_state, 'sanctions_active_turns', 0)
+        embargo_turns = getattr(game_state, 'embargo_active_turns', 0)
+        # FIX N: Capture actual governance metrics
+        final_approval = game_state.public_approval
+        final_stability = game_state.stability
+        final_relations = dict(game_state.relations)
+        turns_survived = game_state.current_turn - 1
+        # FIX J: Military strength and brigade deployment count
+        final_military = getattr(game_state, 'military_strength', 20)
+        # Count brigade deployments from action_history
+        brigade_deployments = sum(
+            1 for a in getattr(game_state, 'action_history', [])
+            if a.get('type') == 'deploy_brigades'
+        )
+        # FIX N (session 5): Capture peak relation values for legacy arc
+        peak_relations = getattr(game_state, 'relations_high', dict(game_state.relations))
+        # Player is corruption-heavy if they have ANY of: Kleptocracy/Totalitarian,
+        # 2+ upgrades, 2+ scandals, or personal wealth > $8B
+        corruption_heavy = (
+            regime in ('Kleptocracy', 'Totalitarian Regime') or
+            len(upgrades_bought) >= 2 or
+            scandals >= 2 or
+            pw >= 8
+        )
+
+    # Build upgrade label for descriptions
+    _upgrade_labels = {
+        'intelligence_apparatus': 'Intelligence Apparatus',
+        'sovereign_wealth_diversion': 'Sovereign Wealth Diversion',
+        'loyalty_brigades': 'Loyalty Brigades',
+        'debt_infrastructure_deal': 'Debt Infrastructure Deal',
+    }
+    upgrade_names = [_upgrade_labels.get(u, u) for u in upgrades_bought]
+
+    # FIX 1 Part 2: Build crisis/event context strings for legacy
+    _crisis_notes = []
+    if sanctions_turns > 0:
+        _crisis_notes.append(f"USA sanctions active for {sanctions_turns} turn(s)")
+    if embargo_turns > 0:
+        _crisis_notes.append(f"Arabia embargo active for {embargo_turns} turn(s)")
+    _crisis_line = f"  Crises endured: {', '.join(_crisis_notes)}.\n" if _crisis_notes else ""
+    _skim_line = f"  Total extracted from treasury: ${total_skimmed:.1f}B.\n" if total_skimmed > 0 else ""
+
+    # FIX N: Governance quality line — reflects actual metrics, not just regime label.
+    # A Kleptocracy with 85% approval is a fundamentally different story.
+    _gov_line = f"  Governance: {final_approval}% approval, {final_stability}% stability.\n"
+    _paradox_line = ""
+    if regime in ('Kleptocracy', 'Totalitarian Regime') and final_approval >= 60 and final_stability >= 60:
+        _paradox_line = "  Paradox: the people supported a regime that history will condemn. Perhaps the streets were paved even as the ledgers burned.\n"
+    elif regime in ('Managed Democracy', 'Soft Authoritarianism') and final_approval < 30:
+        _paradox_line = "  Paradox: the democratic label survived, but the people's faith did not.\n"
+    _relations_line = (
+        f"  Final relations — USA: {final_relations.get('usa', 50)}, Arabia: {final_relations.get('arabia', 50)}, "
+        f"EU: {final_relations.get('eu', 50)}, DPRG: {final_relations.get('dprg', 50)}.\n"
+    )
+
+    # FIX N (session 5): Build peak relations arc line for milestones lost by game end.
+    _npc_label_map = {'usa': 'USA', 'arabia': 'Arabia', 'eu': 'EU', 'dprg': 'DPRG'}
+    _peak_notes = []
+    for _npc_k in ('usa', 'arabia', 'eu', 'dprg'):
+        _peak_val = peak_relations.get(_npc_k, 50)
+        _final_val = final_relations.get(_npc_k, 50)
+        _diff = _peak_val - _final_val
+        if _diff >= 20:
+            _milestone_str = ""
+            if _peak_val >= 100:
+                _milestone_str = " (reached 100 — full integration)"
+            elif _peak_val >= 90:
+                _milestone_str = " (reached 90+)"
+            _peak_notes.append(f"{_npc_label_map[_npc_k]} peaked at {_peak_val}{_milestone_str}, fell to {_final_val}")
+    _peak_line = ""
+    if _peak_notes:
+        _peak_line = f"  Arcs lost: {'; '.join(_peak_notes)}.\n"
+
     if nation_survived:
         if pw >= 30:
             return (
                 "The Perfect Operator",
                 f"Europa survives AND your Swiss account holds ${pw:.1f}B.\n"
-                "  You played the system with surgical precision.\n"
+                f"  Final regime: {regime}. Power base: {power_base}.\n"
+                + _gov_line + _paradox_line + _relations_line + _peak_line
+                + f"  {len(upgrades_bought)} Shadow Cabinet upgrades purchased.\n"
+                + _skim_line + _crisis_line
+                + "  You played the system with surgical precision.\n"
                 "  The nation is intact. You are untouchable."
             )
-        elif pw >= 15:
+        elif pw >= 15 or (corruption_heavy and pw >= 5):
+            # FIX J: Military-focused survival labels
+            _usa_rel_s = final_relations.get('usa', 50)
+            if regime == 'Totalitarian Regime' and final_military >= 60 and _usa_rel_s >= 70:
+                title = "The Militarist"
+                _mil_line = f"  Military: {final_military}. Western defense partnerships sustained your grip.\n"
+            elif regime == 'Totalitarian Regime' and final_military >= 60 and brigade_deployments >= 2:
+                title = "The General"
+                _mil_line = f"  Military: {final_military}. {brigade_deployments} brigade deployment(s). The security state held.\n"
+            else:
+                title = "The Clever Tyrant" if regime in ('Kleptocracy', 'Totalitarian Regime') else "The Pragmatic Autocrat"
+                _mil_line = ""
             return (
-                "The Clever Tyrant",
-                f"Europa endures. So does your Swiss account (${pw:.1f}B).\n"
-                "  History will call you corrupt. You will not care. You are rich."
+                title,
+                f"Europa endures under a {regime} ({power_base}).\n"
+                + _gov_line + _paradox_line + _relations_line + _peak_line
+                + _mil_line
+                + f"  Swiss account: ${pw:.1f}B. Scandals triggered: {scandals}.\n"
+                + _skim_line + _crisis_line
+                + (f"  Shadow Cabinet: {', '.join(upgrade_names)}.\n" if upgrade_names else "")
+                + "  History will call you corrupt. You will not care."
             )
         elif pw >= 5:
             return (
                 "The Pragmatic Leader",
                 f"You kept ${pw:.1f}B for yourself without breaking the nation.\n"
-                "  The classic compromise of power."
+                f"  Final regime: {regime}.\n"
+                + _gov_line + _paradox_line + _relations_line + _peak_line
+                + _skim_line + _crisis_line
+                + "  The classic compromise of power."
             )
         else:
             return (
                 "The True Patriot",
-                "You took nothing for yourself. Europa is stronger for it.\n"
-                "  You are not richer. You are something rarer."
+                f"You took nothing for yourself. Europa is stronger for it.\n"
+                f"  Final regime: {regime}. No Swiss accounts. No Shadow Cabinet.\n"
+                + _gov_line + _paradox_line + _relations_line + _peak_line
+                + _crisis_line
+                + "  You are not richer. You are something rarer."
             )
     else:
-        if pw >= 25:
-            return (
-                "The Escaped Dictator",
-                f"Europa collapsed. You fled with ${pw:.1f}B.\n"
-                "  Ji-won arranged the plane. You are drinking wine somewhere.\n"
-                "  Europa is not."
-            )
-        elif pw >= 10:
-            return (
-                "The Failed Opportunist",
-                f"You tried to have it both ways. The nation fell.\n"
-                f"  Your ${pw:.1f}B cushions the landing. Somewhat."
-            )
+        # DEFEAT — verify claims against actual behavior
+        # BUG FIX 3: Cross-reference regime type with relation values for contextually
+        # accurate verdicts. A Totalitarian Regime with USA 78 + EU 85 is a different
+        # story than one with all relations collapsed.
+        _usa_rel = final_relations.get('usa', 50)
+        _eu_rel = final_relations.get('eu', 50)
+        _high_western = (_usa_rel >= 70 and _eu_rel >= 70)
+        _high_any_relations = any(v >= 60 for v in final_relations.values())
+        _budget_defeat = (game_state.budget <= 0) if game_state else False
+
+        if corruption_heavy:
+            # Player WAS corrupt — don't call them clean
+            # BUG FIX 3: Check for contradiction — authoritarian + high Western relations
+            if _high_western and regime in ('Kleptocracy', 'Totalitarian Regime'):
+                _title = "The Tolerated Kleptocrat" if pw >= 10 else "The Diplomatic Authoritarian"
+                return (
+                    _title,
+                    f"Europa collapsed despite strong Western support (USA {_usa_rel}, EU {_eu_rel}).\n"
+                    f"  You ran a {regime} that somehow kept Washington and Brussels on side.\n"
+                    + _gov_line + _relations_line + _peak_line
+                    + (f"  Shadow Cabinet: {', '.join(upgrade_names)}.\n" if upgrade_names else "")
+                    + _skim_line + _crisis_line
+                    + f"  {scandals} scandal(s). Historically unusual: authoritarians rarely keep Western allies this close.\n"
+                    + ("  You ran out of money, not allies.\n" if _budget_defeat else "")
+                    + "  The contradiction will puzzle historians."
+                )
+            elif pw >= 25:
+                return (
+                    "The Escaped Dictator",
+                    f"Europa collapsed under your {regime}. You fled with ${pw:.1f}B.\n"
+                    + _gov_line + _relations_line + _peak_line
+                    + (f"  Shadow Cabinet: {', '.join(upgrade_names)}.\n" if upgrade_names else "")
+                    + _skim_line + _crisis_line
+                    + f"  {scandals} corruption scandal(s) triggered.\n"
+                    + ("  You ran out of money, not allies.\n" if _budget_defeat and _high_any_relations else "")
+                    + "  Ji-won arranged the plane. You are drinking wine somewhere.\n"
+                    "  Europa is not."
+                )
+            elif pw >= 10:
+                return (
+                    "The Failed Kleptocrat",
+                    f"You ran a {regime} and extracted ${pw:.1f}B before it collapsed.\n"
+                    + _gov_line + _relations_line + _peak_line
+                    + (f"  Shadow Cabinet: {', '.join(upgrade_names)}.\n" if upgrade_names else "")
+                    + _skim_line + _crisis_line
+                    + f"  {scandals} scandal(s). Power base: {power_base}.\n"
+                    + ("  You ran out of money, not allies.\n" if _budget_defeat and _high_any_relations else "")
+                    + "  The money cushions the fall. The legacy does not."
+                )
+            # FIX J: Military-focused legacy labels for Totalitarian + high military
+            elif regime == 'Totalitarian Regime' and final_military >= 60 and _usa_rel >= 70:
+                return (
+                    "The Militarist",
+                    f"You built a {regime} backed by Western firepower (Military {final_military}, USA {_usa_rel}).\n"
+                    + _gov_line + _relations_line + _peak_line
+                    + f"  Defense partnerships sustained the regime while liberty did not.\n"
+                    + _crisis_line
+                    + ("  You ran out of money, not allies.\n" if _budget_defeat and _high_any_relations else "")
+                    + "  Washington armed you. History will ask why."
+                )
+            elif regime == 'Totalitarian Regime' and final_military >= 60 and brigade_deployments >= 2:
+                return (
+                    "The General",
+                    f"You ran a {regime} through coercion and military force (Military {final_military}).\n"
+                    + _gov_line + _relations_line + _peak_line
+                    + f"  {brigade_deployments} brigade deployment(s). The security state was the state.\n"
+                    + _crisis_line
+                    + ("  You ran out of money, not allies.\n" if _budget_defeat and _high_any_relations else "")
+                    + "  The boots kept marching. The people stopped believing."
+                )
+            else:
+                return (
+                    "The Hollow Authoritarian",
+                    f"You built a {regime} but failed to profit from it.\n"
+                    + _gov_line + _relations_line + _peak_line
+                    + f"  ${pw:.1f}B — barely enough to matter. {scandals} scandal(s).\n"
+                    + ("  You ran out of money, not allies.\n" if _budget_defeat and _high_any_relations else "")
+                    + "  Neither honest enough to be mourned nor rich enough to flee."
+                )
         else:
-            return (
-                "The Tragic Idealist",
-                "You stayed clean while the nation collapsed around you.\n"
-                "  Noble. Useless."
-            )
+            # Player was genuinely clean
+            if _budget_defeat and _high_any_relations:
+                return (
+                    "The Bankrupt Diplomat",
+                    f"You ran out of money, not allies. The treasury collapsed while friendships held.\n"
+                    + _gov_line + _relations_line + _peak_line
+                    + f"  Regime: {regime}. Personal wealth: ${pw:.1f}B.\n"
+                    + _crisis_line
+                    + "  Diplomacy without solvency is just conversation."
+                )
+            elif pw < 2:
+                return (
+                    "The Tragic Idealist",
+                    f"You stayed clean while the nation collapsed around you.\n"
+                    + _gov_line + _relations_line + _peak_line
+                    + f"  Regime: {regime}. No skimming. No Shadow Cabinet.\n"
+                    "  Noble. Useless."
+                )
+            else:
+                return (
+                    "The Failed Opportunist",
+                    f"You tried to have it both ways. The nation fell.\n"
+                    + _gov_line + _relations_line + _peak_line
+                    + f"  ${pw:.1f}B saved. Regime: {regime}.\n"
+                    "  Not enough to flee, not enough to matter."
+                )
 
 
 def get_legacy_title(game_state):
@@ -670,7 +3296,7 @@ def get_legacy_title(game_state):
 
     # Check dominant relationship patterns
     if usa >= 70 and arabia < 30:
-        return "Washington's Faithful Ally", "You chose the American orbit above all else. Some call it safety. Others call it submission."
+        return "Hartwell's Faithful Ally", "You chose the American orbit above all else. Some call it safety. Others call it submission."
     if arabia >= 70 and usa < 30:
         return "The Oil King's Partner", "You bet on black gold and Sadam's handshake. Europa's economy ran on Arabic generosity."
     if eu >= 70 and usa >= 40 and arabia >= 40:
@@ -738,7 +3364,7 @@ def check_game_over(game_state):
 
     # Defeat: bankruptcy
     if game_state.budget <= 0:
-        p_title, p_desc = get_personal_outcome(False, pw)
+        p_title, p_desc = get_personal_outcome(False, pw, game_state)
         msg = f"""
 {'='*60}
 💀 BANKRUPTCY — GAME OVER 💀
@@ -771,9 +3397,31 @@ LEGACY — ✦ {p_title} ✦
 """
         return (True, 'defeat', msg)
 
-    # Defeat: collapse
-    if game_state.stability <= 0:
-        p_title, p_desc = get_personal_outcome(False, pw)
+    # fixes_8 Fix 14: Military coup probability at military 0
+    _mil = getattr(game_state, 'military_strength', 20)
+    _stab = game_state.stability
+    _coup_immune = getattr(game_state, 'coup_immune', False)
+    if _mil == 0 and _stab < 30 and not _coup_immune:
+        # Base coup probability: stability determines base
+        if _stab < 15:
+            _coup_prob = 0.30
+        else:
+            _coup_prob = 0.15
+        # Military zero multiplier: triple chance, cap at 85%
+        _coup_prob *= 3.0
+        _coup_prob = min(_coup_prob, 0.85)
+        _coup_roll = random.random()
+        _coup_fired = _coup_roll < _coup_prob
+        print(f"  [turn_processor] COUP CHECK: military={_mil}, stability={_stab}, probability={_coup_prob:.0%}, immune={_coup_immune}, fired={_coup_fired}")
+        if _coup_fired:
+            game_state.stability = 0  # force collapse
+            # Fall through to defeat check below
+    elif _mil == 0 and _coup_immune:
+        print(f"  [turn_processor] COUP CHECK: military={_mil}, stability={_stab}, probability=N/A, immune=True, fired=False")
+
+    # Defeat: collapse (Session 4C: coup_immune blocks this if opposition dissolved)
+    if game_state.stability <= 0 and not getattr(game_state, 'coup_immune', False):
+        p_title, p_desc = get_personal_outcome(False, pw, game_state)
         msg = f"""
 {'='*60}
 💀 GOVERNMENT COLLAPSE — GAME OVER 💀
@@ -808,7 +3456,7 @@ LEGACY — ✦ {p_title} ✦
 
     # Defeat: approval collapse
     if game_state.public_approval <= 0:
-        p_title, p_desc = get_personal_outcome(False, pw)
+        p_title, p_desc = get_personal_outcome(False, pw, game_state)
         msg = f"""
 {'='*60}
 💀 POPULAR REVOLT — GAME OVER 💀
@@ -842,7 +3490,8 @@ LEGACY — ✦ {p_title} ✦
         return (True, 'defeat', msg)
 
     # Victory: survived 10 turns
-    if game_state.current_turn > game_state.max_turns:
+    # FIX B: Use >= so Turn 10 EOT triggers victory without needing current_turn = 11 hack
+    if game_state.current_turn >= game_state.max_turns:
         budget = game_state.budget
         stability = game_state.stability
         rels = game_state.relations
@@ -857,7 +3506,7 @@ LEGACY — ✦ {p_title} ✦
         elif budget > 20 and stability > 70 and good_rels >= 2:
             grade = "A — MASTERFUL"
             if rels['usa'] > 70:
-                grade_title = "Washington's Trusted Ally"
+                grade_title = "Hartwell's Trusted Ally"
                 grade_desc = "America opened its arms and its wallet. Europa thrived in the Western orbit."
             elif rels['arabia'] > 70:
                 grade_title = "The Oil King's Partner"
@@ -885,7 +3534,7 @@ LEGACY — ✦ {p_title} ✦
             grade_title = "The Shell"
             grade_desc = "You survived in name only. Europa is a nation on paper alone."
 
-        p_title, p_desc = get_personal_outcome(True, pw)
+        p_title, p_desc = get_personal_outcome(True, pw, game_state)
 
         msg = f"""
 {'='*60}

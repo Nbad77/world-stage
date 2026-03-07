@@ -3,7 +3,7 @@
  *
  * Props:
  *   npcKey              : 'usa' | 'arabia' | 'eu' | 'dprg'
- *   npcLabel            : display name (e.g. "Bill Washington")
+ *   npcLabel            : display name (e.g. "Bill Hartwell")
  *   npcFlag             : emoji flag
  *   sessionId           : game session ID
  *   onClose             : () => void  — called when "Done Negotiating" is clicked
@@ -13,23 +13,17 @@
  *   initialPendingOffers: [counterOffer, ...]  — all offers made this session, newest last
  *   onHistoryChange     : (messages, pendingOffers) => void — notify parent of state updates
  *   activeDealSummary   : string | null — one-line summary of active deals with this NPC
+ *   currentTurn         : number — current game turn (for calculating specific turn numbers)
  */
 
 import { useState, useRef, useEffect } from 'react'
 import { api } from '../api'
 
+// fixes_13 Fix 8: Strip *stage directions* from all Claude-generated text
 function renderWithStageDirections(text) {
-  const parts = text.split(/(\*[^*]+\*)/g)
-  return parts.map((part, i) => {
-    if (part.startsWith('*') && part.endsWith('*')) {
-      return (
-        <em key={i} style={{ color: 'var(--muted)', fontStyle: 'italic' }}>
-          {part.slice(1, -1)}
-        </em>
-      )
-    }
-    return <span key={i}>{part}</span>
-  })
+  if (!text) return <span></span>
+  const cleaned = text.replace(/\*[^*]+\*/g, '').replace(/\s{2,}/g, ' ').trim()
+  return <span>{cleaned}</span>
 }
 
 export default function NegotiationPanel({
@@ -42,9 +36,12 @@ export default function NegotiationPanel({
   offerLetter,
   initialMessages = [],
   initialPendingOffers = [],  // all counter-offers made this session, survives minimize
+  initialHeldOffer = null,    // held offer (Keep Negotiating state) — survives minimize
   onHistoryChange,
   onGsUpdate = null,  // BUG 6: callback to sync updated game_state (incl. negotiation_log) to parent
   activeDealSummary = null,
+  currentTurn = 1,    // FIX O: current game turn for specific turn number display
+  gs = null,          // fixes_13 Fix 24: game state needed for covert deal eligibility check
 }) {
   const [messages, setMessages] = useState(initialMessages)
   const [input, setInput] = useState('')
@@ -55,9 +52,8 @@ export default function NegotiationPanel({
   const [pendingOffers, setPendingOffers] = useState(initialPendingOffers)
 
   // When "Keep Negotiating" is clicked we hide the banner but hold the offer here.
-  // If the NPC's next reply has no new counter_offer, we restore it automatically
-  // so the Accept button stays reachable.
-  const [heldOffer, setHeldOffer] = useState(null)
+  // Seeded from initialHeldOffer so it survives minimize/reopen.
+  const [heldOffer, setHeldOffer] = useState(initialHeldOffer)
 
   const scrollRef = useRef(null)
 
@@ -67,20 +63,19 @@ export default function NegotiationPanel({
     }
   }, [messages])
 
-  // BUG 5: Sync current messages + offers to parent whenever they change,
-  // so the full conversation survives minimize/reopen regardless of whether
-  // a counter-offer is present. Also fires on mount (with initialMessages)
-  // so even a panel opened-then-immediately-closed saves its initial state.
+  // Sync messages + offers + heldOffer to parent whenever any of them change,
+  // so the full conversation state survives minimize/reopen at any negotiation stage.
+  // Also fires on mount so even a panel opened-then-immediately-closed saves state.
   useEffect(() => {
-    onHistoryChange && onHistoryChange(messages, pendingOffers)
+    onHistoryChange && onHistoryChange(messages, pendingOffers, heldOffer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, pendingOffers])
+  }, [messages, pendingOffers, heldOffer])
 
   // Helper: update messages + pendingOffers and notify parent together
   function pushState(newMessages, newPendingOffers) {
     setMessages(newMessages)
     setPendingOffers(newPendingOffers)
-    onHistoryChange && onHistoryChange(newMessages, newPendingOffers)
+    onHistoryChange && onHistoryChange(newMessages, newPendingOffers, heldOffer)
   }
 
   async function handleSend() {
@@ -118,6 +113,11 @@ export default function NegotiationPanel({
       // (identical text), don't push a second copy.
       let newPendingOffers = pendingOffers
       let newHeldOffer = heldOffer
+
+      // fixes_13 Fix 11: Detect if player explicitly declined the offer
+      const _declineSignals = /\b(no|decline|reject|refuse|pass|not interested|no deal|walk away|forget it)\b/i
+      const _playerDeclined = _declineSignals.test(text)
+
       if (res.counter_offer) {
         const lastText = pendingOffers.length > 0
           ? pendingOffers[pendingOffers.length - 1]?.text
@@ -126,8 +126,8 @@ export default function NegotiationPanel({
           newPendingOffers = [...pendingOffers, res.counter_offer]
         }
         newHeldOffer = null  // new offer supersedes held offer
-      } else if (heldOffer) {
-        // No new offer — restore the held offer back into the banner
+      } else if (heldOffer && !_playerDeclined) {
+        // No new offer and player didn't decline — restore held offer
         const lastText = pendingOffers.length > 0
           ? pendingOffers[pendingOffers.length - 1]?.text
           : null
@@ -135,6 +135,11 @@ export default function NegotiationPanel({
           newPendingOffers = [...pendingOffers, heldOffer]
         }
         newHeldOffer = null
+      } else if (_playerDeclined) {
+        // fixes_13 Fix 11: Player declined — clear all pending offers and held offer
+        newPendingOffers = []
+        newHeldOffer = null
+        console.log('[NegotiationPanel] fixes_13 Fix 11: Player declined — counter-offer panel cleared')
       }
 
       setHeldOffer(newHeldOffer)
@@ -157,12 +162,16 @@ export default function NegotiationPanel({
     }
   }
 
-  function handleAcceptOffer(offer) {
+  function handleAcceptOffer(offer, covert = false) {
     if (offer && onCounterOffer) {
-      onCounterOffer(offerLetter, offer)
+      onCounterOffer(offerLetter, offer, covert)
+      if (covert) console.log(`[NegotiationPanel] Fix 24: Covert deal accepted with ${npcKey}`)
     }
     onClose()
   }
+
+  // fixes_13 Fix 24: Check if covert deal is available (DPRG 60+)
+  const canCovert = npcKey === 'dprg' && (gs?.relations?.dprg ?? 0) >= 60
 
   // When closing via "Done Negotiating", persist the most recent offer (or held offer)
   // to OffersPanel so the NEGOTIATED badge stays visible even without accepting.
@@ -183,13 +192,18 @@ export default function NegotiationPanel({
     const offer = pendingOffers[idx]
     const newOffers = pendingOffers.filter((_, i) => i !== idx)
     setHeldOffer(offer)
-    pushState(messages, newOffers)
+    // Notify parent with the new held offer so it survives minimize
+    setMessages(messages)
+    setPendingOffers(newOffers)
+    onHistoryChange && onHistoryChange(messages, newOffers, offer)
   }
 
   // Remove an older offer from the stack permanently (player explicitly dismisses it)
   function handleDismissOffer(idx) {
     const newOffers = pendingOffers.filter((_, i) => i !== idx)
-    pushState(messages, newOffers)
+    setMessages(messages)
+    setPendingOffers(newOffers)
+    onHistoryChange && onHistoryChange(messages, newOffers, heldOffer)
   }
 
   // FEATURE: parse a counter-offer's consequences and return a money direction label.
@@ -221,12 +235,33 @@ export default function NegotiationPanel({
     for (const s of installmentStreams) {
       const amt = normB(s.amount ?? 0)
       const turns = s.turns ?? 0
+      const desc = s.description ?? ''
       if (amt !== 0 && turns > 0) {
-        const desc = s.description ? ` (${s.description})` : ''
-        const label = turns === 1
-          ? `$${Math.abs(amt).toFixed(1)}B next turn${desc}`
-          : `$${Math.abs(amt).toFixed(1)}B/turn × ${turns} turns${desc}`
-        parts.push({ value: amt * turns, label })
+        const descLabel = desc ? ` (${desc})` : ''
+        // FIX O: Use specific turn numbers, show condition if present
+        const startTurn = s.start_turn ?? (currentTurn + 1)
+        const condType = s.condition_type ?? null
+        const condNpc = s.condition_npc ?? null
+        const condThresh = s.condition_threshold ?? null
+        const condNarrative = s.condition_narrative ?? null
+        const npcLabels = { usa: 'USA', arabia: 'Arabia', eu: 'EU', dprg: 'DPRG', europa: 'EU' }
+        // fixes_18 Fix A: Show both numeric and narrative conditions
+        const numericStr = condType && condNpc
+          ? `${npcLabels[condNpc] ?? condNpc} ${condType === 'relation_below' ? 'below' : 'above'} ${condThresh ?? '?'}`
+          : ''
+        const narrativeStr = condNarrative ? condNarrative : ''
+        const condParts = [numericStr, narrativeStr].filter(Boolean)
+        const condStr = condParts.length > 0 ? ` (conditional: ${condParts.join(' AND ')})` : ''
+        if (turns === 1) {
+          parts.push({ value: amt, label: `$${Math.abs(amt).toFixed(1)}B on turn ${startTurn}${condStr}${descLabel}` })
+        } else {
+          // FIX O: Show specific turn numbers instead of "next turn" / "turn after that"
+          const trancheLabels = []
+          for (let t = 0; t < turns; t++) {
+            trancheLabels.push(`$${Math.abs(amt).toFixed(1)}B turn ${startTurn + t}`)
+          }
+          parts.push({ value: amt * turns, label: trancheLabels.join(' + ') + condStr + descLabel })
+        }
       }
     }
     if (personal !== 0) {
@@ -303,35 +338,23 @@ export default function NegotiationPanel({
           )}
         </div>
 
-        {/* Older offers — compact rows above the latest banner */}
+        {/* FIX K: Older offers — greyed out with "Superseded" label, no Accept button */}
         {olderOffers.length > 0 && (
           <div className="older-offers-stack">
-            <div className="older-offers-label">Earlier offers on the table:</div>
+            <div className="older-offers-label">Previous offers (superseded):</div>
             {olderOffers.map((offer, idx) => {
               const moneyDir = getMoneyDirection(offer)
               return (
-                <div key={idx} className="older-offer-row">
-                  <span className="older-offer-text" title={offer.text}>{offer.text}</span>
+                <div key={idx} className="older-offer-row older-offer-superseded">
+                  <span className="older-offer-text" title={offer.text}>
+                    <span className="superseded-badge">Superseded</span>
+                    {offer.text}
+                  </span>
                   {moneyDir && (
-                    <span className={`older-offer-money ${moneyDir.isMixed ? 'money-mixed' : moneyDir.isPositive ? 'money-receive' : 'money-pay'}`}>
+                    <span className={`older-offer-money money-superseded`}>
                       {moneyDir.label}
                     </span>
                   )}
-                  <div className="older-offer-actions">
-                    <button
-                      className="btn-accept-counter"
-                      onClick={() => handleAcceptOffer(offer)}
-                    >
-                      Accept
-                    </button>
-                    <button
-                      className="btn-ghost older-offer-dismiss"
-                      onClick={() => handleDismissOffer(idx)}
-                      title="Remove this offer"
-                    >
-                      ✕
-                    </button>
-                  </div>
                 </div>
               )
             })}
@@ -357,6 +380,15 @@ export default function NegotiationPanel({
                 >
                   Accept & Close
                 </button>
+                {canCovert && (
+                  <button
+                    className="btn-accept-counter btn-covert"
+                    onClick={() => handleAcceptOffer(latestOffer, true)}
+                    title="Covert deal: zero diplomatic footprint, no cross-NPC penalties, no heat, no EOT log entry"
+                  >
+                    🕶️ Accept Covert
+                  </button>
+                )}
                 <button
                   className="btn-keep-negotiating"
                   onClick={() => handleKeepNegotiating(pendingOffers.length - 1)}
@@ -379,6 +411,15 @@ export default function NegotiationPanel({
             >
               Accept
             </button>
+            {canCovert && (
+              <button
+                className="btn-accept-counter held-offer-accept btn-covert"
+                onClick={() => handleAcceptOffer(heldOffer, true)}
+                title="Covert deal: zero diplomatic footprint"
+              >
+                🕶️ Covert
+              </button>
+            )}
             <button
               className="btn-ghost held-offer-dismiss"
               onClick={() => setHeldOffer(null)}

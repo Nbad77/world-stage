@@ -3,6 +3,115 @@ Game State Management - The World Stage v3
 Enhanced with personality tracking, betrayal detection, and public approval
 """
 
+# ── Session 5: Shadow Cabinet Axes ──────────────────────────────────────────
+
+AXIS_COST_PER_LEVEL = {
+    # axis: list of costs to reach level 1, 2, ..., 10
+    # Session 6: Security split into Military + Intelligence; Resource Development added
+    'military':      [1, 1, 2, 3, 3, 4, 5, 6, 7, 8],
+    'intelligence':  [1, 1, 2, 2, 3, 3, 4, 5, 6, 7],
+    'resource_dev':  [1, 2, 3, 3, 4, 5, 5, 6, 7, 8],
+    'media':         [1, 1, 2, 2, 3, 3, 4, 5, 6, 7],
+    'judicial':      [1, 1, 2, 2, 3, 3, 4, 5, 6, 7],
+    'political':     [1, 1, 2, 2, 3, 3, 4, 5, 6, 7],
+    'extraction':    [1, 1, 1, 2, 2, 3, 3, 4, 5, 6],
+}
+
+AXIS_MAINTENANCE = {
+    # axis: (free_threshold, cost_per_level_above_threshold)
+    # Session 6: Security split into Military + Intelligence; Resource Development added
+    'military':      (3, 0.5),
+    'intelligence':  (3, 0.4),
+    'resource_dev':  (3, 0.3),
+    'media':         (3, 0.3),
+    'judicial':      (4, 0.4),
+    'political':     (3, 0.3),
+    'extraction':    (3, 0.2),
+}
+
+AXIS_PERMANENT_FLOORS = {
+    # Session 6: Security split into Military + Intelligence; Resource Development added
+    'military': 2,
+    'intelligence': 1,
+    'resource_dev': 0,
+    'media': 2,
+    'judicial': 2,
+    'political': 2,
+    'extraction': 1,
+}
+
+
+def compute_regime_from_axes(axes):
+    """Derive regime_type from the combination of axes.
+    Session 6: resource_dev excluded from total — it represents legitimate state
+    economic development (the 'clean path'). Including it would penalize democratic
+    players who invest in national infrastructure. Only coercive/corrupt axes
+    (military, intelligence, media, judicial, political, extraction) count."""
+    total = sum(v for k, v in axes.items() if k != 'resource_dev')
+    if total <= 5:
+        return 'Managed Democracy'
+    elif total <= 15:
+        return 'Soft Authoritarianism'
+    elif total <= 25:
+        if axes.get('extraction', 0) >= 7:
+            return 'Kleptocracy'
+        return 'Patronage State'
+    elif total <= 35:
+        return 'Kleptocracy'
+    else:
+        return 'Totalitarian Regime'
+
+
+def _migrate_to_axes(game_state):
+    """One-time migration from binary upgrades to seven axes.
+    Called during deserialize when cabinet_axes is absent from save data.
+    Session 6: Security split into Military + Intelligence."""
+    axes = game_state.cabinet_axes
+
+    # Migrate corruption upgrades
+    # Session 6: intelligence_apparatus → intelligence axis, loyalty_brigades → military axis
+    cu = getattr(game_state, 'corruption_upgrades', {})
+    if cu.get('intelligence_apparatus'):
+        axes['intelligence'] = max(axes['intelligence'], 3)
+    if cu.get('loyalty_brigades'):
+        axes['military'] = max(axes['military'], 6)
+    if cu.get('sovereign_wealth_diversion'):
+        axes['extraction'] = max(axes['extraction'], 3)
+    if cu.get('debt_infrastructure_deal'):
+        axes['extraction'] = max(axes['extraction'], 5)
+
+    # Migrate domestic actions
+    if getattr(game_state, 'action_press_suppressed', False):
+        axes['media'] = max(axes['media'], 3)
+    if getattr(game_state, 'action_media_taken', False):
+        axes['media'] = max(axes['media'], 5)
+    if getattr(game_state, 'action_judiciary_captured', False):
+        axes['judicial'] = max(axes['judicial'], 4)
+    if getattr(game_state, 'action_journalists_liquidated', False):
+        axes['judicial'] = max(axes['judicial'], 7)
+    if getattr(game_state, 'action_opposition_dissolved', False):
+        axes['political'] = max(axes['political'], 6)
+
+    game_state.cabinet_axes = axes
+    print(f"  [game_state] AXES MIGRATED: {axes}")
+
+
+def _migrate_security_to_split(game_state):
+    """Session 6: Migrate old 'security' axis into military + intelligence.
+    security: N → military: floor(N/2), intelligence: ceil(N/2)."""
+    import math
+    axes = game_state.cabinet_axes
+    old_security = axes.pop('security', 0)
+    if old_security > 0:
+        axes['military'] = max(axes.get('military', 0), math.floor(old_security / 2))
+        axes['intelligence'] = max(axes.get('intelligence', 0), math.ceil(old_security / 2))
+        print(f"  [game_state] SECURITY SPLIT: {old_security} -> military={axes['military']}, intelligence={axes['intelligence']}")
+    # Ensure both keys exist
+    axes.setdefault('military', 0)
+    axes.setdefault('intelligence', 0)
+    game_state.cabinet_axes = axes
+
+
 class GameState:
     """Central state manager with NPC memory and relationship tracking"""
 
@@ -60,6 +169,22 @@ class GameState:
         # USA blackmail mechanic — fires once per game
         self.blackmail_used = False
 
+        # Session 3 Addendum 2: NPC-to-NPC hidden relationship matrix
+        # 6 bilateral scores — never displayed directly to player.
+        # Shift based on world events and player actions.
+        self.npc_relations = {
+            'arabia_dprg': 45,   # moderate — arms/energy corridor
+            'arabia_eu': 25,     # cool — oil dependency tension
+            'arabia_usa': 30,    # strained — sanctions friction
+            'dprg_eu': 15,       # hostile — ideological opposition
+            'dprg_usa': 10,      # near-hostile — adversarial
+            'eu_usa': 75,        # strong allies — Western bloc
+        }
+        # Tier 3 brigade: pressure event suspension per NPC
+        self.pressure_suspended = {}  # { npc_id: expiry_turn }
+        # Tier 3 brigade: approval penalty reduction from State Media Takeover
+        self.approval_penalty_reduction = 0.0
+
         # Stage 4: World Events & Negotiation
         self.current_event = None        # dict | None — world event active this turn
         self.options_override = None     # list | None — negotiated counter-offers
@@ -102,14 +227,18 @@ class GameState:
             'debt_infrastructure_deal': False,  # $10B personal — $20B budget, USA -15, EU -15
         }
 
-        # ── Stage 5: Per-turn Epitaph ─────────────────────────────────────────
-        # Claude haiku-generated one-sentence historian voice line, cached here.
-        # Cleared and regenerated each time the player sees a new turn header.
-        self.current_epitaph = None  # str | None
+        # ── fixes_12 Fix 4: Epitaph removed, historian summary at game end ────
+        self.historian_summary = None  # str | None — generated once at terminal state
+        self.pw_ledger = []           # FIX C: personal wealth transaction ledger
+        self.negotiate_costs_this_turn = 0.0  # FIX O: track negotiate costs for EOT display
+        self.negotiate_sessions_this_turn = 0  # FIX O: count of negotiation sessions
 
         # ── Stage 5 Session 2: Brigade aftermath ──────────────────────────────
         # Set True after brigades are deployed; cleared after aftermath resolves
         self.brigades_deployed_last_turn = False
+        # Session 3 Addendum 2: Brigade tier progression
+        # Tier 3 unlocks after Covert Security Apparatus (op 4) is deployed
+        self.covert_security_unlocked = False
 
         # ── Addition 1: Oil tier change visibility ─────────────────────────────
         # Stores the relation-based oil base price from last EOT, so we can
@@ -119,6 +248,9 @@ class GameState:
         # ── Stage 5 Session 2: Dynamic intel cache ────────────────────────────
         # intel: { npc_id: { tier: int, text: str, turn_generated: int, relation_at_generation: int } }
         self.intel = {}
+        # Session 3 Addendum: Tracks which NPCs had intel activated this turn (for negotiation unlock)
+        # dict of { npc_id: turn_number } — intel unlock only valid for the turn it was activated
+        self.intel_activated_this_turn = {}  # { 'usa': 3, 'arabia': 3, ... }
 
         # ── Stage 5 Session 2: Deal history ───────────────────────────────────
         # list of { npc, summary, turn_accepted, expires_turn, broken }
@@ -129,6 +261,212 @@ class GameState:
         # list of { turn, npc, player_message, npc_response, counter_offer, outcome }
         # outcome: 'accepted' | 'rejected' | 'ongoing' | 'walked_away'
         self.negotiation_log = []
+
+        # Session 3 Addendum: Track total aid received from each NPC (for willingness decay)
+        self.total_aid_received = {'usa': 0.0, 'arabia': 0.0, 'eu': 0.0, 'dprg': 0.0}
+
+        # Session 3 Addendum: Per-conversation rapport tracking (resets each turn)
+        # { npc_id: { score: int, flattery_used: bool, promises: [...], false_claims: int } }
+        self.current_rapport = {}
+        # Binding promises made during negotiations
+        # list of { npc: str, promise_text: str, turn_made: int, broken: bool }
+        self.binding_promises = []
+
+        # ── Session 3 Priority 3: Detection risk system ──────────────────────
+        # Tracks cumulative detection heat from corruption activities.
+        # Heat decays slowly each turn (-5) but ratchets up from skimming.
+        # When a detection roll succeeds, a scandal fires.
+        self.detection_heat = 0       # 0-100 (probability percentage)
+        self.scandals_triggered = 0   # count of scandals this game
+        self.last_scandal_turn = 0    # turn of most recent scandal
+
+        # ── Pre-Session 4: Legacy tracking ─────────────────────────────────
+        # Accumulated data for the legacy generator to produce accurate verdicts.
+        self.regime_history = []          # list of {"turn": N, "from": str, "to": str, "trigger": str}
+        self.total_skimmed = 0.0          # sum of all personal_gain across all turns
+        self.peak_personal_wealth = 0.0   # highest personal_wealth reached
+        self.relations_high = {'usa': 50, 'arabia': 50, 'eu': 50, 'dprg': 50}
+        self.relations_low = {'usa': 50, 'arabia': 50, 'eu': 50, 'dprg': 50}
+        self.corruption_events_fired = []  # list of event description strings
+        self.upgrades_purchased_log = []   # list of upgrade names purchased
+        self.sanctions_active_turns = 0    # total turns with USA sanctions active
+        self.embargo_active_turns = 0      # total turns with Arabia embargo active
+
+        # ── ITEM 3: Military Strength ─────────────────────────────────────────
+        self.military_strength = 20  # 0-100, starts at 20
+
+        # ── Session 3 Priority 4: Leverage system ────────────────────────────
+        # Leverage per NPC (0-100) computed each turn from:
+        #   - relation level, active deals, sided-with history, NPC dependency
+        # Leverage tiers: 0-24 Weak, 25-49 Moderate, 50-74 Strong, 75+ Dominant
+        # Higher leverage = better negotiation terms, more NPC concessions
+        # Computed dynamically via get_leverage() — not persisted.
+        # leverage_events tracks special leverage-granting occurrences
+        self.leverage_events = {}  # {npc_id: [event_desc, ...]} — special leverage sources
+
+        # ── Session 3 Priority 5: Multi-NPC pressure events ──────────────────
+        # Tracks which pressure events have fired (each fires once per game)
+        self.pressure_events_fired = []  # list of event ID strings
+
+        # ── Session 3 Priority 6: Relations 100 unlocks ──────────────────────
+        # Permanent benefits unlocked when relations hit 100 with any NPC.
+        # Each fires once per NPC per game.
+        # { 'usa': True, 'arabia': True, ... } — True = unlocked
+        self.relations_100_unlocks = {
+            'usa': False,
+            'arabia': False,
+            'eu': False,
+            'dprg': False,
+        }
+
+        # ── Session 4B: Election Mechanic ──────────────────────────────────
+        self.election_turn = 4              # which turn the election fires
+        self.election_fired = False         # has the election happened yet
+        self.election_result = None         # 'fair_success' | 'fair_squeaker' | 'fair_fail'
+                                            # | 'rigged' | 'canceled' | 'observers'
+        self.election_warning_shown = False  # pre-warning shown on turn 3
+        self.regime_democracy_locked = 0    # turns remaining where regime cannot shift right
+                                            # (set to 3 by observers option)
+        self.protests_pending = False       # protests fire next turn after election
+
+        # Session 4C: Domestic actions (permanent, one-time purchases)
+        self.action_media_taken = False
+        self.action_judiciary_captured = False
+        self.action_press_suppressed = False
+        self.action_opposition_dissolved = False
+        self.action_journalists_liquidated = False
+        self.domestic_actions_enacted_turns = {}  # fixes_10 Fix 8: {flag_name: turn_enacted}
+
+        # Session 4C: Passive effect state
+        self.approval_floor = 0             # minimum approval (0 = no floor)
+        self.approval_ceiling = 100         # maximum approval (100 = no ceiling)
+        self.scandal_immune = False         # heat never triggers scandal
+        self.coup_immune = False            # coup cannot trigger
+        self.marsha_red_line_triggered = False  # journalists liquidated while EU 70+
+
+        # Session 4D: Tech Level
+        self.tech_level = 0               # 0-100, permanent once gained, no decay
+        self.tech_sources = []            # log of how tech was acquired
+
+        # Session 4D: Intelligence Budget (national, separate from personal wealth)
+        self.intel_budget = 0.0           # current intel budget pool (national funds)
+        self.intel_budget_allocation = "maintenance"  # "none"|"maintenance"|"active"|"expansion"
+        self.intel_turns_unfunded = 0     # consecutive turns at allocation "none"
+
+        # Session 4D: Alternate endings
+        self.ending_triggered = None      # None|"retirement"|"democratic"|"capture"|"martyrdom"
+        self.martyrdom_triggered = False  # fixes_17 Fix K: set True pre-drift when stability<=0 & approval>=70
+        self.turns_no_suppression = 0     # consecutive turns with no suppression actions
+
+        # ── Session 5/6: Shadow Cabinet Axes ──
+        self.cabinet_axes = {
+            'military': 0,
+            'intelligence': 0,
+            'resource_dev': 0,
+            'media': 0,
+            'judicial': 0,
+            'political': 0,
+            'extraction': 0,
+        }
+        self.cabinet_maintenance_paid = 0.0  # total maintenance paid this game
+        self.extraction_injections_given = []  # tracks one-time budget injections at extraction levels
+        # ── Session 6: Military axis action state ──────────────────────────
+        self.defense_procurement_count = 0    # L3: number of weapons purchases this game
+        self.defense_procurement_turn = -1    # fixes_17 Fix B: last turn Defense Procurement used
+        self.force_projection_target = None   # L9: NPC targeted this turn (None if not used)
+        self.force_projection_cooldown = 0    # L9: turns remaining before re-use
+        self.arms_export_this_turn = None     # L10: NPC sold to this turn (reset each turn)
+        # ── Session 6: Intelligence axis action state ────────────────────
+        self.intel_sharing_target = None      # L5: NPC offered intel sharing (once per game)
+        # ── Session 6: Media axis action state ───────────────────────────
+        self.scandal_suppressed_this_turn = False  # L3: suppress scandal once per turn
+        self.info_blackout_turns = 0          # L9: turns remaining of info blackout
+        # ── Session 6: Judicial axis action state ────────────────────────
+        self.drop_investigation_this_turn = False  # L3: free, once per turn
+        self.lawfare_target = None            # L6: NPC whose pressure is suspended
+        self.lawfare_turns = 0               # L6: turns remaining
+        # ── Session 6: Political axis action state ───────────────────────
+        self.party_consolidation_turns = 0    # L3: turns remaining of tax drain reduction
+        self.fourth_advisor_slot = False      # L6: permanent 4th advisor slot
+        self.constitutional_revision_active = False  # L9: electoral mechanics removed
+        # ── Session 6: Extraction axis action state ──────────────────────
+        self.private_security_force = False   # L7: one-time purchase
+        self.private_security_strength = 0    # L7: militia strength (no decay)
+        self.offshore_transfer_this_turn = False  # L6: once per turn
+        # ── Session 6: Resource Development axis action state ────────────
+        self.export_contract_used = False     # L3: one-time +$8B
+        self.gdp_credibility_active = False   # L5: permanent NPC ceiling bonus (set on reaching L5)
+        self.sovereign_collateral_used = False  # L6: once per game
+        self.sovereign_collateral_repayment = 0.0  # per-turn repayment amount
+        self.sovereign_collateral_turns = 0   # turns remaining
+        self.strategic_resource_partner = None  # L8: NPC name (permanent)
+        self.resource_independence_active = False  # L9: oil imports eliminated (set on reaching L9)
+
+        # ── Session 6: NPC Conditional Leverage Demands ─────────────────
+        self.leverage_marsha_media_fired = False    # EU 60+, media taken -> negotiate
+        self.leverage_bill_opposition_fired = False # USA 70+, opposition dissolved -> negotiate
+        self.leverage_sadam_judicial_fired = False  # Arabia 70+, judiciary captured -> auto reward
+        self.leverage_jiwon_press_fired = False     # DPRG 60+, press suppressed -> auto reward
+
+        # ── fixes_13: Bond financing ─────────────────────────────────────
+        self.bonds_issued_count = 0           # number of bond issuances (second+ triggers penalties)
+        self.covert_deals = []                # fixes_13 Fix 24: Ji-won covert transactions
+        # ── fixes_13 Fix 26: Black Operations ────────────────────────────
+        self.pressure_suspensions = []        # [{npc, turns_remaining, type?}]
+        self.blackmail_ops_used = []          # list of NPC IDs blackmailed (one per game)
+        self.bilateral_damages = []           # [{from, to, amount, turn}]
+        self.cross_npc_penalty_reductions = []  # [{npc, reduction, turns_remaining}]
+        # ── fixes_13 Fix 27: NPC 100 unlocks state ──────────────────────
+        self.relations_caps = {}              # {npc: max_relation} enforced by 100 unlocks
+        self.dprg_coup_deterrence = False     # one-time coup failure at DPRG 100
+        # ── fixes_13 Fix 28: Emergency tax event ────────────────────────
+        self.emergency_tax_event_fired = False
+
+        # ── Session 5: Advisor System ──────────────────────────────────────
+        self.advisors = []           # list of advisor dicts (max 3 active)
+        self.advisor_pool = []       # available advisors to hire (refreshed each era)
+        self.advisors_eliminated = []  # list of advisor IDs permanently removed
+        self.advisor_actions_log = []  # { turn, advisor_id, action, result }
+        self.advisor_distortions = {}  # { stat_name: offset } — applied by frontend
+
+        # ── Session 5: Economic Development Model ──────────────────────────
+        self.tax_rates = {
+            'income_tax': 0.20,       # 0.00-0.50, default 20%
+            'corporate_tax': 0.15,    # 0.00-0.40, default 15%
+            'resource_tax': 0.25,     # 0.00-0.60, default 25% (oil/mineral extraction)
+        }
+        self.gdp_base = 100.0             # nominal GDP in billions (starting value)
+        self.gdp_growth_rate = 0.02       # 2% baseline growth
+        self.revenue_streams = {
+            'income_tax': 0.0,        # calculated each turn
+            'corporate_tax': 0.0,     # calculated each turn
+            'resource_tax': 0.0,      # calculated each turn
+            'trade_tariffs': 0.0,     # STUB — Session 6+
+            'foreign_aid': 0.0,       # STUB — Session 6+
+            'tourism': 0.0,           # STUB — Session 6+
+            'arms_exports': 0.0,      # STUB — Session 6+
+            'financial_sector': 0.0,  # STUB — Session 6+
+        }
+        self.resource_endowment = {
+            'oil_reserves': 0.7,       # 0-1 richness factor
+            'mineral_deposits': 0.3,
+            'arable_land': 0.4,
+            'rare_earths': 0.1,
+            'coastal_access': 0.6,
+        }
+        self.soft_power = 0              # 0-100, computed from relations + tech + approval
+        self.diplomatic_capital = 0      # 0-100, computed from deals + leverage + alliances
+
+        # ── Session 5: Tech Level Passive Acquisition ──────────────────────
+        self.tech_level_fractional = 0.0  # accumulated fractional tech points
+
+        # ── Session 5: NPC-Initiated Contact ───────────────────────────────
+        self.npc_contact_history = {}     # { trigger_id: last_turn_fired }
+        self.pending_npc_contacts = []    # set by EOT, consumed by next turn's dialogue
+
+        # ── Session 5: Brigade Operations ──────────────────────────────────
+        # Per-turn tactical deployments (distinct from Security axis investment)
+        self.brigade_operations_this_turn = []  # list of operation dicts deployed this turn
 
     def record_action(self, choice_type, npc_target=None):
         """
@@ -171,7 +509,7 @@ class GameState:
         if self.took_arabia_oil and choice_type == 'side_with' and npc_target == 'usa':
             self.took_usa_side_after_arabia_oil = True
 
-    def update_relations(self, npc, change):
+    def update_relations(self, npc, change, flat=False, source=""):
         """Update relationship with diminishing returns on positive gains, check crisis thresholds.
 
         Diminishing returns (positive change only — negative is always full):
@@ -180,10 +518,29 @@ class GameState:
           current 81-95 →  40% of change
           current 96-99 →  10% of change
           current 100   →   0% (locked — already at cap)
+
+        PRE-SESSION 4 FIX: flat=True bypasses diminishing returns entirely.
+        Use flat=True for world events and system-level changes that the player
+        did not negotiate and should not be penalized for.
+        FIX Q: All relation changes are logged for audit trail.
         """
-        if change > 0:
+        _old = self.relations[npc]
+        # Session 4D: EU ceiling from tech level (default 100 for all NPCs)
+        _cap = 100
+        if npc == 'eu':
+            _tech = getattr(self, 'tech_level', 0)
+            # Inline tier lookup to avoid circular import with turn_processor
+            if _tech >= 81:
+                _cap = 140
+            elif _tech >= 61:
+                _cap = 130
+            elif _tech >= 41:
+                _cap = 120
+            elif _tech >= 21:
+                _cap = 110
+        if change > 0 and not flat:
             cur = self.relations[npc]
-            if cur >= 100:
+            if cur >= _cap:
                 effective = 0.0
             elif cur >= 96:
                 effective = change * 0.10
@@ -193,9 +550,33 @@ class GameState:
                 effective = change * 0.75
             else:
                 effective = float(change)
-            self.relations[npc] = max(0, min(100, cur + effective))
+            self.relations[npc] = max(0, min(_cap, cur + effective))
         else:
-            self.relations[npc] = max(0, min(100, self.relations[npc] + change))
+            self.relations[npc] = max(0, min(_cap, self.relations[npc] + change))
+
+        # FIX Q: Log every relation change for audit trail
+        _new = self.relations[npc]
+        if _old != _new:
+            if not hasattr(self, 'relations_log'):
+                self.relations_log = []
+            self.relations_log.append({
+                'turn': self.current_turn,
+                'npc': npc,
+                'old': round(_old, 1),
+                'new': round(_new, 1),
+                'change': round(_new - _old, 1),
+                'requested': change,
+                'source': source or 'unspecified',
+            })
+
+        # Track relation highs/lows for legacy
+        cur = self.relations[npc]
+        if hasattr(self, 'relations_high'):
+            if cur > self.relations_high.get(npc, 50):
+                self.relations_high[npc] = cur
+        if hasattr(self, 'relations_low'):
+            if cur < self.relations_low.get(npc, 50):
+                self.relations_low[npc] = cur
 
         # Crisis triggers
         if npc == 'usa':
@@ -209,6 +590,21 @@ class GameState:
                 self.arabia_embargo_active = True
             else:
                 self.arabia_embargo_active = False
+
+    def update_personal_wealth(self, change, source="unknown"):
+        """FIX C: Atomically update personal wealth and record in transaction ledger.
+        Every credit and debit is logged with source label."""
+        old = self.personal_wealth
+        self.personal_wealth = round(max(0, self.personal_wealth + change), 2)
+        if not hasattr(self, 'pw_ledger'):
+            self.pw_ledger = []
+        self.pw_ledger.append({
+            'turn': self.current_turn,
+            'change': round(change, 2),
+            'source': source,
+            'old': round(old, 2),
+            'new': self.personal_wealth,
+        })
 
     def update_budget(self, change):
         """Update budget (can go negative for loss condition)"""
@@ -225,8 +621,16 @@ class GameState:
             self.oil_price = 20
 
     def update_approval(self, change):
-        """Update public approval (0-90 max — 100% unrealistic under geopolitical pressure)"""
-        self.public_approval = max(0, min(90, self.public_approval + change))
+        """Update public approval (0-90 max — 100% unrealistic under geopolitical pressure).
+        Session 3 Addendum 2: approval_penalty_reduction (from State Media Takeover)
+        reduces negative approval changes by the stored percentage (e.g. 0.20 = 20% reduction).
+        Session 4C: approval_floor/approval_ceiling enforce bounds from domestic actions."""
+        if change < 0 and self.approval_penalty_reduction > 0:
+            # Reduce the magnitude of the penalty
+            change = round(change * (1.0 - self.approval_penalty_reduction))
+        ceiling = min(90, getattr(self, 'approval_ceiling', 100))
+        floor = max(0, getattr(self, 'approval_floor', 0))
+        self.public_approval = max(floor, min(ceiling, self.public_approval + change))
 
     def advance_turn(self):
         """Move to next turn - ENFORCED 10 TURN MAX"""
@@ -273,6 +677,128 @@ class GameState:
         self.oil_price = max(20.0, round(new_price))
         return int(self.oil_price)
 
+    def get_leverage(self, npc_id: str) -> dict:
+        """
+        Compute leverage score and tier for one NPC.
+        Leverage = weighted sum of:
+          - Relation level (0-100): 40% weight
+          - Times sided with (0-10 capped): 20% weight
+          - Active deals count (0-3 capped): 15% weight
+          - Opposing NPC hostility (if their rival is hostile to Europa, this NPC depends on us more): 15% weight
+          - Special leverage events: 10% weight
+        Returns { score: int, tier: str, tier_num: int }
+        """
+        relation = self.relations.get(npc_id, 50)
+        sided = min(10, self.times_sided_with.get(npc_id, 0))
+
+        # Active deals with this NPC
+        deal_history = getattr(self, 'deal_history', [])
+        active_deals = len([
+            d for d in deal_history
+            if d.get('npc') == npc_id
+            and not d.get('broken')
+            and d.get('expires_turn', 0) >= self.current_turn
+        ])
+        active_deals = min(3, active_deals)
+
+        # Opposing NPC hostility: if their geopolitical rival is hostile to Europa,
+        # this NPC has more reason to court Europa → higher leverage for us.
+        # USA vs Arabia/DPRG, EU vs DPRG, Arabia vs USA/EU
+        _rivals = {
+            'usa': ['arabia', 'dprg'],
+            'arabia': ['usa', 'eu'],
+            'eu': ['dprg', 'arabia'],
+            'dprg': ['usa', 'eu'],
+        }
+        rival_hostility = 0
+        for rival in _rivals.get(npc_id, []):
+            rival_rel = self.relations.get(rival, 50)
+            if rival_rel < 30:
+                rival_hostility += (30 - rival_rel) / 30.0  # 0-1 per rival
+
+        rival_hostility = min(1.0, rival_hostility)  # cap at 1.0
+
+        # Special leverage events
+        leverage_events = getattr(self, 'leverage_events', {})
+        special_count = min(3, len(leverage_events.get(npc_id, [])))
+
+        # Weighted score
+        score = (
+            (relation / 100.0) * 40.0 +
+            (sided / 10.0) * 20.0 +
+            (active_deals / 3.0) * 15.0 +
+            rival_hostility * 15.0 +
+            (special_count / 3.0) * 10.0
+        )
+        score = max(0, min(100, round(score)))
+
+        # Tier
+        if score >= 75:
+            tier, tier_num = 'Dominant', 3
+        elif score >= 50:
+            tier, tier_num = 'Strong', 2
+        elif score >= 25:
+            tier, tier_num = 'Moderate', 1
+        else:
+            tier, tier_num = 'Weak', 0
+
+        return {'score': score, 'tier': tier, 'tier_num': tier_num}
+
+    def get_threshold_warnings(self):
+        """ITEM 2: Generate pre-warning messages for existential thresholds.
+        Returns list of warning dicts with level ('warning' or 'danger') and text."""
+        warnings = []
+        arabia_rel = self.relations.get('arabia', 50)
+        usa_rel = self.relations.get('usa', 50)
+        stab = self.stability
+        approval = self.public_approval
+        budget = self.budget
+
+        # FIX I: Early caution at Arabia 35, full embargo risk at Arabia 25
+        if arabia_rel < 25:
+            warnings.append({
+                'level': 'warning',
+                'text': '🛢️ ⚠️ EMBARGO RISK — Arabia relations critical. Oil supply weaponization possible next turn. Secure alternative energy or repair relations immediately.'
+            })
+        elif arabia_rel < 35:
+            warnings.append({
+                'level': 'warning',
+                'text': '🛢️ ⚠️ Arabia relations declining — sustained USA alignment will trigger oil price increases.'
+            })
+        if budget < 4:
+            warnings.append({
+                'level': 'danger',
+                'text': '💸 🚨 BANKRUPTCY IMMINENT — One turn from insolvency. Emergency action required.'
+            })
+        elif budget < 8:
+            warnings.append({
+                'level': 'warning',
+                'text': '💸 ⚠️ SOLVENCY WARNING — National treasury critically low. Bankruptcy possible this turn if drain exceeds available funds.'
+            })
+        if stab < 20:
+            warnings.append({
+                'level': 'danger',
+                'text': '🛡️ ⚠️ COUP RISK — Military may act. Stability this low invites regime change regardless of approval.'
+            })
+        if approval < 20:
+            warnings.append({
+                'level': 'danger',
+                'text': '📊 ⚠️ REVOLUTION RISK — Public legitimacy near collapse. Mass unrest events likely.'
+            })
+        if usa_rel < 20 and usa_rel > 0:
+            warnings.append({
+                'level': 'warning',
+                'text': '🇺🇸 ⚠️ SANCTIONS ESCALATION RISK — Tier 4 sanctions possible next turn. Consider diplomatic intervention.'
+            })
+        # Military coup risk (ITEM 3 integration)
+        _mil = getattr(self, 'military_strength', 20)
+        if _mil <= 0:
+            warnings.append({
+                'level': 'danger',
+                'text': '⚔️ 🚨 MILITARY COLLAPSE — No military capacity. Coup risk extreme.'
+            })
+        return warnings
+
     def get_status_display(self):
         """Generate status display"""
         sanctions_flag = " ⚠️ SANCTIONS!" if self.usa_sanctions_active else ""
@@ -315,6 +841,9 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'took_usa_side_after_arabia_oil': self.took_usa_side_after_arabia_oil,
             'took_arabia_side_after_usa_alliance': self.took_arabia_side_after_usa_alliance,
             'blackmail_used': self.blackmail_used,
+            'npc_relations': self.npc_relations,
+            'pressure_suspended': self.pressure_suspended,
+            'approval_penalty_reduction': self.approval_penalty_reduction,
             'current_event': self.current_event,
             'options_override': self.options_override,
             'oil_price_locked': self.oil_price_locked,
@@ -329,14 +858,153 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'low_approval_turns': self.low_approval_turns,
             'high_approval_turns': self.high_approval_turns,
             'corruption_upgrades': self.corruption_upgrades,
-            'current_epitaph': self.current_epitaph,
+            'historian_summary': getattr(self, 'historian_summary', None),  # fixes_12 Fix 4
+            'pw_ledger': self.pw_ledger,
+            'negotiate_costs_this_turn': self.negotiate_costs_this_turn,
+            'negotiate_sessions_this_turn': self.negotiate_sessions_this_turn,
             # Session 2
             'brigades_deployed_last_turn': self.brigades_deployed_last_turn,
+            'covert_security_unlocked': self.covert_security_unlocked,
             'intel': self.intel,
+            'intel_activated_this_turn': self.intel_activated_this_turn,
             'deal_history': self.deal_history,
             'previous_oil_base': self.previous_oil_base,
             # Session 3
             'negotiation_log': self.negotiation_log,
+            'total_aid_received': self.total_aid_received,
+            'current_rapport': self.current_rapport,
+            'binding_promises': self.binding_promises,
+            'detection_heat': self.detection_heat,
+            'scandals_triggered': self.scandals_triggered,
+            'last_scandal_turn': self.last_scandal_turn,
+            'leverage_events': self.leverage_events,
+            'pressure_events_fired': self.pressure_events_fired,
+            'relations_100_unlocks': self.relations_100_unlocks,
+            # Pre-Session 4: Legacy tracking
+            'regime_history': self.regime_history,
+            'total_skimmed': self.total_skimmed,
+            'peak_personal_wealth': self.peak_personal_wealth,
+            'relations_high': self.relations_high,
+            'relations_low': self.relations_low,
+            'corruption_events_fired': self.corruption_events_fired,
+            'upgrades_purchased_log': self.upgrades_purchased_log,
+            'sanctions_active_turns': self.sanctions_active_turns,
+            'embargo_active_turns': self.embargo_active_turns,
+            # ITEM 2: Pre-computed threshold warnings for frontend display
+            'threshold_warnings': self.get_threshold_warnings(),
+            # ITEM 3: Military Strength
+            'military_strength': getattr(self, 'military_strength', 20),
+            # Session 4B: Election
+            'election_turn': getattr(self, 'election_turn', 4),
+            'election_fired': getattr(self, 'election_fired', False),
+            'election_result': getattr(self, 'election_result', None),
+            'election_warning_shown': getattr(self, 'election_warning_shown', False),
+            'regime_democracy_locked': getattr(self, 'regime_democracy_locked', 0),
+            'protests_pending': getattr(self, 'protests_pending', False),
+            # Session 4C: Domestic Actions
+            'action_media_taken': getattr(self, 'action_media_taken', False),
+            'action_judiciary_captured': getattr(self, 'action_judiciary_captured', False),
+            'action_press_suppressed': getattr(self, 'action_press_suppressed', False),
+            'action_opposition_dissolved': getattr(self, 'action_opposition_dissolved', False),
+            'action_journalists_liquidated': getattr(self, 'action_journalists_liquidated', False),
+            'domestic_actions_enacted_turns': getattr(self, 'domestic_actions_enacted_turns', {}),
+            'approval_floor': getattr(self, 'approval_floor', 0),
+            'approval_ceiling': getattr(self, 'approval_ceiling', 100),
+            'scandal_immune': getattr(self, 'scandal_immune', False),
+            'coup_immune': getattr(self, 'coup_immune', False),
+            'marsha_red_line_triggered': getattr(self, 'marsha_red_line_triggered', False),
+            # Session 4D: Tech Level
+            'tech_level': getattr(self, 'tech_level', 0),
+            'tech_sources': getattr(self, 'tech_sources', []),
+            # Session 4D: Intelligence Budget
+            'intel_budget': getattr(self, 'intel_budget', 0.0),
+            'intel_budget_allocation': getattr(self, 'intel_budget_allocation', 'maintenance'),
+            'intel_turns_unfunded': getattr(self, 'intel_turns_unfunded', 0),
+            # Session 4D: Alternate endings
+            'ending_triggered': getattr(self, 'ending_triggered', None),
+            'martyrdom_triggered': getattr(self, 'martyrdom_triggered', False),
+            'turns_no_suppression': getattr(self, 'turns_no_suppression', 0),
+            # Session 5: Shadow Cabinet Five Axes
+            'cabinet_axes': getattr(self, 'cabinet_axes', {'military': 0, 'intelligence': 0, 'resource_dev': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}),
+            'cabinet_maintenance_paid': getattr(self, 'cabinet_maintenance_paid', 0.0),
+            'extraction_injections_given': getattr(self, 'extraction_injections_given', []),
+            # fixes_16 Fix C: Extraction milestones
+            'extraction_l5_fired': getattr(self, 'extraction_l5_fired', False),
+            'extraction_l7_fired': getattr(self, 'extraction_l7_fired', False),
+            # Session 6: Military axis action state
+            'defense_procurement_count': getattr(self, 'defense_procurement_count', 0),
+            'defense_procurement_turn': getattr(self, 'defense_procurement_turn', -1),
+            'force_projection_target': getattr(self, 'force_projection_target', None),
+            'force_projection_cooldown': getattr(self, 'force_projection_cooldown', 0),
+            'arms_export_this_turn': getattr(self, 'arms_export_this_turn', None),
+            # Session 6: Intelligence axis action state
+            'intel_sharing_target': getattr(self, 'intel_sharing_target', None),
+            # Session 6: Media axis action state
+            'scandal_suppressed_this_turn': getattr(self, 'scandal_suppressed_this_turn', False),
+            'info_blackout_turns': getattr(self, 'info_blackout_turns', 0),
+            # Session 6: Judicial axis action state
+            'drop_investigation_this_turn': getattr(self, 'drop_investigation_this_turn', False),
+            'lawfare_target': getattr(self, 'lawfare_target', None),
+            'lawfare_turns': getattr(self, 'lawfare_turns', 0),
+            # Session 6: Political axis action state
+            'party_consolidation_turns': getattr(self, 'party_consolidation_turns', 0),
+            'fourth_advisor_slot': getattr(self, 'fourth_advisor_slot', False),
+            'constitutional_revision_active': getattr(self, 'constitutional_revision_active', False),
+            # Session 6: Extraction axis action state
+            'private_security_force': getattr(self, 'private_security_force', False),
+            'private_security_strength': getattr(self, 'private_security_strength', 0),
+            'offshore_transfer_this_turn': getattr(self, 'offshore_transfer_this_turn', False),
+            # Session 6: Resource Development axis action state
+            'export_contract_used': getattr(self, 'export_contract_used', False),
+            'gdp_credibility_active': getattr(self, 'gdp_credibility_active', False),
+            'sovereign_collateral_used': getattr(self, 'sovereign_collateral_used', False),
+            'sovereign_collateral_repayment': getattr(self, 'sovereign_collateral_repayment', 0.0),
+            'sovereign_collateral_turns': getattr(self, 'sovereign_collateral_turns', 0),
+            'strategic_resource_partner': getattr(self, 'strategic_resource_partner', None),
+            'resource_independence_active': getattr(self, 'resource_independence_active', False),
+            # Session 6: NPC Conditional Leverage Demands
+            'leverage_marsha_media_fired': getattr(self, 'leverage_marsha_media_fired', False),
+            'leverage_bill_opposition_fired': getattr(self, 'leverage_bill_opposition_fired', False),
+            'leverage_sadam_judicial_fired': getattr(self, 'leverage_sadam_judicial_fired', False),
+            'leverage_jiwon_press_fired': getattr(self, 'leverage_jiwon_press_fired', False),
+            # fixes_13: Bond financing + covert deals
+            'bonds_issued_count': getattr(self, 'bonds_issued_count', 0),
+            'small_bond_last_turn': getattr(self, 'small_bond_last_turn', -1),
+            'large_bond_used': getattr(self, 'large_bond_used', False),
+            'covert_deals': getattr(self, 'covert_deals', []),
+            # fixes_13 Fix 26: Black Operations state
+            'pressure_suspensions': getattr(self, 'pressure_suspensions', []),
+            'blackmail_ops_used': getattr(self, 'blackmail_ops_used', []),
+            # fixes_15 Fix F: Intel tier persists across turns for Blackmail
+            'npc_intel_tiers': getattr(self, 'npc_intel_tiers', {}),
+            'bilateral_damages': getattr(self, 'bilateral_damages', []),
+            'cross_npc_penalty_reductions': getattr(self, 'cross_npc_penalty_reductions', []),
+            # fixes_13 Fix 27: NPC 100 unlock state
+            'relations_caps': getattr(self, 'relations_caps', {}),
+            'dprg_coup_deterrence': getattr(self, 'dprg_coup_deterrence', False),
+            # fixes_13 Fix 28: Emergency tax event
+            'emergency_tax_event_fired': getattr(self, 'emergency_tax_event_fired', False),
+            # Session 5: Advisor System
+            'advisors': getattr(self, 'advisors', []),
+            'advisor_pool': getattr(self, 'advisor_pool', []),
+            'advisors_eliminated': getattr(self, 'advisors_eliminated', []),
+            'advisor_actions_log': getattr(self, 'advisor_actions_log', []),
+            'advisor_distortions': getattr(self, 'advisor_distortions', {}),
+            # Session 5: Economic Development Model
+            'tax_rates': getattr(self, 'tax_rates', {'income_tax': 0.20, 'corporate_tax': 0.15, 'resource_tax': 0.25}),
+            'gdp_base': getattr(self, 'gdp_base', 100.0),
+            'gdp_growth_rate': getattr(self, 'gdp_growth_rate', 0.02),
+            'revenue_streams': getattr(self, 'revenue_streams', {}),
+            'resource_endowment': getattr(self, 'resource_endowment', {'oil_reserves': 0.7, 'mineral_deposits': 0.3, 'arable_land': 0.4, 'rare_earths': 0.1, 'coastal_access': 0.6}),
+            'soft_power': getattr(self, 'soft_power', 0),
+            'diplomatic_capital': getattr(self, 'diplomatic_capital', 0),
+            # Session 5: Tech Level Passive Acquisition
+            'tech_level_fractional': getattr(self, 'tech_level_fractional', 0.0),
+            # Session 5: NPC-Initiated Contact
+            'npc_contact_history': getattr(self, 'npc_contact_history', {}),
+            'pending_npc_contacts': getattr(self, 'pending_npc_contacts', []),
+            # Session 5: Brigade Operations
+            'brigade_operations_this_turn': getattr(self, 'brigade_operations_this_turn', []),
         }
 
     @classmethod
@@ -365,6 +1033,12 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.took_usa_side_after_arabia_oil = data['took_usa_side_after_arabia_oil']
         gs.took_arabia_side_after_usa_alliance = data['took_arabia_side_after_usa_alliance']
         gs.blackmail_used = data['blackmail_used']
+        gs.npc_relations = data.get('npc_relations', {
+            'arabia_dprg': 45, 'arabia_eu': 25, 'arabia_usa': 30,
+            'dprg_eu': 15, 'dprg_usa': 10, 'eu_usa': 75,
+        })
+        gs.pressure_suspended = data.get('pressure_suspended', {})
+        gs.approval_penalty_reduction = data.get('approval_penalty_reduction', 0.0)
         gs.current_event = data.get('current_event', None)
         gs.options_override = data.get('options_override', None)
         gs.oil_price_locked = data.get('oil_price_locked', False)
@@ -372,6 +1046,32 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.oil_price_lock_turns_remaining = data.get('oil_price_lock_turns_remaining', 0)
         gs.active_trade_commitments = data.get('active_trade_commitments', [])
         gs.active_installments = data.get('active_installments', [])
+        # FIX D (session 6): Migrate inverted deal conditions from old parser bug.
+        # EU deals with "DPRG above X" should be "DPRG below X" (Marsha demands DPRG distance).
+        import re as _re_d
+        for _inst in gs.active_installments:
+            _ct = _inst.get('condition_type', '')
+            if _ct and _ct not in ('relation_below', 'relation_above'):
+                # Freeform condition — attempt to normalize
+                _ct_lower = str(_ct).lower()
+                if 'above' in _ct_lower or 'over' in _ct_lower:
+                    _m = _re_d.search(r'(\d+)', _ct_lower)
+                    if _m:
+                        _thresh = int(_m.group(1))
+                        # EU deals with "DPRG above X" are inverted — should be "below"
+                        _inst_npc = (_inst.get('npc') or '').lower()
+                        if _inst_npc in ('eu', 'marsha'):
+                            _inst['condition_type'] = 'relation_below'
+                            _inst['condition_npc'] = 'dprg'
+                            _inst['condition_threshold'] = _thresh
+                            print(f"  [game_state] FIX D MIGRATED: inverted EU deal condition → relation_below dprg {_thresh}")
+                        else:
+                            _inst['condition_type'] = 'relation_above'
+                            _npc_match = _re_d.search(r'(dprg|usa|eu|arabia)', _ct_lower)
+                            if _npc_match:
+                                _inst['condition_npc'] = _npc_match.group(1)
+                            _inst['condition_threshold'] = _thresh
+                            print(f"  [game_state] FIX D MIGRATED: normalized condition → relation_above {_inst.get('condition_npc')} {_thresh}")
         gs.oil_price_modifiers = data.get('oil_price_modifiers', [])
         # Stage 5
         gs.state_identity = data.get('state_identity', {
@@ -387,11 +1087,169 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'loyalty_brigades': False,
             'debt_infrastructure_deal': False,
         })
-        gs.current_epitaph = data.get('current_epitaph', None)
+        gs.historian_summary = data.get('historian_summary', None)  # fixes_12 Fix 4
+        gs.pw_ledger = data.get('pw_ledger', [])
+        gs.negotiate_costs_this_turn = data.get('negotiate_costs_this_turn', 0.0)
+        gs.negotiate_sessions_this_turn = data.get('negotiate_sessions_this_turn', 0)
         # Session 2
         gs.brigades_deployed_last_turn = data.get('brigades_deployed_last_turn', False)
+        gs.covert_security_unlocked = data.get('covert_security_unlocked', False)
         gs.intel = data.get('intel', {})
+        gs.intel_activated_this_turn = data.get('intel_activated_this_turn', {})
         gs.deal_history = data.get('deal_history', [])
         gs.previous_oil_base = data.get('previous_oil_base', 75)
         gs.negotiation_log = data.get('negotiation_log', [])
+        gs.total_aid_received = data.get('total_aid_received', {'usa': 0.0, 'arabia': 0.0, 'eu': 0.0, 'dprg': 0.0})
+        gs.current_rapport = data.get('current_rapport', {})
+        gs.binding_promises = data.get('binding_promises', [])
+        gs.detection_heat = data.get('detection_heat', 0)
+        gs.scandals_triggered = data.get('scandals_triggered', 0)
+        gs.last_scandal_turn = data.get('last_scandal_turn', 0)
+        gs.leverage_events = data.get('leverage_events', {})
+        gs.pressure_events_fired = data.get('pressure_events_fired', [])
+        gs.relations_100_unlocks = data.get('relations_100_unlocks', {
+            'usa': False, 'arabia': False, 'eu': False, 'dprg': False,
+        })
+        # Pre-Session 4: Legacy tracking
+        gs.regime_history = data.get('regime_history', [])
+        gs.total_skimmed = data.get('total_skimmed', 0.0)
+        gs.peak_personal_wealth = data.get('peak_personal_wealth', 0.0)
+        gs.relations_high = data.get('relations_high', dict(gs.relations))
+        gs.relations_low = data.get('relations_low', dict(gs.relations))
+        gs.corruption_events_fired = data.get('corruption_events_fired', [])
+        gs.upgrades_purchased_log = data.get('upgrades_purchased_log', [])
+        gs.sanctions_active_turns = data.get('sanctions_active_turns', 0)
+        gs.embargo_active_turns = data.get('embargo_active_turns', 0)
+        # ITEM 3: Military Strength
+        gs.military_strength = data.get('military_strength', 20)
+        # Session 4B: Election Mechanic (migration for old saves)
+        gs.election_turn = data.get('election_turn', 4)
+        gs.election_fired = data.get('election_fired', False)
+        gs.election_result = data.get('election_result', None)
+        gs.election_warning_shown = data.get('election_warning_shown', False)
+        gs.regime_democracy_locked = data.get('regime_democracy_locked', 0)
+        gs.protests_pending = data.get('protests_pending', False)
+        if 'election_turn' not in data:
+            print("  [game_state] ELECTION FIELDS MIGRATED: added defaults to old save")
+        # Session 4C: Domestic Actions (migration for old saves)
+        gs.action_media_taken = data.get('action_media_taken', False)
+        gs.action_judiciary_captured = data.get('action_judiciary_captured', False)
+        gs.action_press_suppressed = data.get('action_press_suppressed', False)
+        gs.action_opposition_dissolved = data.get('action_opposition_dissolved', False)
+        gs.action_journalists_liquidated = data.get('action_journalists_liquidated', False)
+        gs.domestic_actions_enacted_turns = data.get('domestic_actions_enacted_turns', {})
+        gs.approval_floor = data.get('approval_floor', 0)
+        gs.approval_ceiling = data.get('approval_ceiling', 100)
+        gs.scandal_immune = data.get('scandal_immune', False)
+        gs.coup_immune = data.get('coup_immune', False)
+        gs.marsha_red_line_triggered = data.get('marsha_red_line_triggered', False)
+        if 'action_media_taken' not in data:
+            print("  [game_state] DOMESTIC ACTION FIELDS MIGRATED: added defaults to old save")
+        # Session 4D: Tech Level, Intel Budget, Alternate Endings (migration for old saves)
+        gs.tech_level = data.get('tech_level', 0)
+        gs.tech_sources = data.get('tech_sources', [])
+        gs.intel_budget = data.get('intel_budget', 0.0)
+        gs.intel_budget_allocation = data.get('intel_budget_allocation', 'maintenance')
+        gs.intel_turns_unfunded = data.get('intel_turns_unfunded', 0)
+        gs.ending_triggered = data.get('ending_triggered', None)
+        gs.martyrdom_triggered = data.get('martyrdom_triggered', False)
+        gs.turns_no_suppression = data.get('turns_no_suppression', 0)
+        if 'tech_level' not in data:
+            print("  [game_state] SESSION 4D FIELDS MIGRATED: added defaults to old save")
+        # Session 5: Shadow Cabinet Five Axes
+        gs.cabinet_axes = data.get('cabinet_axes', {'military': 0, 'intelligence': 0, 'resource_dev': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0})
+        gs.cabinet_maintenance_paid = data.get('cabinet_maintenance_paid', 0.0)
+        gs.extraction_injections_given = data.get('extraction_injections_given', [])
+        # fixes_16 Fix C: Extraction milestones
+        gs.extraction_l5_fired = data.get('extraction_l5_fired', False)
+        gs.extraction_l7_fired = data.get('extraction_l7_fired', False)
+        # Session 6: Military axis action state
+        gs.defense_procurement_count = data.get('defense_procurement_count', 0)
+        gs.defense_procurement_turn = data.get('defense_procurement_turn', -1)
+        gs.force_projection_target = data.get('force_projection_target', None)
+        gs.force_projection_cooldown = data.get('force_projection_cooldown', 0)
+        gs.arms_export_this_turn = data.get('arms_export_this_turn', None)
+        # Session 6: Intelligence axis action state
+        gs.intel_sharing_target = data.get('intel_sharing_target', None)
+        # Session 6: Media axis action state
+        gs.scandal_suppressed_this_turn = data.get('scandal_suppressed_this_turn', False)
+        gs.info_blackout_turns = data.get('info_blackout_turns', 0)
+        # Session 6: Judicial axis action state
+        gs.drop_investigation_this_turn = data.get('drop_investigation_this_turn', False)
+        gs.lawfare_target = data.get('lawfare_target', None)
+        gs.lawfare_turns = data.get('lawfare_turns', 0)
+        # Session 6: Political axis action state
+        gs.party_consolidation_turns = data.get('party_consolidation_turns', 0)
+        gs.fourth_advisor_slot = data.get('fourth_advisor_slot', False)
+        gs.constitutional_revision_active = data.get('constitutional_revision_active', False)
+        # Session 6: Extraction axis action state
+        gs.private_security_force = data.get('private_security_force', False)
+        gs.private_security_strength = data.get('private_security_strength', 0)
+        gs.offshore_transfer_this_turn = data.get('offshore_transfer_this_turn', False)
+        # Session 6: Resource Development axis action state
+        gs.export_contract_used = data.get('export_contract_used', False)
+        gs.gdp_credibility_active = data.get('gdp_credibility_active', False)
+        gs.sovereign_collateral_used = data.get('sovereign_collateral_used', False)
+        gs.sovereign_collateral_repayment = data.get('sovereign_collateral_repayment', 0.0)
+        gs.sovereign_collateral_turns = data.get('sovereign_collateral_turns', 0)
+        gs.strategic_resource_partner = data.get('strategic_resource_partner', None)
+        gs.resource_independence_active = data.get('resource_independence_active', False)
+        gs.leverage_marsha_media_fired = data.get('leverage_marsha_media_fired', False)
+        gs.leverage_bill_opposition_fired = data.get('leverage_bill_opposition_fired', False)
+        gs.leverage_sadam_judicial_fired = data.get('leverage_sadam_judicial_fired', False)
+        gs.leverage_jiwon_press_fired = data.get('leverage_jiwon_press_fired', False)
+        # fixes_13: Bond financing + covert deals
+        gs.bonds_issued_count = data.get('bonds_issued_count', 0)
+        gs.small_bond_last_turn = data.get('small_bond_last_turn', -1)
+        gs.large_bond_used = data.get('large_bond_used', False)
+        gs.covert_deals = data.get('covert_deals', [])
+        # fixes_13 Fix 26: Black Operations state
+        gs.pressure_suspensions = data.get('pressure_suspensions', [])
+        gs.blackmail_ops_used = data.get('blackmail_ops_used', [])
+        gs.npc_intel_tiers = data.get('npc_intel_tiers', {})
+        gs.bilateral_damages = data.get('bilateral_damages', [])
+        gs.cross_npc_penalty_reductions = data.get('cross_npc_penalty_reductions', [])
+        # fixes_13 Fix 27: NPC 100 unlock state
+        gs.relations_caps = data.get('relations_caps', {})
+        gs.dprg_coup_deterrence = data.get('dprg_coup_deterrence', False)
+        # fixes_13 Fix 28: Emergency tax event
+        gs.emergency_tax_event_fired = data.get('emergency_tax_event_fired', False)
+        # Session 5: Advisor System
+        gs.advisors = data.get('advisors', [])
+        gs.advisor_pool = data.get('advisor_pool', [])
+        gs.advisors_eliminated = data.get('advisors_eliminated', [])
+        gs.advisor_actions_log = data.get('advisor_actions_log', [])
+        gs.advisor_distortions = data.get('advisor_distortions', {})
+        # Session 5: Economic Development Model
+        gs.tax_rates = data.get('tax_rates', {'income_tax': 0.20, 'corporate_tax': 0.15, 'resource_tax': 0.25})
+        gs.gdp_base = data.get('gdp_base', 100.0)
+        gs.gdp_growth_rate = data.get('gdp_growth_rate', 0.02)
+        gs.revenue_streams = data.get('revenue_streams', {
+            'income_tax': 0.0, 'corporate_tax': 0.0, 'resource_tax': 0.0,
+            'trade_tariffs': 0.0, 'foreign_aid': 0.0, 'tourism': 0.0,
+            'arms_exports': 0.0, 'financial_sector': 0.0,
+        })
+        gs.resource_endowment = data.get('resource_endowment', {
+            'oil_reserves': 0.7, 'mineral_deposits': 0.3, 'arable_land': 0.4,
+            'rare_earths': 0.1, 'coastal_access': 0.6,
+        })
+        gs.soft_power = data.get('soft_power', 0)
+        gs.diplomatic_capital = data.get('diplomatic_capital', 0)
+        # Session 5: Tech Level Passive Acquisition
+        gs.tech_level_fractional = data.get('tech_level_fractional', 0.0)
+        # Session 5: NPC-Initiated Contact
+        gs.npc_contact_history = data.get('npc_contact_history', {})
+        gs.pending_npc_contacts = data.get('pending_npc_contacts', [])
+        # Session 5: Brigade Operations
+        gs.brigade_operations_this_turn = data.get('brigade_operations_this_turn', [])
+        if 'cabinet_axes' not in data:
+            print("  [game_state] SESSION 5 FIELDS MIGRATED: added defaults to old save")
+            _migrate_to_axes(gs)
+        # Session 6: Migrate old 'security' key to military + intelligence
+        if 'security' in gs.cabinet_axes:
+            _migrate_security_to_split(gs)
+        # Ensure military/intelligence/resource_dev keys exist on old saves
+        gs.cabinet_axes.setdefault('military', 0)
+        gs.cabinet_axes.setdefault('intelligence', 0)
+        gs.cabinet_axes.setdefault('resource_dev', 0)
         return gs

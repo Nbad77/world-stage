@@ -1,40 +1,39 @@
 /**
  * End-of-turn effects panel — collapsible sections.
  * Session 2: replaces flat list with category sections.
- * Categories parsed from emoji prefixes in message strings.
+ * Session 4C: split into FINANCES (collapsed) + WORLD EVENTS (expanded).
+ * Election warning line shown as standalone highlight above sections.
  */
 import { useState } from 'react'
 
-function isFinance(msg) {
-  return /^[💰🏛️⛽📉📈💸]/.test(msg) && !/^[🛢️🇺🇸🇪🇺]/.test(msg)
+function isElectionLine(msg) {
+  // fixes_8 Fix 5: Election warning lines filtered out of EOT (shown as banner at turn start)
+  return /🗳️/.test(msg)
 }
-function isOil(msg) {
-  return /^🛢️/.test(msg)
-}
-function isWarning(msg) {
-  return /^(💔|⚠️|🇺🇸 USA SANCTION|🛢️ ARABIA EMBARGO|🇪🇺 EU TRADE)/.test(msg)
+function isWorldEvent(msg) {
+  // Pressure events, world events, protests, democracy lock, isolation
+  return /^(🇺🇸🇪🇺|🛢️⚡|🌍|⚡🇺🇸|🛢️💰|⚡🤝|🕵️|🖤|🪧|🏛️)/.test(msg) ||
+    /WESTERN BLOC|SHADOW PACT|TOTAL DIPLOMATIC|PROVOCATION|ENERGY CRISIS|COOPERATION|INTELLIGENCE SHARING|protests|observer/.test(msg)
 }
 function isRegime(msg) {
-  return /^(👁️|🔒|📊 Regime|Regime shifted|regime hardened|power base)/.test(msg) ||
-    /shifted to|Power base/.test(msg)
+  return /^(⚠️\s*Regime|✅\s*Regime|🔄\s*Power)/.test(msg) ||
+    /Regime shift|regime shift|Power base/.test(msg)
 }
 
 function categorise(messages) {
-  const finances = []
-  const oil = []
-  const warnings = []
+  const electionLines = []
+  const worldEvents = []
   const regime = []
-  const other = []
+  const finances = []
 
   for (const msg of messages) {
-    if (isWarning(msg))      warnings.push(msg)
-    else if (isOil(msg))     oil.push(msg)
-    else if (isRegime(msg))  regime.push(msg)
-    else if (isFinance(msg)) finances.push(msg)
-    else                     other.push(msg)
+    if (isElectionLine(msg))       electionLines.push(msg)
+    else if (isRegime(msg))        regime.push(msg)
+    else if (isWorldEvent(msg))    worldEvents.push(msg)
+    else                           finances.push(msg)
   }
 
-  return { finances, oil, warnings, regime, other }
+  return { electionLines, worldEvents, regime, finances }
 }
 
 function Section({ icon, title, badge, summary, items, defaultOpen = false }) {
@@ -64,47 +63,45 @@ function Section({ icon, title, badge, summary, items, defaultOpen = false }) {
 export default function EotPanel({ messages }) {
   if (!messages || messages.length === 0) return null
 
-  const { finances, oil, warnings, regime, other } = categorise(messages)
+  const { electionLines, worldEvents, regime, finances } = categorise(messages)
 
-  // Net finance change — extract the last budget line for summary
-  const financeAll = [...finances, ...other]
-  const drainLine = financeAll.find(m => /Passive drain|Net drain/.test(m))
-  const financeSummary = drainLine
-    ? drainLine.replace(/^💰\s*/, '').replace(/Passive drain this turn:\s*/i, '').trim()
-    : `${financeAll.length} item${financeAll.length !== 1 ? 's' : ''}`
-
-  // Oil summary — grab final price from the summary line ("= $X/bbl" at end of line)
-  // The summary line format is: "🛢️  Oil price: $120 base → ... = $206/bbl"
-  // Prefer that over modifier lines like "🛢️  Oil modifier active: +$18/bbl ..."
-  const oilSummaryLine = oil.find(m => /=\s*\$\d+\/bbl/.test(m)) || oil.find(m => /\$\d+\/bbl/.test(m)) || oil[0] || ''
-  const oilMatch = oilSummaryLine.match(/=\s*\$(\d+)\/bbl/) || oilSummaryLine.match(/\$(\d+)\/bbl/)
-  const oilSummary = oilMatch ? `$${oilMatch[1]}/bbl` : `${oil.length} item${oil.length !== 1 ? 's' : ''}`
+  // fixes_13 Fix 15: FINANCES header shows true net budget change, not just passive drain
+  // Parse all finance lines for $ amounts to compute net
+  let financeNet = 0
+  for (const msg of finances) {
+    // Match patterns like "+$4.2B", "-$1.5B", "$3.0B" in context
+    const amounts = msg.match(/[+-]?\$[\d.]+B/g)
+    if (amounts) {
+      for (const amt of amounts) {
+        const val = parseFloat(amt.replace('$', '').replace('B', ''))
+        if (!isNaN(val)) financeNet += val
+      }
+    }
+  }
+  const financeSummary = financeNet !== 0
+    ? `${financeNet >= 0 ? '+' : ''}$${financeNet.toFixed(1)}B net`
+    : `${finances.length} item${finances.length !== 1 ? 's' : ''}`
 
   return (
     <div className="eot-panel">
       <div className="panel-header">End of Turn Effects</div>
 
+      {/* fixes_8 Fix 5: Election warning lines removed from EOT — shown as banner at turn start instead */}
+
       <Section
         icon="💰"
         title="FINANCES"
         summary={financeSummary}
-        items={financeAll}
+        items={finances}
         defaultOpen={false}
       />
-      <Section
-        icon="🛢️"
-        title="OIL"
-        summary={oilSummary}
-        items={oil}
-        defaultOpen={false}
-      />
-      {warnings.length > 0 && (
+      {worldEvents.length > 0 && (
         <Section
-          icon="⚠️"
-          title="WARNINGS"
-          badge={warnings.length}
-          summary={`${warnings.length} active`}
-          items={warnings}
+          icon="🌍"
+          title="WORLD EVENTS"
+          badge={worldEvents.length}
+          summary={`${worldEvents.length} event${worldEvents.length !== 1 ? 's' : ''}`}
+          items={worldEvents}
           defaultOpen={true}
         />
       )}

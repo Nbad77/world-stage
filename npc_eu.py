@@ -34,7 +34,7 @@ def get_eu_message(game_state, dialogue_manager):
     if usa_relations < 30 and arabia_relations < 30:
         variants = [
             "Europa, you're surrounded by hostile powers. The EU can mediate before this escalates to full economic warfare.",
-            'Alienating both Washington AND Arabia? This is untenable. We offer diplomatic mediation while you can still accept.',
+            'Alienating both Hartwell AND Arabia? This is untenable. We offer diplomatic mediation while you can still accept.',
             'The Commission is alarmed. You cannot survive with both superpowers as enemies. Let us negotiate on your behalf.',
             'Emergency session: Europa faces crisis on two fronts. EU mediation is your only path to de-escalation.',
             'Turn {turn}: USA at {usa_rel}, Arabia at {arabia_rel}. This is not diplomacy - this is catastrophe. Accept our help.',

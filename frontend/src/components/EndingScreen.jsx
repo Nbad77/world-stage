@@ -67,6 +67,22 @@ export default function EndingScreen({ ending, gs, onRestart, onExportLog }) {
         </div>
       )}
 
+      {/* fixes_12 Fix 4: Historian summary — replaces per-turn epitaph */}
+      {(ending.historian_summary || gs?.historian_summary) && (
+        <div className="panel" style={{ borderLeft: '3px solid var(--accent, #888)', background: 'rgba(255,255,255,0.03)' }}>
+          <div className="panel-header">The Historian's Verdict</div>
+          <p style={{
+            fontSize: '0.9rem',
+            lineHeight: 1.7,
+            color: 'var(--text)',
+            fontStyle: 'italic',
+            padding: '0.5rem 0',
+          }}>
+            {ending.historian_summary || gs?.historian_summary}
+          </p>
+        </div>
+      )}
+
       {/* Final stats */}
       <div className="panel">
         <div className="panel-header">Final Statistics</div>

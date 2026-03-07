@@ -39,7 +39,7 @@ def get_usa_message(game_state, dialogue_manager):
             "Economic warfare is our specialty. The sanctions will continue until your government changes course.",
             "Your economy bleeds $2 billion per turn. Are you ready to negotiate yet?",
             "The Pentagon calculates you have limited time before economic collapse begins.",
-            "Every turn costs you billions. One phone call to Washington ends this - but it requires submission.",
+            "Every turn costs you billions. One phone call to Hartwell ends this - but it requires submission.",
             "Your people starve while Sadam profits. Is this the Europa you envisioned?",
             "Turn {turn} under sanctions. Your budget hemorrhages. When will you learn?",
             "We've watched you choose oil over principles. The sanctions are permanent until you reverse course.",
@@ -61,7 +61,7 @@ def get_usa_message(game_state, dialogue_manager):
             "Turn {turn}: Your previous Arabia partnership is noted. Rebuilding trust requires consistency, not opportunism.",
             "We appreciate your recent alignment, but your history with Sadam hasn't been forgotten. Prove yourself.",
             "The National Security Council debates whether your conversion is genuine or merely tactical.",
-            "You've chosen the right side, but your past with Arabia's oil money raises red flags in Washington.",
+            "You've chosen the right side, but your past with Arabia's oil money raises red flags in Hartwell.",
             "Intelligence reports your Arabia deals total billions. Convince us you're not still compromised."
         ]
         message = dialogue_manager.get_unique_message('usa', variants, context)
@@ -75,7 +75,7 @@ def get_usa_message(game_state, dialogue_manager):
             "After {ignored_count} ignored communications, we must assume you're not interested in American partnership. Noted.",
             "Turn {turn}: {ignored_count} times ignored. The State Department considers this a pattern, not an accident.",
             "Your repeated silence speaks volumes. The Pentagon doesn't appreciate being dismissed by minor powers.",
-            "Diplomatic overtures ignored {ignored_count} times. Washington takes this as intentional disrespect.",
+            "Diplomatic overtures ignored {ignored_count} times. Hartwell takes this as intentional disrespect.",
             "We've attempted dialogue {ignored_count} consecutive turns. Perhaps economic pressure will be more persuasive.",
             "Turn {turn}: {ignored_count} ignored messages. The National Security Council recommends escalation protocols."
         ]
@@ -129,7 +129,7 @@ def get_usa_message(game_state, dialogue_manager):
             "The National Security Council expected more from a European nation. Your hesitation aids our adversaries.",
             "Halfway through and you've aligned with neither freedom nor tyranny. Weakness, not wisdom.",
             "Turn {turn}: Time is running out to prove you're a reliable partner. The Pentagon drafts contingency plans.",
-            "Six turns without commitment. Washington interprets this as tacit support for destabilizing actors."
+            "Six turns without commitment. Hartwell interprets this as tacit support for destabilizing actors."
         ]
     elif turn <= 8:
         variants = [
@@ -173,18 +173,20 @@ def get_usa_offer(game_state):
             'consequences': {
                 'budget': -5,
                 'usa': 25,
+                'dprg': -5,  # FIX 6: sanctions removal signals Western pivot
                 'special': 'remove_sanctions'
             }
         }
 
     if relations > 70:
         return {
-            'text': 'Form military alliance (+stability, +15 USA relations, Arabia/DPRG furious)',
+            'text': 'Form military alliance (+stability, Military +15, +15 USA, Arabia/DPRG furious)',
             'type': 'accept_deal',
             'npc': 'usa',
             'consequences': {
                 'usa': 15,
                 'stability': 8,
+                'military': 15,
                 'arabia': -20,
                 'dprg': -15
             }
@@ -192,22 +194,24 @@ def get_usa_offer(game_state):
 
     if turn >= 5:
         return {
-            'text': 'Side with USA: Sanction Arabia (+20 USA relations, -30 Arabia relations)',
+            'text': 'Side with USA: Sanction Arabia (+20 USA relations, -30 Arabia, -8 DPRG)',
             'type': 'side_with',
             'npc': 'usa',
             'consequences': {
                 'usa': 20,
-                'arabia': -30
+                'arabia': -30,
+                'dprg': -8  # FIX 6: large USA deal triggers DPRG penalty
             }
         }
 
     # Default USA offer
     return {
-        'text': 'Side with USA (+15 USA relations, -10 Arabia)',
+        'text': 'Side with USA (+15 USA relations, -10 Arabia, -3 DPRG)',
         'type': 'side_with',
         'npc': 'usa',
         'consequences': {
             'usa': 15,
-            'arabia': -10
+            'arabia': -10,
+            'dprg': -3  # FIX 6: small USA deal triggers minor DPRG penalty
         }
     }

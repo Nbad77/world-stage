@@ -1,0 +1,545 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DASHBOARD LAYOUT — Three-panel desktop + card feed mobile
+   Session 7A Step 1
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Dashboard color tokens ────────────────────────────────────────────── */
+:root {
+  --ws-gold:    #c9a84c;
+  --ws-blue:    #4a90d9;
+  --ws-bg:      #0f1923;
+  --ws-surface: #131b26;
+  --ws-surface2:#1a2332;
+  --ws-chrome:  #2a3545;
+}
+
+/* ── Shell: mobile-first single column ─────────────────────────────────── */
+.dashboard-shell {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--ws-bg);
+}
+
+.dashboard-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ── Desktop: three-panel CSS grid ─────────────────────────────────────── */
+@media (min-width: 1024px) {
+  .dashboard-shell {
+    display: grid;
+    grid-template-columns: 280px 1fr 280px;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .dashboard-left,
+  .dashboard-right {
+    display: flex !important;
+    flex-direction: column;
+    height: 100vh;
+    overflow-y: auto;
+    background: var(--ws-surface);
+    border-color: var(--ws-chrome);
+  }
+
+  .dashboard-left {
+    border-right: 1px solid var(--ws-chrome);
+  }
+
+  .dashboard-right {
+    border-left: 1px solid var(--ws-chrome);
+  }
+
+  .dashboard-center {
+    height: 100vh;
+    overflow-y: auto;
+    padding: 0 1rem;
+  }
+
+  /* Override game-scroll when inside dashboard */
+  .dashboard-center .game-scroll {
+    max-width: 700px;
+    margin: 0 auto;
+    flex: 1;
+  }
+}
+
+/* ── Context label (turn indicator at top of center) ───────────────────── */
+.dashboard-context-label {
+  text-align: center;
+  padding: 0.75rem 1rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ws-gold);
+  border-bottom: 1px solid var(--ws-chrome);
+  background: rgba(201, 168, 76, 0.04);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LEFT SIDEBAR — Vital signs
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.left-sidebar {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* ── State Identity (most prominent element) ───────────────────────────── */
+.ls-state-identity {
+  text-align: center;
+  padding: 1rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--ws-chrome);
+  margin-bottom: 0.25rem;
+}
+
+.ls-regime-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0.25rem;
+}
+
+.ls-regime-label.regime-democratic {
+  color: #8a9bb0;
+  text-shadow: 0 0 12px rgba(138, 155, 176, 0.3);
+}
+.ls-regime-label.regime-mid {
+  color: #c9a84c;
+  text-shadow: 0 0 12px rgba(201, 168, 76, 0.4);
+}
+.ls-regime-label.regime-authoritarian {
+  color: #c04040;
+  text-shadow: 0 0 16px rgba(192, 64, 64, 0.5);
+}
+
+.ls-power-base {
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+
+/* ── Stat items ────────────────────────────────────────────────────────── */
+.ls-section-label {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ws-gold);
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--ws-chrome);
+}
+
+.ls-stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.3rem 0;
+}
+
+.ls-stat-label {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.ls-stat-value {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.ls-stat-value.good  { color: var(--success); }
+.ls-stat-value.warn  { color: var(--warning); }
+.ls-stat-value.bad   { color: var(--danger);  }
+
+/* ── Progress bars (stability, approval) ───────────────────────────────── */
+.ls-bar-container {
+  margin-top: 0.15rem;
+}
+
+.ls-bar-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ls-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.ls-bar-fill.good  { background: var(--success); }
+.ls-bar-fill.warn  { background: var(--warning); }
+.ls-bar-fill.bad   { background: var(--danger);  }
+
+/* ── Power base slider (read-only) ─────────────────────────────────────── */
+.ls-slider-track {
+  width: 100%;
+  height: 6px;
+  background: linear-gradient(to right, var(--ws-blue), var(--ws-gold), var(--danger));
+  border-radius: 3px;
+  position: relative;
+  margin-top: 0.25rem;
+}
+
+.ls-slider-thumb {
+  position: absolute;
+  top: -4px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border: 2px solid var(--ws-chrome);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  transition: left 0.4s ease;
+}
+
+.ls-slider-labels {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  color: var(--muted);
+  margin-top: 0.2rem;
+}
+
+/* ── Oil price with embargo badge ──────────────────────────────────────── */
+.ls-embargo-badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  background: rgba(229, 74, 74, 0.15);
+  color: var(--danger);
+  border: 1px solid rgba(229, 74, 74, 0.3);
+  margin-left: 0.4rem;
+}
+
+.ls-sanctions-badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  background: rgba(58, 123, 213, 0.15);
+  color: var(--ws-blue);
+  border: 1px solid rgba(58, 123, 213, 0.3);
+  margin-left: 0.4rem;
+}
+
+/* ── Era / day / placeholder elements ──────────────────────────────────── */
+.ls-era-day {
+  display: flex;
+  justify-content: center;
+  gap: 0.75rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--ws-gold);
+  padding: 0.4rem 0;
+}
+
+.ls-historian-btn {
+  width: 100%;
+  padding: 0.5rem;
+  background: rgba(201, 168, 76, 0.08);
+  border: 1px solid var(--ws-chrome);
+  border-radius: 6px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ls-emergency-tokens {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+}
+
+.ls-token {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(201, 168, 76, 0.1);
+  border: 1px solid var(--ws-chrome);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* ── Cabinet button (sidebar version) ──────────────────────────────────── */
+.ls-cabinet-btn {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  background: rgba(201, 168, 76, 0.08);
+  border: 1px solid var(--ws-gold);
+  border-radius: 6px;
+  color: var(--ws-gold);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: background 0.15s;
+  margin-top: auto;
+}
+
+.ls-cabinet-btn:hover {
+  background: rgba(201, 168, 76, 0.15);
+}
+
+.ls-cabinet-arrow {
+  margin-left: auto;
+  font-size: 1rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RIGHT SIDEBAR — NPC relationships
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.right-sidebar {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.rs-header {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ws-gold);
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--ws-chrome);
+}
+
+/* ── Intel intercept badge placeholder ─────────────────────────────────── */
+.rs-intel-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(74, 144, 217, 0.08);
+  border: 1px solid rgba(74, 144, 217, 0.2);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: var(--ws-blue);
+  margin-bottom: 0.25rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   NPC CARD
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.npc-card {
+  padding: 0.75rem;
+  background: var(--ws-surface2);
+  border-radius: 8px;
+  border: 1px solid var(--ws-chrome);
+  transition: border-color 0.3s ease;
+}
+
+.npc-card.health-good   { border-color: var(--success); }
+.npc-card.health-warn   { border-color: var(--warning); }
+.npc-card.health-bad    { border-color: var(--danger);  }
+.npc-card.placeholder   { border-color: #2a2a2a; opacity: 0.45; }
+
+.npc-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.npc-portrait {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  border: 2px solid var(--ws-chrome);
+  flex-shrink: 0;
+}
+
+.npc-card-name {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.npc-card-subtitle {
+  font-family: var(--sans);
+  font-size: 0.62rem;
+  color: var(--muted);
+}
+
+/* ── Relation bar ──────────────────────────────────────────────────────── */
+.npc-rel-bar-track {
+  width: 100%;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 0.35rem;
+}
+
+.npc-rel-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease, background 0.4s ease;
+}
+
+.npc-card-status {
+  font-family: var(--sans);
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+
+.npc-card-warning {
+  font-size: 0.6rem;
+  color: var(--danger);
+  margin-top: 0.15rem;
+}
+
+/* ── Placeholder cards (Russia, China) ─────────────────────────────────── */
+.npc-card-coming {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #444;
+  text-align: center;
+  padding: 0.25rem 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MOBILE — NPC relationship strip
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.mobile-npc-strip {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.6rem 1rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (min-width: 1024px) {
+  .mobile-npc-strip {
+    display: none;
+  }
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--ws-chrome);
+}
+
+.mobile-npc-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-npc-circle {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  border: 3px solid var(--ws-chrome);
+  flex-shrink: 0;
+  position: relative;
+}
+
+.mobile-npc-circle.health-good { border-color: var(--success); }
+.mobile-npc-circle.health-warn { border-color: var(--warning); }
+.mobile-npc-circle.health-bad  { border-color: var(--danger);  }
+
+.mobile-npc-name {
+  font-family: var(--mono);
+  font-size: 0.5rem;
+  color: var(--muted);
+  text-align: center;
+  margin-top: 0.15rem;
+  white-space: nowrap;
+}
+
+.mobile-npc-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* ── Mobile condensed stats ────────────────────────────────────────────── */
+.mobile-stats-condensed {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.8rem;
+  padding: 0.4rem 1rem;
+  font-family: var(--mono);
+}
+
+@media (min-width: 1024px) {
+  .mobile-stats-condensed {
+    display: none;
+  }
+  font-size: 0.65rem;
+  color: var(--muted);
+  border-bottom: 1px solid var(--ws-chrome);
+}
+
+.mobile-stats-condensed .ms-val {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.mobile-stats-condensed .ms-val.good { color: var(--success); }
+.mobile-stats-condensed .ms-val.warn { color: var(--warning); }
+.mobile-stats-condensed .ms-val.bad  { color: var(--danger);  }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SCROLLBAR — sidebar custom scrollbar
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.dashboard-left::-webkit-scrollbar,
+.dashboard-right::-webkit-scrollbar {
+  width: 4px;
+}
+.dashboard-left::-webkit-scrollbar-track,
+.dashboard-right::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dashboard-left::-webkit-scrollbar-thumb,
+.dashboard-right::-webkit-scrollbar-thumb {
+  background: var(--ws-chrome);
+  border-radius: 2px;
+}

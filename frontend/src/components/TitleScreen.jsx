@@ -26,7 +26,7 @@ export default function TitleScreen({ onStart, onResume, hasResumable, resumeDat
       </p>
 
       <div style={{ fontFamily: 'var(--mono)', fontSize: '0.78rem', color: 'var(--muted)', lineHeight: 1.8 }}>
-        <div>🇺🇸 Bill Washington — USA</div>
+        <div>🇺🇸 Bill Hartwell — USA</div>
         <div>🛢️ Sadam — Arabia</div>
         <div>🇪🇺 Marsha — European Union</div>
         <div>💀 Ji-won Ryang — DPRG</div>

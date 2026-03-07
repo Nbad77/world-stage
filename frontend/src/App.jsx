@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { api } from './api'
+import { useAuth } from '@clerk/clerk-react'
+import { api, setTokenGetter } from './api'
 import TitleScreen from './components/TitleScreen'
 import GameScreen from './components/GameScreen'
 
@@ -15,11 +16,17 @@ const SESSION_KEY = 'worldstage_session_id'
  * If expired/not found, clears storage and shows normal "Begin Tenure".
  */
 export default function App() {
+  // Register Clerk's getToken with the API module so all requests include JWT
+  const { getToken } = useAuth()
+  useEffect(() => {
+    setTokenGetter(getToken)
+  }, [getToken])
   const [view, setView]           = useState('title')
   const [sessionId, setSessionId] = useState(null)
   const [initialData, setInitialData] = useState(null)
   const [loading, setLoading]     = useState(false)
   const [error, setError]         = useState(null)
+  const [gameKey, setGameKey]     = useState(0)   // increments to force GameScreen remount
 
   // hasResumable: null = still checking, false = no session, true = session ready
   const [hasResumable, setHasResumable] = useState(null)
@@ -95,6 +102,25 @@ export default function App() {
     }
   }
 
+  // ── Snapshot loaded (from TestPanel) — navigate into game with new state ──
+  async function handleSnapshotLoad(gameId) {
+    console.log('[TEST] handleSnapshotLoad called with gameId:', gameId)
+    console.log('[TEST] current sessionId:', sessionId)
+    try {
+      const data = await api.getGame(gameId)
+      console.log('[TEST] Game state fetched for snapshot, turn:', data?.game_state?.current_turn)
+      console.log('[TEST] Snapshot fully loaded: turn=', data?.game_state?.current_turn)
+      localStorage.setItem(SESSION_KEY, gameId)
+      setSessionId(gameId)
+      setInitialData(data)
+      setGameKey(k => k + 1)  // force GameScreen remount even if sessionId unchanged
+      setView('game')
+    } catch (e) {
+      console.error('[TEST] handleSnapshotLoad error:', e.message)
+      setError(`Snapshot load failed: ${e.message}`)
+    }
+  }
+
   // ── Restart / end game ────────────────────────────────────────────────────
   function handleRestart() {
     // Called from EndingScreen "Start New Game" button — clear saved session
@@ -110,10 +136,12 @@ export default function App() {
   if (view === 'game' && sessionId && initialData) {
     return (
       <GameScreen
+        key={`${sessionId}-${gameKey}`}
         sessionId={sessionId}
         initialData={initialData}
         onGameEnd={() => {}}
         onRestart={handleRestart}
+        onSnapshotLoad={handleSnapshotLoad}
       />
     )
   }

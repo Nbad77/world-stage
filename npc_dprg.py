@@ -69,12 +69,12 @@ def get_dprg_message(game_state, dialogue_manager):
         variants = [
             'USA relations at {usa_rel}/100. They have shown their true face: domination or destruction. But I offer alternative. True independence.',
             "The Americans sanction you now, yes? Predictable. They call it 'diplomacy.' I call it imperialism. The DPRG offers real partnership.",
-            'Washington squeezes. I do not. Pentagon threatens. I protect. This is simple mathematics, Europa. Choose survival.',
+            'Hartwell squeezes. I do not. Pentagon threatens. I protect. This is simple mathematics, Europa. Choose survival.',
             'Your conflict with USA ({usa_rel}/100) opens doors. The enemy of America is friend of DPRG. Let us discuss... arrangements.',
             'Turn {turn}: USA at {usa_rel}/100. They chose this. I did not force this outcome. But I can help you survive it.',
             '*calculating* USA sanctions hurt at $2B per turn. My weapons cost $2B once. The math is interesting, yes?',
             'Turn {turn}: The Americans thought their sanctions would break you. I am here to ensure they do not.',
-            'You resist USA alone. But you need not be alone. The DPRG has resisted Washington for decades. We know how.',
+            'You resist USA alone. But you need not be alone. The DPRG has resisted Hartwell for decades. We know how.',
             'USA relations at {usa_rel}/100. When the West turns against you, you learn quickly who your real friends are.',
             'Turn {turn}: I have watched USA destroy nations with sanctions. I have also watched nations survive them. With help.'
         ]
@@ -154,18 +154,20 @@ def get_dprg_offer(game_state):
     stability = game_state.stability
     usa_relations = game_state.relations['usa']
 
+    # ITEM 5: DPRG cross-NPC penalties are now handled by process_choice_consequences
+    # (scaled by deal size), so USA/EU penalties are removed from static offers.
     if budget < 20 or stability < 35:
-        return {'text': 'Accept DPRG emergency loan (+$10B, +10 stability, USA/EU furious)',
+        return {'text': 'Accept DPRG emergency loan (+$10B, +10 stability, ⚠️ USA/EU furious)',
                 'type': 'accept_deal', 'npc': 'dprg',
-                'consequences': {'budget': 10, 'stability': 10, 'dprg': 20, 'usa': -25, 'eu': -20}}
+                'consequences': {'budget': 10, 'stability': 10, 'dprg': 20}}
     if relations > 60:
-        return {'text': 'Form DPRG military pact (+stability, USA/EU/Arabia all furious)',
+        return {'text': 'Form DPRG military pact (+stability, Military +10, ⚠️ USA/EU/Arabia furious)',
                 'type': 'accept_deal', 'npc': 'dprg',
-                'consequences': {'dprg': 15, 'stability': 12, 'usa': -30, 'eu': -25, 'arabia': -10}}
+                'consequences': {'dprg': 15, 'stability': 12, 'military': 10, 'arabia': -8}}
     if usa_relations < 30:
-        return {'text': 'Purchase DPRG weapons (costs $2B, +stability, USA/EU very angry)',
+        return {'text': 'Purchase DPRG weapons (costs $2B, Military +10, +stability, +10 heat, ⚠️ USA/EU angry)',
                 'type': 'accept_deal', 'npc': 'dprg',
-                'consequences': {'budget': -2, 'stability': 6, 'dprg': 12, 'usa': -20, 'eu': -18}}
-    return {'text': 'Acknowledge DPRG (+8 DPRG relations, -5 USA/EU)',
+                'consequences': {'budget': -2, 'stability': 6, 'military': 10, 'heat': 10, 'dprg': 12}}
+    return {'text': 'Acknowledge DPRG (+8 DPRG relations, ⚠️ USA/EU penalties)',
             'type': 'side_with', 'npc': 'dprg',
-            'consequences': {'dprg': 8, 'usa': -5, 'eu': -5}}
+            'consequences': {'dprg': 8}}

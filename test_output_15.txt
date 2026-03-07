@@ -1,0 +1,975 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.3, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\nbbq8\AppData\Local\Programs\Python\Python314\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\nbbq8\OneDrive\Creative Projects\Claude Apps\GeoSim 3
+plugins: anyio-4.12.1
+collecting ... collected 111 items
+
+test_game.py::test_turn_limit PASSED
+test_game.py::test_oil_minimum PASSED
+test_game.py::test_all_npcs_generate_messages PASSED
+test_game.py::test_all_npcs_generate_offers PASSED
+test_game.py::test_dialogue_uniqueness PASSED
+test_game.py::test_sanctions_activation PASSED
+test_game.py::test_embargo_activation PASSED
+test_game.py::test_victory_condition PASSED
+test_game.py::test_defeat_conditions PASSED
+test_game.py::test_action_tracking PASSED
+tests/test_advisors.py::test_capacity_gate_managed_democracy PASSED
+tests/test_advisors.py::test_capacity_gate_kleptocracy PASSED
+tests/test_advisors.py::test_capacity_gate_nefarious_with_security PASSED
+tests/test_advisors.py::test_generate_advisor_pool_count PASSED
+tests/test_advisors.py::test_hire_advisor PASSED
+tests/test_advisors.py::test_hire_max_three PASSED
+tests/test_advisors.py::test_dismiss_advisor PASSED
+tests/test_advisors.py::test_eliminate_advisor PASSED
+tests/test_advisors.py::test_stat_distortion_no_bias PASSED
+tests/test_advisors.py::test_stat_distortion_with_bias PASSED
+tests/test_advisors.py::test_loyalty_check_no_betrayal_high_loyalty PASSED
+tests/test_advisors.py::test_loyalty_check_betrayal_can_fire PASSED
+tests/test_advisors.py::test_pool_excludes_active_archetypes PASSED
+tests/test_arabia.py::test_near_boundary_warning_fires PASSED
+tests/test_arabia.py::test_far_from_boundary_no_warning PASSED
+tests/test_cabinet_axes.py::test_regime_managed_democracy PASSED
+tests/test_cabinet_axes.py::test_regime_soft_authoritarianism PASSED
+tests/test_cabinet_axes.py::test_regime_patronage_state PASSED
+tests/test_cabinet_axes.py::test_regime_kleptocracy_via_extraction PASSED
+tests/test_cabinet_axes.py::test_regime_kleptocracy_high_total PASSED
+tests/test_cabinet_axes.py::test_regime_totalitarian PASSED
+tests/test_cabinet_axes.py::test_regime_zero_axes PASSED
+tests/test_cabinet_axes.py::test_axis_cost_tables_structure PASSED
+tests/test_cabinet_axes.py::test_maintenance_cost_calculation PASSED
+tests/test_cabinet_axes.py::test_permanent_floors PASSED
+tests/test_cabinet_axes.py::test_migration_from_binary_upgrades PASSED
+tests/test_cabinet_axes.py::test_serialize_deserialize_axes PASSED
+tests/test_cabinet_axes.py::test_serialize_deserialize_advisors PASSED
+tests/test_cabinet_axes.py::test_serialize_deserialize_tax_rates PASSED
+tests/test_conditional_payments.py::test_per_deal_withheld_messages PASSED
+tests/test_conditional_payments.py::test_uses_stored_threshold PASSED
+tests/test_conditional_payments.py::test_condition_met_pays_out PASSED
+tests/test_coup.py::test_coup_fires_at_military_zero Testing Turn 11 bug fix...
+✓ Turn limit enforced - NO TURN 11!
+
+Testing oil price minimum...
+✓ Oil price minimum ($20) enforced!
+
+Testing all NPCs generate dialogue...
+✓ All 4 NPCs generate dialogue!
+
+Testing all NPCs generate offers...
+✓ All 4 NPCs generate valid offers!
+
+Testing dialogue uniqueness...
+✓ Dialogue uniqueness working - including fallback!
+
+Testing sanctions activation...
+✓ Sanctions system working!
+
+Testing embargo activation...
+✓ Embargo system working!
+
+Testing victory condition...
+✓ Victory condition working!
+
+Testing defeat conditions...
+✓ Defeat conditions working!
+
+Testing action tracking...
+✓ Action tracking working!
+  PASS: capacity gate — Managed Democracy unlocks correct archetypes
+  PASS: capacity gate — Kleptocracy unlocks all base archetypes
+  PASS: capacity gate — nefarious archetypes gated by security axis
+  [advisor_engine] POOL: 4 archetypes available for regime Managed Democracy, security 0
+  PASS: generate_advisor_pool returns valid pool
+  [advisor_engine] POOL: 4 archetypes available for regime Managed Democracy, security 0
+  [advisor_engine] HIRED: Yuri Mensah (propagandist)
+  PASS: hire_advisor works correctly
+  PASS: hire_advisor enforces max 3 limit
+  [advisor_engine] DISMISSED: Viktor Volkov — returned to pool
+  PASS: dismiss_advisor works correctly
+  [advisor_engine] ELIMINATED: Viktor Volkov — permanent, cost $2.0B, consequences: Stability -5%, Heat +10
+  PASS: eliminate_advisor works correctly and records elimination
+  PASS: apply_stat_distortion — no distortion without bias
+  PASS: apply_stat_distortion — distortion fires with low loyalty + bias
+  PASS: check_advisor_loyalty — high loyalty prevents betrayal
+  PASS: check_advisor_loyalty — low loyalty betrayal fired 50/100 times
+  [advisor_engine] POOL: 4 archetypes available for regime Managed Democracy, security 0
+  PASS: generate_advisor_pool excludes active archetypes
+  [turn_processor] GDP CALC — approval: 47, stability: 49
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=16.6, drain=11.4, income=4.0
+  [turn_processor] ARABIA TIER WARNING: relations 27 near boundary
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASSED: Arabia tier boundary warning fires at rel=27 (near boundary 25).
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=22.9, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASSED: No Arabia tier boundary warning when far from boundaries.
+  PASS: axes total 5 -> Managed Democracy
+  PASS: axes total 10 -> Soft Authoritarianism
+  PASS: axes total 21 -> Patronage State
+  PASS: axes total 18 with extraction=7 -> Kleptocracy
+  PASS: axes total 30 -> Kleptocracy
+  PASS: axes total 40 -> Totalitarian Regime
+  PASS: axes total 0 -> Managed Democracy
+  PASS: AXIS_COST_PER_LEVEL has valid structure for all 5 axes
+  PASS: maintenance calculation correct: $2.2B (expected $2.2B)
+  PASS: AXIS_PERMANENT_FLOORS has all 5 axes
+  [game_state] AXES MIGRATED: {'security': 6, 'media': 5, 'judicial': 4, 'political': 6, 'extraction': 0}
+  PASS: _migrate_to_axes correctly maps binary flags to axis levels
+  PASS: cabinet_axes survive serialize/deserialize
+  PASS: advisors survive serialize/deserialize
+  PASS: tax_rates survive serialize/deserialize
+  [turn_processor] CONDITIONAL EVAL: deal=USA deal 1 condition=dprg below 40 current=44 met=False
+  [turn_processor] CONDITIONAL EVAL: deal=USA deal 2 condition=dprg below 35 current=44 met=False
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=22.9, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  Message 1: 📋 USA conditional withheld: $0.7B — DPRG [44] not below 40 ✗
+  Message 2: 📋 USA conditional withheld: $1.4B — DPRG [44] not below 35 ✗
+  PASSED: Two deals produce two separate withheld messages with correct thresholds.
+  [turn_processor] CONDITIONAL EVAL: deal=USA precision deal condition=dprg below 42 current=41 met=True
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=23.9, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  Budget: 30.0 → 26.9
+  Payment messages: ['📋 USA partnership payments: +$1.0B (1 active deal, conditional on DPRG below 42)']
+  PASSED: Stored threshold 42 used (DPRG 41 < 42 → condition met, payment processed).
+  [turn_processor] CONDITIONAL EVAL: deal=EU partnership condition=usa above 45 current=60 met=True
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=24.9, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  Budget: 30.0 → 27.9
+  Remaining turns: 1
+  PASSED: Condition met (USA 60 > 45) → payment processed, deal continues.
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=TruePASSED
+tests/test_coup.py::test_coup_blocked_by_immunity 
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=45%, immune=False, fired=True
+  PASSED: Coup fired 48/100 times at military=0, stability=20.
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=FalsePASSED
+tests/test_domestic_actions.py::test_state_media_takeover PASSED
+tests/test_domestic_actions.py::test_judicial_capture PASSED
+tests/test_domestic_actions.py::test_suppress_press PASSED
+tests/test_domestic_actions.py::test_dissolve_opposition PASSED
+tests/test_domestic_actions.py::test_liquidate_journalists PASSED
+tests/test_domestic_actions.py::test_duplicate_purchase_blocked PASSED
+tests/test_domestic_actions.py::test_insufficient_funds_blocked PASSED
+tests/test_domestic_actions.py::test_marsha_red_line PASSED
+tests/test_domestic_actions.py::test_no_marsha_red_line_below_threshold PASSED
+tests/test_domestic_actions.py::test_press_suppression_eu_drain PASSED
+tests/test_domestic_actions.py::test_scandal_immunity_blocks_roll PASSED
+tests/test_economic.py::test_gdp_grows_each_turn PASSED
+tests/test_economic.py::test_high_stability_boosts_growth PASSED
+tests/test_economic.py::test_low_stability_penalizes_growth PASSED
+tests/test_economic.py::test_sanctions_suppress_growth PASSED
+tests/test_economic.py::test_revenue_streams_populated 
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  [turn_processor] COUP CHECK: military=0, stability=20, probability=N/A, immune=True, fired=False
+  PASSED: Coup never fired with coup_immune=True across 100 runs.
+  [turn_processor] DOMESTIC ACTION: state_media_takeover — consequences: ['personal wealth -$5.0B', 'State Media Takeover enacted', 'USA -5', 'EU -8', 'approval floor set to 15%', '⚠️ Domestic action shifts regime axes (Security +2, Political +2)']
+  PASSED: State media takeover — cost, flag, floor, relations verified.
+  [turn_processor] DOMESTIC ACTION: judicial_capture — consequences: ['personal wealth -$4.0B', 'Judicial Capture enacted', 'USA -5', 'EU -10', 'scandal immunity granted', '⚠️ Domestic action shifts regime axes (Security +2, Political +2)']
+  PASSED: Judicial capture — scandal immunity, cost, relations verified.
+  [turn_processor] DOMESTIC ACTION: suppress_press — consequences: ['personal wealth -$3.0B', 'Suppress Independent Press enacted', 'DPRG +3', 'stability +5%', '⚠️ Domestic action shifts regime axes (Security +2, Political +2)']
+  PASSED: Suppress press — stability, DPRG, cost verified.
+  [turn_processor] DOMESTIC ACTION: dissolve_opposition — consequences: ['personal wealth -$6.0B', 'Dissolve Opposition Groups enacted', 'USA -5', 'EU -5', 'stability +10%', 'approval -8%', 'coup immunity granted', '⚠️ Domestic action shifts regime axes (Security +3, Political +3, Media +2)']
+  PASSED: Dissolve opposition — coup immunity, regime shift, approval hit verified.
+  [turn_processor] DOMESTIC ACTION: liquidate_journalists — consequences: ['personal wealth -$8.0B', 'Liquidate Investigative Journalists enacted', 'USA -8', 'EU -15', 'approval -10%', 'approval ceiling now 90%', 'scandal immunity granted', '⚠️ Domestic action shifts regime axes (Security +3, Political +3, Media +2)']
+  PASSED: Liquidate journalists — ceiling, immunity, cost verified.
+  [turn_processor] DOMESTIC ACTION: state_media_takeover — consequences: ['personal wealth -$5.0B', 'State Media Takeover enacted', 'USA -5', 'EU -8', 'approval floor set to 15%', '⚠️ Domestic action shifts regime axes (Security +2, Political +2)']
+  PASSED: Duplicate purchase blocked.
+  PASSED: Insufficient funds blocked.
+  [turn_processor] DOMESTIC ACTION: liquidate_journalists — consequences: ['personal wealth -$8.0B', 'Liquidate Investigative Journalists enacted', 'USA -8', 'EU -15', 'approval -10%', 'approval ceiling now 90%', 'scandal immunity granted', 'MARSHA RED LINE: EU publicly distances', '⚠️ Domestic action shifts regime axes (Security +3, Political +3, Media +2)']
+  PASSED: Marsha red line triggers at EU 70+.
+  [turn_processor] DOMESTIC ACTION: liquidate_journalists — consequences: ['personal wealth -$8.0B', 'Liquidate Investigative Journalists enacted', 'USA -8', 'EU -15', 'approval -10%', 'approval ceiling now 90%', 'scandal immunity granted', '⚠️ Domestic action shifts regime axes (Security +3, Political +3, Media +2)']
+  PASSED: No Marsha red line below EU 70.
+  [turn_processor] DOMESTIC PASSIVE: press suppression EU -3/turn
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=42.9, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASSED: Press suppression EU drain in EOT.
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=False, journalists=False, flag=True)
+  PASSED: Scandal immunity blocks detection roll.
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=42.9, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASS: GDP grew from 100.0 to 102.0 (~102.0 expected)
+  [turn_processor] GDP CALC — approval: 53, stability: 75
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=42.9, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASS: high stability boosted GDP to 103.0 (expected ~103.0)
+  [turn_processor] GDP CALC — approval: 45, stability: 28
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $2.8B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=41.8, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASS: low stability penalized GDP to 100.0 (expected ~100.0)
+  [turn_processor] GDP CALC — approval: 44, stability: 48
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=34.9, drain=11.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASS: sanctions suppressed GDP to 101.0 (expected ~101.0)
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9BPASSED
+tests/test_economic.py::test_revenue_streams_survive_serialization PASSED
+tests/test_election.py::test_fair_election_result_mapping PASSED
+tests/test_election.py::test_consequences_applied_correctly PASSED
+tests/test_election.py::test_election_fires_once PASSED
+tests/test_election.py::test_protests_mechanic PASSED
+tests/test_election.py::test_democracy_lock_blocks_rightward_shift PASSED
+tests/test_election.py::test_observers_conditions PASSED
+tests/test_epitaph.py::test_historian_fallback_covers_terminal_states PASSED
+tests/test_epitaph.py::test_historian_system_prompt PASSED
+tests/test_epitaph.py::test_historian_summary_persistence PASSED
+tests/test_epitaph.py::test_generate_historian_summary_without_api PASSED
+tests/test_ledger.py::test_domestic_action_recorded_in_ledger PASSED
+tests/test_ledger.py::test_ledger_sum_matches_personal_wealth PASSED
+tests/test_ledger.py::test_all_action_types_recorded PASSED
+tests/test_memory.py::test_embed_text_returns_none_without_voyage PASSED
+tests/test_memory.py::test_store_memory_graceful_failure PASSED
+tests/test_memory.py::test_retrieve_memories_returns_empty_on_failure PASSED
+tests/test_memory.py::test_get_relationship_summary_returns_none_on_failure PASSED
+tests/test_memory.py::test_build_memory_context_empty_when_no_data PASSED
+tests/test_memory.py::test_build_memory_context_includes_episodic PASSED
+tests/test_memory.py::test_build_memory_context_includes_relationship_summary PASSED
+tests/test_memory.py::test_cleanup_expired_memories_graceful_failure PASSED
+tests/test_npc_contact.py::test_usa_concern_dprg_trigger FAILED
+tests/test_npc_contact.py::test_dprg_wealth_notice_trigger 
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=42.9, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASS: revenue streams populated: income=$2.0B, corp=$1.2B, resource=$2.1B
+  PASS: revenue_streams survive serialize/deserialize
+  PASSED: Fair election result mapping thresholds verified.
+  [turn_processor] ELECTION RESULT: rigged — consequences applied: ['USA -3', 'EU -5', 'stability +3%', 'heat +10', 'personal wealth -$2.0B', '⚠️ Election outcome shifts regime axes (Security +2, Political +2)']
+  PASSED: Rigged election consequences applied: ['USA -3', 'EU -5', 'stability +3%', 'heat +10', 'personal wealth -$2.0B', '⚠️ Election outcome shifts regime axes (Security +2, Political +2)']
+  [turn_processor] ELECTION RESULT: fair_squeaker — consequences applied: ['USA +3', 'EU +3', 'stability -3%', 'approval +2%']
+  PASSED: fair_squeaker approval +2 verified: ['USA +3', 'EU +3', 'stability -3%', 'approval +2%']
+  [turn_processor] ELECTION RESULT: fair_success — consequences applied: ['USA +5', 'EU +8', 'stability +5%', 'approval +3%', '⚠️ Election outcome shifts regime axes (Security -2, Political -2)']
+  PASSED: Election fires-once flag verified.
+  [turn_processor] PROTESTS FIRED: no brigades deployed — penalties applied
+  [turn_processor] GDP CALC — approval: 52, stability: 51
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=42.9, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASSED: Protests mechanic verified. Messages: ['🪧 Post-election protests erupt! Stability -10%, approval -8%, USA -3, EU -3. The streets demand accountability.']
+  [turn_processor] DEMOCRACY LOCK: 1 turns remaining
+  [turn_processor] GDP CALC — approval: 45, stability: 28
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $2.8B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=41.8, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASSED: Democracy lock blocks rightward regime shift.
+  [turn_processor] ELECTION RESULT: observers — consequences applied: ['USA +10', 'EU +15', 'stability -2%', 'personal wealth -$1.0B', 'democracy locked 3 turns']
+  PASSED: Observers conditions verified (approval, brigades, and lock).
+  Bankruptcy: The Managed Democracy collapsed under the weight of its own ...
+  Collapse:   The Managed Democracy ended not with a coup but with the slo...
+  Revolt:     The people of Europa spoke, and what they said could not be ...
+  Victory:    The leader of the Managed Democracy survived all ten turns —...
+
+  PASSED: All 4 terminal states produce distinct historian fallbacks.
+  PASSED: HISTORIAN_SYSTEM contains required institutional roles and constraints.
+  PASSED: historian_summary persists through serialization.
+  No-API result: The Managed Democracy collapsed under the weight of its own ...
+  PASSED: generate_historian_summary returns fallback without API key.
+  [turn_processor] DOMESTIC ACTION: judicial_capture — consequences: ['personal wealth -$4.0B', 'Judicial Capture enacted', 'USA -5', 'EU -10', 'scandal immunity granted', '⚠️ Domestic action shifts regime axes (Security +2, Political +2)']
+  Ledger entry: {'turn': 1, 'change': -4.0, 'source': 'domestic action (Judicial Capture)', 'old': 20.0, 'new': 16.0}
+  PASSED: Domestic action creates correct ledger entry.
+  [turn_processor] DOMESTIC ACTION: suppress_press — consequences: ['personal wealth -$3.0B', 'Suppress Independent Press enacted', 'DPRG +3', 'stability +5%', '⚠️ Domestic action shifts regime axes (Security +2, Political +2)']
+  Ledger sum: 17.0, personal_wealth: 17.0
+  PASSED: Ledger sum matches personal wealth after domestic action.
+  [turn_processor] DOMESTIC ACTION: state_media_takeover — consequences: ['personal wealth -$5.0B', 'State Media Takeover enacted', 'USA -5', 'EU -8', 'approval floor set to 15%', '⚠️ Domestic action shifts regime axes (Security +2, Political +2)']
+  State Media Takeover: ledger entry -$5.0B ✓
+  [turn_processor] DOMESTIC ACTION: judicial_capture — consequences: ['personal wealth -$4.0B', 'Judicial Capture enacted', 'USA -5', 'EU -10', 'scandal immunity granted', '⚠️ Domestic action shifts regime axes (Security +2, Political +2)']
+  Judicial Capture: ledger entry -$4.0B ✓
+  [turn_processor] DOMESTIC ACTION: suppress_press — consequences: ['personal wealth -$3.0B', 'Suppress Independent Press enacted', 'DPRG +3', 'stability +5%', '⚠️ Domestic action shifts regime axes (Security +2, Political +2)']
+  Suppress Independent Press: ledger entry -$3.0B ✓
+  [turn_processor] DOMESTIC ACTION: dissolve_opposition — consequences: ['personal wealth -$6.0B', 'Dissolve Opposition Groups enacted', 'USA -5', 'EU -5', 'stability +10%', 'approval -8%', 'coup immunity granted', '⚠️ Domestic action shifts regime axes (Security +3, Political +3, Media +2)']
+  Dissolve Opposition Groups: ledger entry -$6.0B ✓
+  [turn_processor] DOMESTIC ACTION: liquidate_journalists — consequences: ['personal wealth -$8.0B', 'Liquidate Investigative Journalists enacted', 'USA -8', 'EU -15', 'approval -10%', 'approval ceiling now 90%', 'scandal immunity granted', '⚠️ Domestic action shifts regime axes (Security +3, Political +3, Media +2)']
+  Liquidate Investigative Journalists: ledger entry -$8.0B ✓
+
+  PASSED: All 5 domestic actions create correct ledger entries.
+  [memory_engine] Voyage AI unavailable: No module named 'voyageai'
+  PASS: _embed_text returns None without Voyage AI
+  [memory_engine] store_memory FAILED: DB unavailable
+  PASS: store_memory handles DB failure gracefully
+  [memory_engine] retrieve_memories FAILED: DB unavailable
+  PASS: retrieve_memories returns [] on DB failure
+  [memory_engine] get_relationship_summary FAILED: DB unavailable
+  PASS: get_relationship_summary returns None on DB failure
+  PASS: build_memory_context returns empty dict with no data
+  PASS: build_memory_context includes episodic memories
+  PASS: build_memory_context includes relationship summary
+  [memory_engine] cleanup_expired_memories FAILED: DB unavailable
+  PASS: cleanup_expired_memories handles DB failure gracefully
+  [turn_processor] GDP CALC — approval: 44, stability: 48
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=34.9, drain=11.0, income=4.0
+  [turn_processor] INCOMING TIER1 CHECK: usa condition met, roll=0.93, fired=False
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=42.9, drain=7.0, income=4.0
+  [turn_processor] INCOMING TIER1 CHECK: dprg condition met, roll=0.88, fired=False
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'FAILED
+tests/test_npc_contact.py::test_arabia_oil_worry_trigger FAILED
+tests/test_npc_contact.py::test_contact_cooldown_enforcement PASSED
+tests/test_npc_contact.py::test_no_contacts_when_conditions_not_met PASSED
+tests/test_scandal.py::test_scandal_no_fire_below_30 
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=48.7, drain=3.5, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  [turn_processor] GDP CALC — approval: 44, stability: 48
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=34.9, drain=11.0, income=4.0
+  [turn_processor] INCOMING TIER1 CHECK: usa condition met, roll=0.70, fired=False
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASS: contact cooldown prevents re-trigger within 3 turns
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=42.9, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASS: no contacts when conditions not met
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no rollPASSED
+tests/test_scandal.py::test_scandal_fires_above_85 PASSED
+tests/test_scandal.py::test_scandal_blocked_by_judicial_capture 
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  [turn_processor] SCANDAL CHECK: heat=20, below threshold, no roll
+  PASSED: No scandals fired at heat=25 across 100 runs.
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=79, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=84, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=68, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=2, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=86, fired=False
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=71, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=39, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=85, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=14, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=18, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=34, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=15, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=14, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=96, fired=False
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=71, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=20, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=35, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=37, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=78, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=27, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=92, fired=False
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=44, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=27, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=88, fired=False
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=82, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=34, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=65, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=63, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=33, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=7, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=12, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=82, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=55, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=36, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=6, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=1, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=43, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=99, fired=False
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=17, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=82, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=34, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=21, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=95, fired=False
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=57, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=71, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=91, fired=False
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=55, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=72, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=2, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=15, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=10, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=89, fired=False
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=20, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=70, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=5, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=48, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=75, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=71, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=19, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=56, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=17, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=6, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=40, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=47, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=6, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=46, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=27, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=88, fired=False
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=32, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=86, fired=False
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=14, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=46, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=100, fired=False
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=72, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=53, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=80, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=96, fired=False
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=20, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=31, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=21, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=23, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=53, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=4, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=23, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=95, fired=False
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=43, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=53, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=86, fired=False
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=95, fired=False
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=32, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=35, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=21, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=90, fired=False
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=14, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=49, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=5, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=61, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=29, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=26, fired=True
+  [turn_processor] SCANDAL CHECK: heat=90, prob=85%, roll=59, fired=True
+  PASSED: Scandal fired 84/100 times at heat=95 (expected ~85).
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)PASSED
+tests/test_session4d.py::test_tech_tier_effects_all_tiers PASSED
+tests/test_session4d.py::test_apply_tech_gain_eu_partnership PASSED
+tests/test_session4d.py::test_apply_tech_gain_tier_transition PASSED
+tests/test_session4d.py::test_tech_gdp_bonus_in_eot PASSED
+tests/test_session4d.py::test_eu_ceiling_from_tech PASSED
+tests/test_session4d.py::test_intel_budget_deducts_from_national PASSED
+tests/test_session4d.py::test_intel_apparatus_degradation PASSED
+tests/test_session4d.py::test_ending_martyrdom PASSED
+tests/test_session4d.py::test_ending_retirement PASSED
+tests/test_session4d.py::test_ending_democratic PASSED
+tests/test_session4d.py::test_ending_capture PASSED
+tests/test_session4d.py::test_ending_priority_martyrdom_over_capture PASSED
+tests/test_tax_effects.py::test_high_taxes_reduce_approval PASSED
+tests/test_tax_effects.py::test_low_taxes_boost_approval PASSED
+tests/test_tax_effects.py::test_normal_taxes_no_approval_effect PASSED
+tests/test_tax_effects.py::test_higher_taxes_produce_more_revenue PASSED
+tests/test_tax_effects.py::test_default_tax_rates PASSED
+tests/test_tech_passive.py::test_tech_gain_formula PASSED
+tests/test_tech_passive.py::test_regime_modifier_slows_tech 
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  [turn_processor] SCANDAL BLOCKED: immunity active (judiciary=True, journalists=False, flag=False)
+  PASSED: Scandal blocked by judicial capture across 100 runs at heat=95.
+  PASSED: All 5 tech tiers verified.
+  [turn_processor] TECH GAIN: eu_partnership +5 -> level 5
+  PASSED: EU partnership +5 tech.
+  [turn_processor] TECH GAIN: usa_transfer +8 -> level 26
+  PASSED: USA transfer tier transition reported.
+  [turn_processor] GDP CALC — approval: 60, stability: 53
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $5.5B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=44.5, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  [turn_processor] GDP CALC — approval: 60, stability: 53
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $6.1B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=45.1, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASSED: Tech GDP bonus — no-tech: +-2.5B, tech-50: +-1.9B
+  PASSED: EU ceiling from tech — EU at 120, USA capped at 100.
+  [turn_processor] INTEL BUDGET: active ($1.0B), unfunded streak: 0
+  PASSED: Intel budget deducts from national budget.
+  [turn_processor] INTEL BUDGET: none ($0.0B), unfunded streak: 1
+  [turn_processor] INTEL DEGRADATION: tier 2 → 1
+  [turn_processor] INTEL BUDGET: none ($0.0B), unfunded streak: 0
+  PASSED: Intel apparatus degrades after 2 unfunded turns.
+  [turn_processor] ALTERNATE ENDING TRIGGERED: martyrdom — Martyrdom
+  PASSED: Martyrdom ending triggered.
+  [turn_processor] ALTERNATE ENDING TRIGGERED: retirement — Voluntary Retirement
+  PASSED: Retirement ending at turn 10 only.
+  [turn_processor] ALTERNATE ENDING TRIGGERED: democratic — Democratic Transition
+  PASSED: Democratic ending — no domestic actions required.
+  [turn_processor] ALTERNATE ENDING TRIGGERED: capture — State Capture
+  PASSED: State capture ending — all 5 domestic actions required.
+  [turn_processor] ALTERNATE ENDING TRIGGERED: martyrdom — Martyrdom
+  PASSED: Martyrdom takes priority over capture.
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $4.5B (rate 45%), corporate: $2.4B (rate 40%), resource: $4.2B (rate 50%), total: $8.6B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=47.6, drain=7.0, income=4.0
+  [turn_processor] TAX APPROVAL: avg 45%, raw -3, scaled -1 (approval 50%)
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASS: high taxes generated burden warning
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $1.0B (rate 10%), corporate: $0.6B (rate 10%), resource: $0.8B (rate 10%), total: $1.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=40.9, drain=7.0, income=4.0
+  [turn_processor] TAX APPROVAL: low avg 10% → approval +2%
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASS: low taxes generated popularity bonus
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $1.2B (rate 20%), resource: $2.1B (rate 25%), total: $4.1B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=43.1, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASS: normal taxes produce no approval effect
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $1.0B (rate 10%), corporate: $0.6B (rate 10%), resource: $0.8B (rate 10%), total: $1.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=40.9, drain=7.0, income=4.0
+  [turn_processor] TAX APPROVAL: low avg 10% → approval +2%
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $4.0B (rate 40%), corporate: $2.1B (rate 35%), resource: $4.2B (rate 50%), total: $7.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=46.9, drain=7.0, income=4.0
+  [turn_processor] TAX APPROVAL: avg 42%, raw -3, scaled -1 (approval 50%)
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASS: higher taxes -> more revenue: $11.3B > $2.7B
+  PASS: default tax rates correct (20%, 15%, 25%)
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=42.9, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASS: tech gain formula correct: 0.759 (expected 0.759)
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9BPASSED
+tests/test_tech_passive.py::test_tech_level_advances_on_full_point PASSED
+tests/test_tech_passive.py::test_zero_relations_zero_tech_gain PASSED
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=42.9, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $2.6B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=41.6, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Totalitarian Regime'
+  PASS: regime modifier — Democracy 0.550 > Totalitarian 0.250
+  [turn_processor] GDP CALC — approval: 50, stability: 50
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $3.9B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=42.9, drain=7.0, income=4.0
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASS: tech level advanced to 7 (fractional: 0.050)
+  [turn_processor] GDP CALC — approval: 25, stability: 34
+  [turn_processor] TAX REVENUE — income: $2.0B (rate 20%), corporate: $0.9B (rate 15%), resource: $2.1B (rate 25%), total: $0.6B
+  [turn_processor] PEAK RELATIONS — USA: 50, Arabia: 50, EU: 50, DPRG: 50
+  [turn_processor] BANKRUPTCY CHECK: projected=-2.1, drain=24.0, income=4.0
+  [turn_processor] ARABIA TIER WARNING: relations 0 near boundary
+  [turn_processor] REGIME CHECK (axes-only): axes={'security': 0, 'media': 0, 'judicial': 0, 'political': 0, 'extraction': 0}, computed='Managed Democracy', current='Managed Democracy'
+  PASS: zero relations -> zero tech gain

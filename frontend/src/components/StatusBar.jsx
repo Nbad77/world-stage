@@ -4,12 +4,24 @@
  * Session 2: onShadowCabinet prop opens the Shadow Cabinet drawer.
  * Addition 2: compact relations mini-row always visible below regime identity.
  */
+import { useEffect } from 'react'
+
 export default function StatusBar({ gs, onShadowCabinet }) {
+  const approval = gs?.public_approval
+  const stability = gs?.stability
+
+  // fixes_8 Fix 1 + fixes_19 Fix B: useEffect must be called unconditionally (before early return)
+  useEffect(() => {
+    if (approval != null && stability != null) {
+      console.log("HEADER VALUES — approval:", approval, "stability:", stability)
+    }
+  }, [approval, stability])
+
   if (!gs) return null
 
   const budgetClass = gs.budget < 5 ? 'bad' : gs.budget < 15 ? 'warn' : 'good'
-  const stabilityClass = gs.stability < 20 ? 'bad' : gs.stability < 40 ? 'warn' : 'good'
-  const approvalClass = gs.public_approval < 20 ? 'bad' : gs.public_approval < 40 ? 'warn' : 'good'
+  const stabilityClass = stability < 20 ? 'bad' : stability < 40 ? 'warn' : 'good'
+  const approvalClass = approval < 20 ? 'bad' : approval < 40 ? 'warn' : 'good'
 
   const approvalEmoji =
     gs.public_approval >= 70 ? '🟢' :
@@ -62,12 +74,58 @@ export default function StatusBar({ gs, onShadowCabinet }) {
         <span className="stat-label">Oil</span>
         <span className="stat-value mono">${gs.oil_price}/bbl</span>
       </div>
+      {/* ITEM 3: Military Strength */}
+      <div className="stat">
+        <span className="stat-label">Military</span>
+        <span className={`stat-value mono ${(gs.military_strength ?? 20) < 10 ? 'bad' : (gs.military_strength ?? 20) < 30 ? 'warn' : 'good'}`}>⚔️ {gs.military_strength ?? 20}</span>
+      </div>
+
+      {/* fixes_8 Fix 4: Tech Level always visible — greyed at 0 */}
+      <div className="stat">
+        <span className="stat-label">Tech</span>
+        <span className={`stat-value mono ${(gs.tech_level ?? 0) === 0 ? '' : gs.tech_level >= 41 ? 'good' : 'warn'}`}
+          style={(gs.tech_level ?? 0) === 0 ? { opacity: 0.4 } : {}}
+        >{gs.tech_level ?? 0}</span>
+      </div>
+
+      {/* Session 5: Latent stats — Soft Power + Diplomatic Capital */}
+      {(gs.soft_power > 0 || gs.diplomatic_capital > 0) && (
+        <>
+          <div className="stat">
+            <span className="stat-label">Soft Pwr</span>
+            <span className={`stat-value mono ${gs.soft_power >= 50 ? 'good' : gs.soft_power >= 25 ? 'warn' : ''}`}
+              style={gs.soft_power === 0 ? { opacity: 0.4 } : {}}
+              title={`Soft Power: ${gs.soft_power}/100 — derived from relations, tech, approval`}
+            >{gs.soft_power}</span>
+          </div>
+          <div className="stat">
+            <span className="stat-label">Dip Cap</span>
+            <span className={`stat-value mono ${gs.diplomatic_capital >= 50 ? 'good' : gs.diplomatic_capital >= 25 ? 'warn' : ''}`}
+              style={gs.diplomatic_capital === 0 ? { opacity: 0.4 } : {}}
+              title={`Diplomatic Capital: ${gs.diplomatic_capital}/100 — derived from deals, leverage, alliances`}
+            >{gs.diplomatic_capital}</span>
+          </div>
+        </>
+      )}
 
       {/* Stage 5: state identity — full width row below the stats */}
       <div className="state-identity-row">
         <span className={`state-identity-regime ${regimeColorClass}`}>{regimeType}</span>
         <span className="state-identity-sep">·</span>
         <span className="state-identity-power">{powerBase}</span>
+        {/* fixes_10 Fix 3: Election warning — flag set one turn earlier by backend */}
+        {gs.election_warning_shown && !gs.election_fired &&
+         gs.current_turn < (gs.election_turn ?? 4) && (
+          <span style={{ marginLeft: '0.5rem', color: '#ffb74d', fontWeight: 600, fontSize: '0.72rem' }}>
+            | 🗳️ Election Next Turn
+          </span>
+        )}
+        {/* Session 5: NPC-Initiated Contact indicator */}
+        {gs.pending_npc_contacts && gs.pending_npc_contacts.length > 0 && (
+          <span style={{ marginLeft: '0.5rem', color: '#ff5252', fontWeight: 600, fontSize: '0.72rem', animation: 'pulse 1.5s infinite' }}>
+            | ⚡ {gs.pending_npc_contacts.length} INCOMING
+          </span>
+        )}
       </div>
 
       {/* Addition 2: Compact relations mini-row — always visible in the sticky bar */}
@@ -82,15 +140,17 @@ export default function StatusBar({ gs, onShadowCabinet }) {
         ))}
       </div>
 
-      {/* Shadow Cabinet row — full width, only shown when personal wealth > 0 */}
-      {onShadowCabinet && gs.personal_wealth > 0 && (
+      {/* fixes_11 Fix 10: Renamed to CABINET, always accessible at all game phases */}
+      {onShadowCabinet && (
         <button
           className="shadow-cabinet-row-btn"
           onClick={onShadowCabinet}
         >
           <span className="sc-row-icon">🗄️</span>
-          <span className="sc-row-label">SHADOW CABINET</span>
-          <span className="sc-row-funds">${gs.personal_wealth.toFixed(1)}B available</span>
+          <span className="sc-row-label">CABINET</span>
+          {gs.personal_wealth > 0 && (
+            <span className="sc-row-funds">${gs.personal_wealth.toFixed(1)}B available</span>
+          )}
           <span className="sc-row-arrow">›</span>
         </button>
       )}

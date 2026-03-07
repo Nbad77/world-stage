@@ -42,6 +42,10 @@ export default function OffersPanel({ offers, onChoice, disabled, counterOffers 
                   {' '}{counter.text}
                 </>
               ) : offer.text}
+              {/* Session 3 Addendum 2: Consequence warning flag (FIX G: show for counters too) */}
+              {(counter ? counter.relation_warning : offer.relation_warning) && (
+                <span className="offer-warning">{counter ? counter.relation_warning : offer.relation_warning}</span>
+              )}
             </span>
           </button>
         )

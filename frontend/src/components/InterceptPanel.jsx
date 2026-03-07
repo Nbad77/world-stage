@@ -26,18 +26,11 @@ function parseIntercept(raw) {
   return { label, text }
 }
 
+// fixes_13 Fix 8: Strip *stage directions* from all Claude-generated text
 function renderWithStageDirections(text) {
-  const parts = text.split(/(\*[^*]+\*)/g)
-  return parts.map((part, i) => {
-    if (part.startsWith('*') && part.endsWith('*')) {
-      return (
-        <em key={i} style={{ fontStyle: 'italic', opacity: 0.8 }}>
-          {part.slice(1, -1)}
-        </em>
-      )
-    }
-    return <span key={i}>{part}</span>
-  })
+  if (!text) return <span></span>
+  const cleaned = text.replace(/\*[^*]+\*/g, '').replace(/\s{2,}/g, ' ').trim()
+  return <span>{cleaned}</span>
 }
 
 export default function InterceptPanel({ intercepts }) {

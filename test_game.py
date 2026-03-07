@@ -163,11 +163,11 @@ def test_victory_condition():
     is_over, result, msg = check_game_over(gs)
     assert not is_over, "Should not be over at turn 1"
 
-    # Simulate completing turn 10
-    gs.current_turn = 11
+    # FIX B: Victory now triggers at current_turn >= max_turns (turn 10)
+    gs.current_turn = 10
 
     is_over, result, msg = check_game_over(gs)
-    assert is_over, "Should be over after turn 10"
+    assert is_over, "Should be over at turn 10"
     assert result == 'victory', f"Should be victory, got {result}"
 
     print("✓ Victory condition working!")

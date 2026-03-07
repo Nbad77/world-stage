@@ -77,7 +77,7 @@ def get_arabia_message(game_state, dialogue_manager):
             '*counting on fingers* One, two, three... {consecutive} times you stand firm. A man of your word.',
             'The Americans demand loyalty but give nothing. I demand nothing and give everything. You chose correctly {consecutive} times.',
             "Turn {turn}: {consecutive} straight decisions in Arabia's favor. The investment I prepare will reward this.",
-            'Brothers in defiance. {consecutive} times you proved it. Let Washington rage. We prosper regardless.'
+            'Brothers in defiance. {consecutive} times you proved it. Let Hartwell rage. We prosper regardless.'
         ]
         message = dialogue_manager.get_unique_message('arabia', variants, context)
         return dialogue_manager.format_npc_message('arabia', title, message, stage_direction)
@@ -88,12 +88,12 @@ def get_arabia_message(game_state, dialogue_manager):
         variants = [
             'USA sanctions hurt. My oil deals heal. The choice: poverty with principles, or prosperity with pragmatism.',
             'I see USA threatens you. They are predictable - sanctions, pressure, ultimatums. But I... I offer WEALTH.',
-            '*counting money* Turn {turn}. Your budget grows fat on my oil while Washington seethes. Beautiful.',
+            '*counting money* Turn {turn}. Your budget grows fat on my oil while Hartwell seethes. Beautiful.',
             "The Americans squeeze you, yes? Let them try. Arabia's vaults are deeper than Pentagon's patience.",
             "You've chosen wisely, Europa. My oil flows, your economy grows, USA rages. A perfect arrangement.",
             'Turn {turn} and still they sanction you for doing business with me. Their arrogance is breathtaking.',
             'Every turn you resist USA, I reward you. Every turn you comply, they demand more. Simple mathematics.',
-            '*warm smile* Brothers in defiance. Let Washington impose their pressure. We have oil, money, and time.',
+            '*warm smile* Brothers in defiance. Let Hartwell impose their pressure. We have oil, money, and time.',
             'USA relations at {usa_rel}/100. They chose confrontation. I choose commerce. Which fills your treasury?',
             'Turn {turn}: Americans call our deal illegitimate. Yet your budget is healthier than ever. Who is right?'
         ]
@@ -192,9 +192,12 @@ def get_arabia_offer(game_state):
                 'type': 'accept_deal', 'npc': 'arabia',
                 'consequences': {'budget': -4, 'arabia': 25, 'special': 'remove_embargo'}}
     if relations > 70:
-        return {'text': 'Accept Arabia premium partnership (+$12B, oil -$15, USA/EU very angry)',
+        # FIX U: Premium partnership triggers immediate Western Bloc Joint Pressure event.
+        # This makes negotiation the better path for players who want to manage relationships.
+        return {'text': 'Accept Arabia premium partnership (+$12B, oil -$15, Military +5, USA/EU very angry, ⚠️ TRIGGERS WESTERN BLOC PRESSURE)',
                 'type': 'accept_deal', 'npc': 'arabia',
-                'consequences': {'budget': 12, 'oil_price': -15, 'arabia': 15, 'usa': -25, 'eu': -15}}
+                'consequences': {'budget': 12, 'oil_price': -15, 'arabia': 15, 'military': 5, 'usa': -25, 'eu': -15,
+                                 'special': 'western_bloc_pressure'}}
     if turn >= 4 and relations >= 45:
         return {'text': 'Accept Arabia enhanced oil deal (+$8B, oil -$10, USA -15)',
                 'type': 'accept_deal', 'npc': 'arabia',

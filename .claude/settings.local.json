@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(npx vite build)",
+      "Bash(PYTHONIOENCODING=utf-8 python:*)",
+      "Bash(echo:*)",
+      "Bash(set:*)",
+      "Bash(curl:*)",
+      "Bash(findstr:*)",
+      "Bash(npm run build:*)",
+      "Bash(grep:*)",
+      "Bash(CI=true npx react-scripts build)",
+      "Bash(npm install)",
+      "Bash(node -e \"const c = require\\(''@clerk/clerk-react/package.json''\\); console.log\\(''clerk-react'', c.version\\)\")",
+      "Bash(node -e \"const r = require\\(''react-router-dom/package.json''\\); console.log\\(''react-router-dom'', r.version\\)\")",
+      "Bash(alembic init alembic)",
+      "Bash(alembic revision --autogenerate -m \"add_users_and_game_states_tables\")",
+      "Bash(alembic heads)",
+      "Bash(alembic check)",
+      "Bash(alembic upgrade head --sql)",
+      "Bash(alembic upgrade head)",
+      "Bash(ls \"/c/Users/nbbq8/OneDrive/Creative Projects/Claude Apps/GeoSim 3/frontend/.env\"*)",
+      "Bash(npm install -D tailwindcss@3 postcss autoprefixer)"
+    ]
+  }
+}

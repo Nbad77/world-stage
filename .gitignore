@@ -17,3 +17,5 @@ frontend/.env.local
 
 # Vercel
 .vercel
+
+nul

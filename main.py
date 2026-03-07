@@ -489,9 +489,7 @@ def run_turn(game_state, dialogue_manager):
     can_continue = game_state.advance_turn()
 
     if not can_continue:
-        # We've completed all 10 turns — trigger victory screen
-        # Temporarily push current_turn past max so check_game_over fires victory
-        game_state.current_turn = game_state.max_turns + 1
+        # FIX B: check_game_over now uses >= so no need to push current_turn past max
         is_over, result, message = check_game_over(game_state)
         print("\n" * 2)
         print(message)

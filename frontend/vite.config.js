@@ -8,6 +8,10 @@ export default defineConfig({
       '/game': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+      },
+      '/test': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
       }
     }
   }

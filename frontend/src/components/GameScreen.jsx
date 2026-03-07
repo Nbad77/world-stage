@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { api } from '../api'
 import StatusBar from './StatusBar'
 import RelationBadges from './RelationBadges'
@@ -13,6 +13,13 @@ import EndingScreen from './EndingScreen'
 import EventBanner from './EventBanner'
 import NegotiationPanel from './NegotiationPanel'
 import ShadowCabinet from './ShadowCabinet'
+import ElectionPanel from './ElectionPanel'
+import EndingPanel from './EndingPanel'
+import IntelAllocationPanel from './IntelAllocationPanel'
+import AdvisorPanel from './AdvisorPanel'
+import DebugPanel from './DebugPanel'
+import TestPanel from './TestPanel'
+import DashboardLayout from './DashboardLayout'
 
 /**
  * GameScreen manages the full turn lifecycle:
@@ -36,13 +43,13 @@ const PHASE = {
 }
 
 const NPC_INFO = {
-  usa:    { label: 'Bill Washington', flag: '🇺🇸', letter: 'A' },
+  usa:    { label: 'Bill Hartwell', flag: '🇺🇸', letter: 'A' },
   arabia: { label: 'Sadam',          flag: '🛢️',  letter: 'B' },
   eu:     { label: 'Marsha',         flag: '🇪🇺', letter: 'C' },
   dprg:   { label: 'Ji-won Ryang',   flag: '⚡',  letter: 'D' },
 }
 
-export default function GameScreen({ sessionId, initialData, onGameEnd, onRestart }) {
+export default function GameScreen({ sessionId, initialData, onGameEnd, onRestart, onSnapshotLoad }) {
   const [gs, setGs] = useState(initialData.game_state)
   const [dialogue, setDialogue] = useState(initialData.dialogue)
   const [offers, setOffers] = useState(initialData.offers)
@@ -84,8 +91,17 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   // Ending
   const [ending, setEnding] = useState(null)
 
+  // Session 4D: Intel allocation (done before skim each turn)
+  const [intelAllocated, setIntelAllocated] = useState(false)
+
   // Session 2 Item 6: Diplomatic crisis modal — broken deal messages
   const [dipCrisisMessages, setDipCrisisMessages] = useState([])
+
+  // Election → diplomatic choice: stash election results while player picks a deal
+  const [electionConseqStash, setElectionConseqStash] = useState(null)
+
+  // fixes_10 Fix 7: Debug panel — dev only, Ctrl+Shift+D
+  const [debugOpen, setDebugOpen] = useState(false)
 
   // FEATURE 1: Confirmation dialog — intercepts choice + skim before committing
   // { type: 'choice'|'skim', value: letter|choiceNum, text: string } | null
@@ -109,7 +125,17 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   //               skimNational, skimPersonal, eotEffects, budgetStart, budgetEnd,
   //               personalStart, personalEnd, stabilityStart, stabilityEnd,
   //               approvalStart, approvalEnd, epitaph }
-  const sessionLogRef = useRef([])
+  // FIX 4: Persist to localStorage so turns survive browser refresh.
+  const _logKey = `session_log_${sessionId}`
+  const _savedLog = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem(_logKey) || '[]') }
+    catch { return [] }
+  }, [_logKey])
+  const sessionLogRef = useRef(_savedLog)
+  const _persistLog = () => {
+    try { localStorage.setItem(_logKey, JSON.stringify(sessionLogRef.current)) }
+    catch { /* quota exceeded — non-fatal */ }
+  }
   // Track start-of-turn snapshot for delta calculation
   const turnStartRef = useRef({
     budget: initialData.game_state?.budget ?? 0,
@@ -124,6 +150,9 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0
   }, [phase])
+
+  // fixes_10 Fix 7: Debug/Cheat panel — now locked behind test account check.
+  // Ctrl+Shift+D removed. Cheat panel opened via TestPanel "Open Cheat Panel" button only.
 
   const clearError = () => setError(null)
 
@@ -203,7 +232,13 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         : base?.text || `Option ${letter}`
       const npcSided = counter?.npc || base?.npc || null
 
+      // fixes_16: Preserve election data if election already recorded this turn
+      const _prevEntry = currentTurnEntryRef.current
       currentTurnEntryRef.current = {
+        ...(_prevEntry.electionChoice ? {
+          electionChoice: _prevEntry.electionChoice,
+          electionConsequences: _prevEntry.electionConsequences,
+        } : {}),
         turn: gs?.current_turn ?? '?',
         choiceText,
         npcSided,
@@ -223,7 +258,14 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       }
 
       setGs(res.game_state)
-      setConsequences(res.consequences || [])
+      // Merge stashed election consequences with deal consequences
+      const dealConseqs = res.consequences || []
+      if (electionConseqStash) {
+        setConsequences([...(electionConseqStash.consequences || []), '—', ...dealConseqs])
+        setElectionConseqStash(null)
+      } else {
+        setConsequences(dealConseqs)
+      }
       setBlackmailResult(res.blackmail_result)
       setSkimOptions(res.skim_options || [])
       setBlackmailActive(false)
@@ -248,12 +290,15 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     try {
       const res = await api.deployBrigades(sessionId, operation > 0, operation, targetNpc)
       setGs(res.game_state)
-      const opNames = { 0: 'Stand Down', 1: 'Domestic Suppression', 2: 'Propaganda Campaign', 3: 'Foreign Influence Ops', 4: 'Covert Security Apparatus' }
+      const opNames = { 0: 'Stand Down', 1: 'Propaganda Campaign', 2: 'Domestic Suppression', 3: 'Foreign Influence Ops', 4: 'Covert Security Apparatus', 5: 'Black Operation', 6: 'State Media Takeover' }
       const opLabel = opNames[operation] || `Op ${operation}`
       const brigadeLabel = operation > 0
         ? `${opLabel}${targetNpc ? ` (target: ${targetNpc.toUpperCase()})` : ''}`
         : 'Stand Down — not deployed'
+      // PRE-SESSION 4 FIX (BUG F): Include full brigade outcome in export log
+      const brigadeOutcome = res.messages || []
       currentTurnEntryRef.current.brigadeOp = brigadeLabel
+      currentTurnEntryRef.current.brigadeOutcome = brigadeOutcome
       setBrigadeResult(res.messages?.join(' · ') || (operation > 0 ? 'Brigades deployed.' : 'Brigades stood down.'))
     } catch (e) {
       setError(e.message)
@@ -261,6 +306,18 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       setBrigadeLoading(false)
       // After brigade decision (either way), hide the prompt
       setBrigadeAvailable(false)
+    }
+  }
+
+  // ── Session 4D: Intel allocation handler ───────────────────────────────────
+  async function handleIntelAllocate(allocation) {
+    clearError()
+    try {
+      const res = await api.intelAllocation(sessionId, allocation)
+      if (res.game_state) setGs(res.game_state)
+      setIntelAllocated(true)
+    } catch (e) {
+      setError(e.message)
     }
   }
 
@@ -281,6 +338,8 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       setIntercepts(res.intercepts || [])
       const eotMsgs = res.eot_effects || []
       setEotMessages(eotMsgs)
+      // fixes_18 Fix C: Pipe approval trace logs to browser console
+      eotMsgs.filter(m => m.startsWith('[APPROVAL]')).forEach(m => console.log(m))
       // Session 2 Item 6: surface broken deal messages as diplomatic crisis modal
       const brokenDeals = eotMsgs.filter(m => m.startsWith('💔'))
       if (brokenDeals.length > 0) setDipCrisisMessages(brokenDeals)
@@ -301,6 +360,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       entry.epitaph      = res.game_state?.current_epitaph ?? null
       if (entry.turn) {
         sessionLogRef.current.push({ ...entry })
+        _persistLog()
         currentTurnEntryRef.current = {}  // prevent duplicate push on double-click / re-trigger
       }
 
@@ -342,6 +402,8 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       setIntercepts([])
       const eotMsgsInject = res.eot_effects || []
       setEotMessages(eotMsgsInject)
+      // fixes_18 Fix C: Pipe approval trace logs to browser console
+      eotMsgsInject.filter(m => m.startsWith('[APPROVAL]')).forEach(m => console.log(m))
       const brokenDealsInject = eotMsgsInject.filter(m => m.startsWith('💔'))
       if (brokenDealsInject.length > 0) setDipCrisisMessages(brokenDealsInject)
       setPatriotMessage(res.patriot_message || null)
@@ -358,6 +420,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       entry.epitaph      = res.game_state?.current_epitaph ?? null
       if (entry.turn) {
         sessionLogRef.current.push({ ...entry })
+        _persistLog()
         currentTurnEntryRef.current = {}  // prevent duplicate push on double-click / re-trigger
       }
 
@@ -439,6 +502,8 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     setBrigadeResult(null)
     setAftermathResult(null)
     setDrainProjection(null)
+    setIntelAllocated(false)
+    setElectionConseqStash(null)
     // Stage 4
     setCurrentEvent(next.event || null)
     setNegotiatingNpc(null)
@@ -448,26 +513,133 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     _nextTurnRef.current = null
   }
 
+  // ── Session 4B: Election done handler ─────────────────────────────────────
+  function handleElectionDone(resultData) {
+    // Update game state from election result
+    if (resultData.game_state) setGs(resultData.game_state)
+
+    // Snapshot for session log
+    if (gs) {
+      turnStartRef.current = {
+        budget:    gs.budget ?? 0,
+        personal:  gs.personal_wealth ?? 0,
+        stability: gs.stability ?? 0,
+        approval:  gs.public_approval ?? 0,
+      }
+    }
+
+    // fixes_16: Store election as a separate entry type so it is not
+    // overwritten if a negotiated deal is also accepted on the same turn.
+    const _prev = currentTurnEntryRef.current
+    currentTurnEntryRef.current = {
+      ...(_prev.turn ? _prev : {}),          // preserve existing deal data if any
+      turn: gs?.current_turn ?? '?',
+      electionChoice: `[ELECTION] ${resultData.result_key}`,
+      electionConsequences: resultData.consequences || [],
+      // Only set these defaults when no deal entry has claimed them yet
+      ...(!_prev.choiceText ? {
+        choiceText: null,
+        npcSided: null,
+        consequences: resultData.consequences || [],
+      } : {}),
+      brigadeOp: _prev.brigadeOp ?? null,
+      skimLabel: _prev.skimLabel ?? null,
+      skimNational: _prev.skimNational ?? 0,
+      skimPersonal: _prev.skimPersonal ?? 0,
+      eotEffects: _prev.eotEffects ?? [],
+      budgetStart:    turnStartRef.current.budget,
+      budgetEnd:      _prev.budgetEnd ?? null,
+      personalStart:  turnStartRef.current.personal,
+      personalEnd:    _prev.personalEnd ?? null,
+      stabilityStart: turnStartRef.current.stability,
+      stabilityEnd:   _prev.stabilityEnd ?? null,
+      approvalStart:  turnStartRef.current.approval,
+      approvalEnd:    _prev.approvalEnd ?? null,
+      epitaph: _prev.epitaph ?? null,
+    }
+
+    // Stash election consequences — player now picks a diplomatic deal;
+    // these will be prepended to the deal consequences in CONSEQUENCES phase.
+    setElectionConseqStash({
+      result_key: resultData.result_key,
+      consequences: resultData.consequences || [],
+      npc_reactions: resultData.npc_reactions || {},
+    })
+    // Stay in DIALOGUE phase — the ternary will now show OffersPanel
+    // since election_fired is true in the updated game state.
+  }
+
   // ── Stage 4: counter-offer handler ────────────────────────────────────────
-  async function handleCounterOffer(letter, counterOffer) {
+  // fixes_13 Fix 24: Accept covert flag for Ji-won transactions
+  async function handleCounterOffer(letter, counterOffer, covert = false) {
     setCounterOffers(prev => ({ ...prev, [letter]: counterOffer }))
     try {
-      await api.acceptCounter(sessionId, letter, counterOffer)
+      await api.acceptCounter(sessionId, letter, counterOffer, covert)
+      if (covert) console.log(`[GameScreen] Fix 24: Covert deal accepted with ${counterOffer?.npc}`)
     } catch (e) {
       console.warn('acceptCounter failed:', e.message)
     }
   }
 
-  function handleHistoryChange(npcKey, newMessages, newPendingOffers) {
+  function handleHistoryChange(npcKey, newMessages, newPendingOffers, newHeldOffer) {
     setChatHistories(prev => ({
       ...prev,
-      [npcKey]: { messages: newMessages, pendingOffers: newPendingOffers || [] },
+      [npcKey]: {
+        messages: newMessages,
+        pendingOffers: newPendingOffers || [],
+        heldOffer: newHeldOffer ?? (prev[npcKey]?.heldOffer ?? null),
+      },
     }))
   }
 
+  // ── Negotiation opener: inject communiqué as NPC's first message ─────────
+  function handleStartNegotiation(npcKey, communiqueText) {
+    if (npcKey === null) {
+      setNegotiatingNpc(null)
+      return
+    }
+    setNegotiatingNpc(npcKey)
+    // If no prior chat history for this NPC, inject communiqué as opening message
+    const existing = chatHistories[npcKey]
+    if (!existing?.messages?.length && communiqueText && communiqueText !== '…') {
+      setChatHistories(prev => ({
+        ...prev,
+        [npcKey]: {
+          messages: [{ role: 'npc', content: communiqueText }],
+          pendingOffers: prev[npcKey]?.pendingOffers || [],
+          heldOffer: prev[npcKey]?.heldOffer ?? null,
+        },
+      }))
+    }
+  }
+
   // ── FEATURE 1: Shadow Cabinet upgrade purchased → sync gs ────────────────
-  function handleUpgradePurchased(newGs) {
+  // PRE-SESSION 4 FIX (BUG C): Shadow Cabinet purchases must always be logged.
+  // If a turn entry is active, attach to it. Otherwise, attach to the most
+  // recent completed turn or buffer for the next turn.
+  function handleUpgradePurchased(newGs, purchaseInfo) {
     setGs(newGs)
+    if (purchaseInfo) {
+      const entry = currentTurnEntryRef.current
+      // Check if a turn entry is active (has a 'turn' field)
+      if (entry && entry.turn) {
+        if (!entry.upgradePurchases) entry.upgradePurchases = []
+        entry.upgradePurchases.push(purchaseInfo)
+      } else {
+        // No active turn entry — attach to most recent completed turn in session log
+        const log = sessionLogRef.current
+        if (log.length > 0) {
+          const lastEntry = log[log.length - 1]
+          if (!lastEntry.upgradePurchases) lastEntry.upgradePurchases = []
+          lastEntry.upgradePurchases.push(purchaseInfo)
+          _persistLog()
+        } else {
+          // Very first action before any turn — buffer in currentTurnEntryRef
+          if (!entry.upgradePurchases) entry.upgradePurchases = []
+          entry.upgradePurchases.push(purchaseInfo)
+        }
+      }
+    }
   }
 
   // # DEV FEATURE — remove before public launch
@@ -530,13 +702,28 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       richLog.forEach(entry => {
         const npcName = entry.npcSided ? (NPC_INFO[entry.npcSided]?.label || entry.npcSided) : 'none'
         lines.push(`Turn ${entry.turn}:`)
+        // fixes_16: Show election and deal as independent entries
+        if (entry.electionChoice) {
+          lines.push(`  Election:      ${entry.electionChoice}`)
+          if (entry.electionConsequences?.length > 0) {
+            lines.push('  Election consequences:')
+            entry.electionConsequences.forEach(c => lines.push(`    · ${c}`))
+          }
+        }
         lines.push(`  Choice:        ${entry.choiceText || '—'}`)
         lines.push(`  NPC sided:     ${npcName}`)
         if (entry.consequences?.length > 0) {
           lines.push('  Consequences:')
           entry.consequences.forEach(c => lines.push(`    · ${c}`))
         }
+        if (entry.upgradePurchases?.length > 0) {
+          lines.push('  Upgrades:')
+          entry.upgradePurchases.forEach(u => u.messages?.forEach(m => lines.push(`    · ${m}`)))
+        }
         lines.push(`  Brigade:       ${entry.brigadeOp || 'not deployed / n/a'}`)
+        if (entry.brigadeOutcome?.length > 0) {
+          entry.brigadeOutcome.forEach(m => lines.push(`    · ${m}`))
+        }
         if (entry.skimLabel) {
           lines.push(`  Skim:          ${entry.skimLabel}`)
           if (entry.skimNational) lines.push(`    National cost:   -${fm(entry.skimNational)}`)
@@ -627,19 +814,34 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
 
   // ── Render: ENDED ────────────────────────────────────────────────────────
   if (phase === PHASE.ENDED) {
+    // Session 4D: Alternate ending takes precedence if triggered
+    const altEnding = gs?.ending_triggered
     return (
       <div className="app-container">
-        <StatusBar gs={gs} />
-        <EndingScreen ending={ending} gs={gs} onRestart={onRestart} onExportLog={handleExportDebugLog} />
-        <div className="dev-export-footer">
-          <button
-            className="dev-export-btn"
-            onClick={handleExportDebugLog}
-            title="Export full game state as .txt debug log"
-          >
-            ⬇ Export Debug Log
-          </button>
+        <div className="block lg:hidden">
+          <StatusBar gs={gs} />
         </div>
+        <DashboardLayout gs={gs}>
+          {altEnding ? (
+            <EndingPanel
+              ending={altEnding}
+              gs={gs}
+              onRestart={onRestart}
+              onExportLog={handleExportDebugLog}
+            />
+          ) : (
+            <EndingScreen ending={ending} gs={gs} onRestart={onRestart} onExportLog={handleExportDebugLog} />
+          )}
+          <div className="dev-export-footer">
+            <button
+              className="dev-export-btn"
+              onClick={handleExportDebugLog}
+              title="Export full game state as .txt debug log"
+            >
+              Export Debug Log
+            </button>
+          </div>
+        </DashboardLayout>
       </div>
     )
   }
@@ -647,11 +849,15 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   // ── Render: GAME ─────────────────────────────────────────────────────────
   return (
     <div className="app-container">
-      <StatusBar
-        gs={gs}
-        onShadowCabinet={() => setShadowCabinetOpen(true)}
-      />
+      {/* Mobile only: StatusBar visible below lg breakpoint */}
+      <div className="block lg:hidden">
+        <StatusBar
+          gs={gs}
+          onShadowCabinet={() => setShadowCabinetOpen(true)}
+        />
+      </div>
 
+      <DashboardLayout gs={gs} onShadowCabinet={() => setShadowCabinetOpen(true)}>
       <div className="game-scroll" ref={scrollRef}>
 
         {error && (
@@ -679,14 +885,35 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
           </div>
         )}
 
+        {/* ITEM 2: Pre-warning system for existential thresholds */}
+        {phase === PHASE.DIALOGUE && gs?.threshold_warnings?.length > 0 && (
+          <details className="warnings-panel" open>
+            <summary className="warnings-panel-header">⚠️ WARNINGS ({gs.threshold_warnings.length})</summary>
+            {gs.threshold_warnings.map((w, i) => (
+              <div key={i} className={`warning-item warning-${w.level}`}>{w.text}</div>
+            ))}
+          </details>
+        )}
+
         {/* ── PHASE: DIALOGUE ── */}
         {phase === PHASE.DIALOGUE && (
           <>
             <div className="turn-divider">— TURN {gs?.current_turn}/{gs?.max_turns} —</div>
 
-            {gs?.current_epitaph && (
-              <div className="epitaph-line">
-                <em>{gs.current_epitaph}</em>
+            {/* fixes_12 Fix 4: Per-turn epitaph removed — historian summary on ending screen */}
+
+            {/* fixes_8 Fix 5: Election warning as amber banner at TOP of turn, ABOVE communiqués */}
+            {gs?.election_warning_shown && !gs?.election_fired && !gs?.constitutional_revision_active &&
+             gs?.current_turn < (gs?.election_turn ?? 4) && (
+              <div className="alert" style={{
+                background: 'rgba(255,183,77,0.12)',
+                borderColor: '#ffb74d',
+                borderLeft: '4px solid #ffb74d',
+                color: '#ffb74d',
+                textAlign: 'center',
+                fontWeight: 600,
+              }}>
+                Elections next turn — your choices this turn will shape the outcome.
               </div>
             )}
 
@@ -695,12 +922,19 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
 
             <DialoguePanel
               dialogue={dialogue}
-              onNegotiate={!loading ? setNegotiatingNpc : null}
+              onNegotiate={!loading && !(gs?.current_turn === (gs?.election_turn ?? 4) && !gs?.election_fired) ? handleStartNegotiation : null}
               negotiatingNpc={negotiatingNpc}
-              intelActive={!!gs?.corruption_upgrades?.intelligence_apparatus}
+              intelActive={true}
+              intelligenceLevel={gs?.cabinet_axes?.intelligence || 0}
               sessionId={sessionId}
               gs={gs}
+              onGsUpdate={setGs}
             />
+
+            {/* Session 5: Advisor Panel */}
+            {gs?.advisors?.length > 0 && (
+              <AdvisorPanel gs={gs} sessionId={sessionId} onGsUpdate={setGs} />
+            )}
 
             {/* Negotiation slide-up panel */}
             {negotiatingNpc && (() => {
@@ -745,9 +979,12 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
                   onCounterOffer={handleCounterOffer}
                   initialMessages={savedHistory.messages || []}
                   initialPendingOffers={savedHistory.pendingOffers || []}
-                  onHistoryChange={(msgs, offers) => handleHistoryChange(negotiatingNpc, msgs, offers)}
+                  initialHeldOffer={savedHistory.heldOffer ?? null}
+                  onHistoryChange={(msgs, offers, held) => handleHistoryChange(negotiatingNpc, msgs, offers, held)}
                   onGsUpdate={(newGs) => setGs(newGs)}
                   activeDealSummary={activeDealSummary}
+                  currentTurn={gs?.current_turn ?? 1}
+                  gs={gs}
                 />
               )
             })()}
@@ -806,15 +1043,41 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
                 relations={gs?.relations}
                 sanctions={gs?.usa_sanctions_active}
                 embargo={gs?.arabia_embargo_active}
+                unlocks={gs?.relations_100_unlocks}
               />
             </div>
 
-            <OffersPanel
-              offers={offers}
-              onChoice={handleChoice}
-              disabled={loading || (gs?.brigades_deployed_last_turn && !aftermathResult)}
-              counterOffers={counterOffers}
-            />
+            {/* Election result stash — shown after election resolves, before deal selection */}
+            {electionConseqStash && (
+              <div className="panel election-result-stash">
+                <div className="panel-header" style={{ color: 'var(--accent)' }}>
+                  🗳️ Election Result
+                </div>
+                {electionConseqStash.consequences.map((c, i) => (
+                  <div key={i} className="consequence-line">{c}</div>
+                ))}
+                <p style={{ opacity: 0.7, marginTop: '0.5rem', fontSize: '0.85rem' }}>
+                  Now choose your diplomatic action for this turn.
+                </p>
+              </div>
+            )}
+
+            {/* Session 4B: Election replaces OffersPanel on election turn */}
+            {gs?.current_turn === (gs?.election_turn ?? 4) && !gs?.election_fired && !gs?.constitutional_revision_active ? (
+              <ElectionPanel
+                gameState={gs}
+                sessionId={sessionId}
+                onElectionDone={handleElectionDone}
+                disabled={loading}
+              />
+            ) : (
+              <OffersPanel
+                offers={offers}
+                onChoice={handleChoice}
+                disabled={loading || (gs?.brigades_deployed_last_turn && !aftermathResult)}
+                counterOffers={counterOffers}
+              />
+            )}
 
             {/* Abandon moved into Shadow Cabinet drawer (with confirmation) */}
           </>
@@ -833,29 +1096,51 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
             {/* FEATURE 2: Brigade tiered deployment — shown before skim if available */}
             {brigadeAvailable && !brigadeResult && (() => {
               const pw = gs?.personal_wealth ?? 0
-              const brigadeOps = [
+              const hasIntel = !!gs?.corruption_upgrades?.intelligence_apparatus || (gs?.cabinet_axes?.intelligence || 0) >= 3
+              const hasCovert = !!gs?.covert_security_unlocked
+
+              // Session 3 Addendum 2: 3-tier brigade system
+              const tierOps = [
+                // TIER 1 — Always available
                 {
-                  op: 1, cost: 2, label: 'Domestic Suppression',
-                  desc: '+15% stability · -5% approval · All relations -3',
-                  canAfford: pw >= 2,
+                  op: 1, cost: 1, label: 'Propaganda Campaign', tier: 1,
+                  desc: '+10% approval · -2% stability',
+                  canAfford: pw >= 1, hasTarget: false, locked: false,
                 },
                 {
-                  op: 2, cost: 2, label: 'Propaganda Campaign',
-                  desc: '+10% approval · -2% stability · -$2B national',
-                  canAfford: pw >= 2,
+                  op: 2, cost: 2, label: 'Domestic Suppression', tier: 1,
+                  desc: '+8% stability · -5% approval · Chosen NPC notified (-5)',
+                  canAfford: pw >= 2, hasTarget: true, locked: false,
+                },
+                // TIER 2 — Requires Intelligence Apparatus
+                {
+                  op: 3, cost: 3, label: 'Foreign Influence Ops', tier: 2,
+                  desc: 'Sow distrust between target NPC and their ally (-10 NPC-to-NPC)',
+                  canAfford: pw >= 3, hasTarget: true, locked: !hasIntel,
+                  lockReason: 'Requires Intelligence Apparatus',
                 },
                 {
-                  op: 3, cost: 3, label: 'Foreign Influence Ops',
-                  desc: 'Target NPC relations -15 · +8% stability',
-                  canAfford: pw >= 3,
-                  hasTarget: true,
+                  op: 4, cost: 4, label: 'Covert Security Apparatus', tier: 2,
+                  desc: '+15% stability · -8% approval · Regime shifts right · Unlocks Tier 3',
+                  canAfford: pw >= 4, hasTarget: false, locked: !hasIntel,
+                  lockReason: 'Requires Intelligence Apparatus',
+                },
+                // TIER 3 — Requires Covert Security Apparatus
+                {
+                  op: 5, cost: 6, label: 'Black Operation', tier: 3,
+                  desc: 'Fabricate crisis vs target · Suspend their pressure events 2 turns · HIGH detection risk',
+                  canAfford: pw >= 6, hasTarget: true, locked: !hasCovert,
+                  lockReason: 'Requires Covert Security Apparatus',
                 },
                 {
-                  op: 4, cost: 5, label: 'Covert Security Apparatus',
-                  desc: '+20% stability · -10% approval · All relations -5 · Regime shifts right',
-                  canAfford: pw >= 5,
+                  op: 6, cost: 5, label: 'State Media Takeover', tier: 3,
+                  desc: 'Approval floor 15% · Future approval penalties -20% · Regime shifts right · EU -8',
+                  canAfford: pw >= 5, hasTarget: false, locked: !hasCovert,
+                  lockReason: 'Requires Covert Security Apparatus',
                 },
               ]
+
+              let currentTier = null
               return (
                 <div className="brigade-prompt-panel">
                   <div className="brigade-prompt-header">⚔️ LOYALTY BRIGADE DEPLOYMENT</div>
@@ -866,33 +1151,43 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
                     <div className="brigade-loading">Mobilising forces…</div>
                   ) : (
                     <div className="brigade-tiered-ops">
-                      {brigadeOps.map(({ op, cost, label, desc, canAfford, hasTarget }) => (
-                        <div key={op} className={`brigade-op-row${canAfford ? '' : ' brigade-op-disabled'}`}>
-                          <div className="brigade-op-info">
-                            <span className="brigade-op-label">{label}</span>
-                            <span className="brigade-op-desc">{desc}</span>
+                      {tierOps.map(({ op, cost, label, desc, canAfford, hasTarget, locked, lockReason, tier }) => {
+                        const showTierHeader = tier !== currentTier
+                        currentTier = tier
+                        const tierNames = { 1: 'TIER 1', 2: 'TIER 2', 3: 'TIER 3' }
+                        return (
+                          <div key={op}>
+                            {showTierHeader && (
+                              <div className="brigade-tier-header">{tierNames[tier]}</div>
+                            )}
+                            <div className={`brigade-op-row${locked ? ' brigade-op-locked' : (!canAfford ? ' brigade-op-disabled' : '')}`}>
+                              <div className="brigade-op-info">
+                                <span className="brigade-op-label">{locked ? '🔒 ' : ''}{label}</span>
+                                <span className="brigade-op-desc">{locked ? lockReason : desc}</span>
+                              </div>
+                              {hasTarget && !locked && canAfford && (
+                                <select
+                                  className="brigade-target-select"
+                                  value={brigadeTargetNpc}
+                                  onChange={e => setBrigadeTargetNpc(e.target.value)}
+                                >
+                                  <option value="usa">🇺🇸 USA</option>
+                                  <option value="arabia">🛢️ Arabia</option>
+                                  <option value="eu">🇪🇺 EU</option>
+                                  <option value="dprg">⚡ DPRG</option>
+                                </select>
+                              )}
+                              <button
+                                className="brigade-btn brigade-btn-yes"
+                                onClick={() => handleBrigadeDeploy(op, hasTarget ? brigadeTargetNpc : '')}
+                                disabled={locked || !canAfford || brigadeLoading}
+                              >
+                                {locked ? '🔒' : canAfford ? `$${cost}B` : `Need $${cost}B`}
+                              </button>
+                            </div>
                           </div>
-                          {hasTarget && canAfford && (
-                            <select
-                              className="brigade-target-select"
-                              value={brigadeTargetNpc}
-                              onChange={e => setBrigadeTargetNpc(e.target.value)}
-                            >
-                              <option value="usa">🇺🇸 USA</option>
-                              <option value="arabia">🛢️ Arabia</option>
-                              <option value="eu">🇪🇺 EU</option>
-                              <option value="dprg">⚡ DPRG</option>
-                            </select>
-                          )}
-                          <button
-                            className="brigade-btn brigade-btn-yes"
-                            onClick={() => handleBrigadeDeploy(op, hasTarget ? brigadeTargetNpc : '')}
-                            disabled={!canAfford || brigadeLoading}
-                          >
-                            {canAfford ? `$${cost}B` : `Need $${cost}B`}
-                          </button>
-                        </div>
-                      ))}
+                        )
+                      })}
                       <button
                         className="brigade-btn brigade-btn-no"
                         style={{ marginTop: '0.4rem', width: '100%' }}
@@ -912,11 +1207,21 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               <div className="alert alert-warn">{brigadeResult}</div>
             )}
 
+            {/* Session 4D: Intel allocation — before skim */}
+            {!intelAllocated && (
+              <IntelAllocationPanel
+                gs={gs}
+                onAllocate={handleIntelAllocate}
+                disabled={loading || brigadeLoading || (brigadeAvailable && !brigadeResult)}
+              />
+            )}
+
             <SkimPanel
               skimOptions={skimOptions}
               onSkim={handleSkim}
-              disabled={loading || brigadeLoading || (brigadeAvailable && !brigadeResult)}
+              disabled={loading || brigadeLoading || (brigadeAvailable && !brigadeResult) || !intelAllocated}
               drainProjection={drainProjection}
+              detectionHeat={gs?.detection_heat || 0}
             />
           </>
         )}
@@ -989,6 +1294,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         )}
 
       </div>
+      </DashboardLayout>
 
       {/* FEATURE 1: Confirmation modal */}
       {pendingConfirm && (
@@ -1066,6 +1372,25 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
           ⬇ Export Debug Log
         </button>
       </div>
+
+      {/* fixes_10 Fix 7: Debug/Cheat panel — now gated behind test account via TestPanel */}
+      {debugOpen && (
+        <DebugPanel
+          gs={gs}
+          sessionId={sessionId}
+          onClose={() => setDebugOpen(false)}
+          onGsUpdate={setGs}
+        />
+      )}
+
+      {/* Test Panel — only renders for is_test=true accounts */}
+      <TestPanel
+        sessionId={sessionId}
+        gs={gs}
+        onGsUpdate={setGs}
+        onOpenCheatPanel={() => setDebugOpen(true)}
+        onSnapshotLoad={onSnapshotLoad}
+      />
 
     </div>
   )
