@@ -17,7 +17,7 @@ Environment:
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 import httpx
 from dotenv import load_dotenv
@@ -157,3 +157,23 @@ async def get_current_user(request: Request) -> User:
 
         print(f"[AUTH] User authenticated: {user.id}, is_test={user.is_test}")
         return user
+
+
+async def get_optional_user(request: Request) -> Optional[User]:
+    """
+    FastAPI dependency: same as get_current_user but returns None
+    instead of raising 401 when no auth is provided.
+    Used to allow guest (anonymous) play while still supporting
+    authenticated sessions when a Clerk JWT is present.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        print("[AUTH] No auth header — guest mode")
+        return None
+
+    # Token is present — delegate to full verification
+    try:
+        return await get_current_user(request)
+    except Exception as e:
+        print(f"[AUTH] Token verification failed, falling back to guest: {e}")
+        return None

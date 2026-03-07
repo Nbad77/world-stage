@@ -5,22 +5,30 @@ import TitleScreen from './components/TitleScreen'
 import GameScreen from './components/GameScreen'
 
 const SESSION_KEY = 'worldstage_session_id'
+const CLERK_AVAILABLE = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
+
+/**
+ * ClerkTokenSync — renders only when Clerk is available (inside ClerkProvider).
+ * Registers Clerk's getToken with the API module so requests include JWT.
+ * Separated so useAuth() hook is never called outside ClerkProvider.
+ */
+function ClerkTokenSync() {
+  const { getToken } = useAuth()
+  useEffect(() => {
+    setTokenGetter(getToken)
+  }, [getToken])
+  return null
+}
 
 /**
  * Root app — manages which screen is visible.
  * VIEW: 'title' | 'game'
  *
- * Session persistence: saves session_id to localStorage on game start.
- * On mount, checks localStorage and attempts GET /game/{id}.
- * If the session is active, title screen offers "Resume Game" + "New Game".
- * If expired/not found, clears storage and shows normal "Begin Tenure".
+ * Auth: When Clerk is configured, JWT is attached to all API requests.
+ * When Clerk is not available, the app runs in guest mode — fully playable
+ * but game state is not linked to a user account.
  */
 export default function App() {
-  // Register Clerk's getToken with the API module so all requests include JWT
-  const { getToken } = useAuth()
-  useEffect(() => {
-    setTokenGetter(getToken)
-  }, [getToken])
   const [view, setView]           = useState('title')
   const [sessionId, setSessionId] = useState(null)
   const [initialData, setInitialData] = useState(null)
@@ -133,8 +141,10 @@ export default function App() {
     setResumeData(null)
   }
 
+  // ── Build content based on view ─────────────────────────────────────────
+  let content
   if (view === 'game' && sessionId && initialData) {
-    return (
+    content = (
       <GameScreen
         key={`${sessionId}-${gameKey}`}
         sessionId={sessionId}
@@ -144,22 +154,29 @@ export default function App() {
         onSnapshotLoad={handleSnapshotLoad}
       />
     )
+  } else {
+    content = (
+      <div className="app-container">
+        <TitleScreen
+          onStart={handleStart}
+          onResume={handleResume}
+          hasResumable={hasResumable}
+          resumeData={resumeData}
+          loading={loading}
+        />
+        {error && (
+          <div className="error-banner" style={{ margin: '0 1rem 1rem' }}>
+            {error} — Is the API server running?
+          </div>
+        )}
+      </div>
+    )
   }
 
   return (
-    <div className="app-container">
-      <TitleScreen
-        onStart={handleStart}
-        onResume={handleResume}
-        hasResumable={hasResumable}
-        resumeData={resumeData}
-        loading={loading}
-      />
-      {error && (
-        <div className="error-banner" style={{ margin: '0 1rem 1rem' }}>
-          ⚠️ {error} — Is the API server running?
-        </div>
-      )}
-    </div>
+    <>
+      {CLERK_AVAILABLE && <ClerkTokenSync />}
+      {content}
+    </>
   )
 }

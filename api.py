@@ -49,7 +49,7 @@ from turn_processor import (
     TECH_SOURCES,
 )
 from db import init_db, create_session, load_session, save_session
-from auth import get_current_user
+from auth import get_current_user, get_optional_user
 from database import User, GameStatePersisted, engine as accounts_engine, init_accounts_db
 from sqlmodel import Session as SQLModelSession
 
@@ -204,8 +204,10 @@ class BondRequest(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _verify_game_ownership(session_id: str, user: User):
-    """Verify the game belongs to the authenticated user. Raises 403 if not."""
+def _verify_game_ownership(session_id: str, user):
+    """Verify the game belongs to the authenticated user. Skips check for guests (user=None)."""
+    if user is None:
+        return  # Guest mode — no ownership check
     import uuid as _uuid
     with SQLModelSession(accounts_engine) as session:
         game_record = session.get(GameStatePersisted, _uuid.UUID(session_id))
@@ -1061,7 +1063,7 @@ def _build_escape_ending(gs: GameState) -> dict:
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @app.post("/game/new")
-async def new_game(user: User = Depends(get_current_user)):
+async def new_game(user: User = Depends(get_optional_user)):
     """Create a new game session. Returns session_id, initial state, offers, and Turn 1 dialogue."""
     gs = GameState()
     dialogue = npc_engine.generate_dialogue(gs)
@@ -1071,23 +1073,24 @@ async def new_game(user: User = Depends(get_current_user)):
 
     # fixes_12 Fix 4: Per-turn epitaph removed. Historian summary generated at game end.
 
-    # Use authenticated user's ID as player_id
-    player_id = str(user.id)
+    # Use authenticated user's ID as player_id (or guest UUID)
+    import uuid as _uuid
+    player_id = str(user.id) if user else str(_uuid.uuid4())
     session_id = create_session(gs.serialize(), player_id=player_id)
 
-    # Create GameStatePersisted record linking session to authenticated user
-    import uuid as _uuid
-    from datetime import datetime as _dt, timezone as _tz
-    with SQLModelSession(accounts_engine) as db_session:
-        game_record = GameStatePersisted(
-            id=_uuid.UUID(session_id),
-            user_id=user.id,
-            state_data=gs.serialize(),
-            created_at=_dt.now(_tz.utc),
-            updated_at=_dt.now(_tz.utc),
-        )
-        db_session.add(game_record)
-        db_session.commit()
+    # Create GameStatePersisted record linking session to authenticated user (skip for guests)
+    if user:
+        from datetime import datetime as _dt, timezone as _tz
+        with SQLModelSession(accounts_engine) as db_session:
+            game_record = GameStatePersisted(
+                id=_uuid.UUID(session_id),
+                user_id=user.id,
+                state_data=gs.serialize(),
+                created_at=_dt.now(_tz.utc),
+                updated_at=_dt.now(_tz.utc),
+            )
+            db_session.add(game_record)
+            db_session.commit()
 
     # Session 5 Phase C Hook 9: cleanup_expired_memories on new game
     if player_id:
@@ -1109,7 +1112,7 @@ async def new_game(user: User = Depends(get_current_user)):
 
 
 @app.get("/game/{session_id}")
-async def get_game(session_id: str, user: User = Depends(get_current_user)):
+async def get_game(session_id: str, user: User = Depends(get_optional_user)):
     """Return current game state, available offers, and dialogue for the current turn."""
     _verify_game_ownership(session_id, user)
     gs = _load_gs(session_id)
@@ -1135,7 +1138,7 @@ async def get_game(session_id: str, user: User = Depends(get_current_user)):
 
 
 @app.post("/game/{session_id}/action")
-async def post_action(session_id: str, body: ActionRequest, user: User = Depends(get_current_user)):
+async def post_action(session_id: str, body: ActionRequest, user: User = Depends(get_optional_user)):
     """
     Process diplomatic choice (A–G).
     - F (escape): ends game immediately, returns escape ending
@@ -1790,7 +1793,7 @@ async def post_action(session_id: str, body: ActionRequest, user: User = Depends
 
 
 @app.post("/game/{session_id}/skim")
-async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get_current_user)):
+async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get_optional_user)):
     """
     Apply skim choice (1–4), then run end-of-turn effects.
     Also generates new NPC dialogue for the next turn.
@@ -3059,7 +3062,7 @@ def post_domestic_action(session_id: str, body: DomesticActionRequest):
 # ── Session 4D: Intelligence Budget Allocation ──────────────────────────────
 
 @app.post("/game/{session_id}/intel_allocation")
-async def post_intel_allocation(session_id: str, body: IntelAllocationRequest, user: User = Depends(get_current_user)):
+async def post_intel_allocation(session_id: str, body: IntelAllocationRequest, user: User = Depends(get_optional_user)):
     """
     Allocate intelligence budget for the turn. Deducts from national budget.
     Body: { allocation: 'none' | 'maintenance' | 'active' | 'expansion' }
