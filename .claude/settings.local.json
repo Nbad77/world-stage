@@ -23,7 +23,12 @@
       "Bash(alembic upgrade head)",
       "Bash(ls \"/c/Users/nbbq8/OneDrive/Creative Projects/Claude Apps/GeoSim 3/frontend/.env\"*)",
       "Bash(npm install -D tailwindcss@3 postcss autoprefixer)",
-      "Bash(python3 -c \":*)"
+      "Bash(python3 -c \":*)",
+      "Bash(railway logs --num 50)",
+      "Bash(where railway)",
+      "Bash(npx --yes @railway/cli logs --num 50)",
+      "Bash(npx --yes @railway/cli logs -n 80)",
+      "Bash(npx --yes @railway/cli login)"
     ]
   }
 }
