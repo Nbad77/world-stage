@@ -1524,6 +1524,28 @@ def generate_historian_summary(game_state) -> str:
     _election_line = f"  Election conduct: {_election_desc} (turn {_election_turn})\n" if _election_result else ""
     print(f"  [HISTORIAN] Election data passed to prompt: result={_election_result}, turn={_election_turn}")
 
+    # Session 7E Step 4: Summit data for historian
+    _summit_cred = getattr(game_state, 'summit_credibility', 100.0)
+    _summit_history = getattr(game_state, 'summit_history', [])
+    _summit_commitments = getattr(game_state, 'active_summit_commitments', [])
+    _active_commits = [c for c in _summit_commitments if not c.get('broken')]
+    _broken_commits = [c for c in _summit_commitments if c.get('broken')]
+    _summit_line = ""
+    if _summit_history:
+        _summit_parts = [f"  UN Summit credibility: {_summit_cred:.0f}/100"]
+        _summit_parts.append(f"  Summits attended: {len(_summit_history)}")
+        if _broken_commits:
+            _summit_parts.append(f"  Broken public commitments: {len(_broken_commits)}")
+        if _active_commits:
+            _summit_parts.append(f"  Active public commitments: {len(_active_commits)}")
+        # Include last declaration for flavor
+        _last_summit = _summit_history[-1]
+        _last_decl = _last_summit.get('player_declaration', '')
+        if _last_decl:
+            _summit_parts.append(f"  Last declaration: \"{_last_decl[:100]}\"")
+        _summit_line = '\n'.join(_summit_parts) + '\n'
+    print(f"  [HISTORIAN] Summit data: credibility={_summit_cred}, summits={len(_summit_history)}, broken={len(_broken_commits)}")
+
     prompt = (
         f"GAME OVER — Write the historian's summary of this leader's tenure.\n\n"
         f"{_ending_frame}\n\n" if _ending_frame else
@@ -1540,10 +1562,12 @@ def generate_historian_summary(game_state) -> str:
         f"Key decisions:\n" + ('\n'.join(_action_lines) if _action_lines else '  (none recorded)') + "\n\n"
         f"Deals made:\n" + ('\n'.join(_deal_lines) if _deal_lines else '  (none)') + "\n\n"
         f"{_election_line}"
+        f"{_summit_line}"
         f"How it ended: {_how_ended}\n"
         f"Total skimmed: ${getattr(game_state, 'total_skimmed', 0.0):.1f}B\n"
         f"Turns completed: {game_state.current_turn}/{game_state.max_turns}\n\n"
         f"If an election was held, reference election conduct in the assessment — it defines the leader's relationship with democratic legitimacy.\n"
+        f"If UN summit commitments were broken, note the credibility cost.\n"
         f"Write 3-4 sentences. Find the through-line. End with a one-sentence verdict."
     )
 

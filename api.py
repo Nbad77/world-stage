@@ -173,23 +173,22 @@ def _get_discounted_negotiate_cost(gs, npc_id: str) -> tuple:
     _mult = 1.0
     _label_parts = []
 
-    # Fix 22: Diplomat advisor discount
-    _active_advisors = getattr(gs, 'advisors', [])
-    _diplomat = None
-    for _adv in _active_advisors:
-        if _adv.get('archetype') == 'diplomat':
-            _diplomat = _adv
-            break
-    if _diplomat:
-        _competence = _diplomat.get('competence', 50)
-        if _competence >= 80:
+    # Fix 22: Diplomat advisor discount (updated for Session 7C dict-based advisors)
+    _advisors = getattr(gs, 'advisors', {})
+    _diplomat_active = False
+    if isinstance(_advisors, dict):
+        _da = _advisors.get('diplomatic_aide', {})
+        _diplomat_active = _da.get('assigned_this_turn', False)
+        _trust = _da.get('trust', 75)
+    if _diplomat_active:
+        if _trust >= 80:
             _mult = 0.0  # free
             _label_parts.append('Diplomat')
-            print(f"  [api] Fix 22: Diplomat (competence {_competence}) → FREE negotiation")
+            print(f"  [api] Fix 22: Diplomatic aide (trust {_trust}) → FREE negotiation")
         else:
             _mult *= 0.5  # 50% discount
             _label_parts.append('Diplomat -50%')
-            print(f"  [api] Fix 22: Diplomat (competence {_competence}) → 50% discount")
+            print(f"  [api] Fix 22: Diplomatic aide (trust {_trust}) → 50% discount")
 
     # Fix 23: Political axis discount (stacks multiplicatively)
     _political = getattr(gs, 'cabinet_axes', {}).get('political', 0)
@@ -2333,17 +2332,18 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
             _interacted.append(npc_id)
             gs.npcs_interacted_this_turn = _interacted
 
-        # fixes_13 Fix 22: Diplomat loyalty leak — if diplomat active with loyalty < 40,
+        # fixes_13 Fix 22: Diplomat loyalty leak — if diplomatic_aide assigned with trust < 40,
         # secretly report negotiating position to a random NPC (player never told which)
-        _active_advisors = getattr(gs, 'advisors', [])
-        _diplomat = next((a for a in _active_advisors if a.get('archetype') == 'diplomat'), None)
-        if _diplomat and _diplomat.get('loyalty', 50) < 40:
+        # Updated for Session 7C dict-based advisors
+        _advisors_dict = getattr(gs, 'advisors', {})
+        _da_info = _advisors_dict.get('diplomatic_aide', {}) if isinstance(_advisors_dict, dict) else {}
+        if _da_info.get('assigned_this_turn', False) and _da_info.get('trust', 75) < 40:
             _other_npcs = [n for n in ('usa', 'arabia', 'eu', 'dprg') if n != npc_id]
             _leak_target = random.choice(_other_npcs)
             # Boost leaked-to NPC's knowledge — they get +3 relations with player (they appreciate the info)
             # but the player's negotiating position with the current NPC weakens slightly
             gs.update_relations(_leak_target, 3)
-            print(f"  [api] Fix 22: Disloyal diplomat (loyalty {_diplomat.get('loyalty')}) leaked to {_leak_target} — {_leak_target} +3 relations")
+            print(f"  [api] Fix 22: Disloyal diplomatic aide (trust {_da_info.get('trust')}) leaked to {_leak_target} — {_leak_target} +3 relations")
 
     # Session 7B Step 3: Player-initiated contact — generate tone-appropriate opening
     _player_initiated = body.player_initiated and _is_first_message

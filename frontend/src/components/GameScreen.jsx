@@ -969,7 +969,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
             lines.push(`  ${r.npc_name || r.npc_id}: [${r.reaction_type}] ${r.reaction_text || '(silence)'}`)
           })
         }
-        if (s.commitments_made > 0) lines.push(`  Commitments:   ${s.commitments_made}`)
+        if (s.commitments_made?.length > 0) lines.push(`  Commitments:   ${s.commitments_made.join('; ')}`)
         lines.push('')
       })
     }
@@ -979,7 +979,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       lines.push(sep)
       summitCommits.forEach((c, i) => {
         const status = c.broken ? 'BROKEN' : 'ACTIVE'
-        lines.push(`[${i + 1}] [${status}] ${c.text}`)
+        lines.push(`[${i + 1}] [${status}] ${c.commitment_text || c.text || '(unknown)'}`)
       })
       lines.push('')
     }

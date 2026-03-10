@@ -105,6 +105,24 @@ export default function EndingScreen({ ending, gs, onRestart, onExportLog }) {
           {ending.arabia_embargo_active && (
             <div style={{ color: 'var(--danger)' }}>⚠️ Arabia Embargo was active</div>
           )}
+          {/* Session 7E Step 4: Summit credibility and commitments */}
+          {(() => {
+            const cred = gs?.summit_credibility ?? 100
+            const commits = gs?.active_summit_commitments || []
+            const summits = gs?.summit_history || []
+            if (!summits.length && cred >= 100) return null
+            const activeCount = commits.filter(c => !c.broken).length
+            const brokenCount = commits.filter(c => c.broken).length
+            const credColor = cred >= 80 ? '#4caf50' : cred >= 50 ? '#ffb74d' : '#ef5350'
+            return (
+              <div style={{ marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '0.4rem' }}>
+                <div>🌐 UN Credibility: <span style={{ color: credColor, fontWeight: 600 }}>{Math.round(cred)}</span></div>
+                <div>Summits attended: {summits.length}</div>
+                {activeCount > 0 && <div>📋 Active commitments: {activeCount}</div>}
+                {brokenCount > 0 && <div style={{ color: '#ef5350' }}>❌ Broken commitments: {brokenCount}</div>}
+              </div>
+            )
+          })()}
         </div>
       </div>
 
