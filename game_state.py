@@ -150,14 +150,16 @@ class GameState:
             'usa': 50,
             'arabia': 50,
             'eu': 50,
-            'dprg': 50
+            'dprg': 50,
+            'russia': 35,   # 8A: Full NPC — Nikolai Volkov
+            'china': 35,    # 8A: Full NPC — Wei Jianming
         }
 
         # NPC memory - tracks player behavior
-        self.times_sided_with = {'usa': 0, 'arabia': 0, 'eu': 0, 'dprg': 0}
-        self.times_ignored = {'usa': 0, 'arabia': 0, 'eu': 0, 'dprg': 0}
-        self.consecutive_sides = {'usa': 0, 'arabia': 0, 'eu': 0, 'dprg': 0}
-        self.consecutive_ignores = {'usa': 0, 'arabia': 0, 'eu': 0, 'dprg': 0}
+        self.times_sided_with = {'usa': 0, 'arabia': 0, 'eu': 0, 'dprg': 0, 'russia': 0, 'china': 0}
+        self.times_ignored = {'usa': 0, 'arabia': 0, 'eu': 0, 'dprg': 0, 'russia': 0, 'china': 0}
+        self.consecutive_sides = {'usa': 0, 'arabia': 0, 'eu': 0, 'dprg': 0, 'russia': 0, 'china': 0}
+        self.consecutive_ignores = {'usa': 0, 'arabia': 0, 'eu': 0, 'dprg': 0, 'russia': 0, 'china': 0}
 
         # Last 5 actions for context
         self.action_history = []
@@ -188,6 +190,16 @@ class GameState:
             'dprg_eu': 15,       # hostile — ideological opposition
             'dprg_usa': 10,      # near-hostile — adversarial
             'eu_usa': 75,        # strong allies — Western bloc
+            # 8A: Russia/China bilateral scores
+            'china_russia': 45,  # wary coexistence
+            'russia_usa': 15,    # deep hostility
+            'china_usa': 25,     # competitive tension
+            'eu_russia': 20,     # adversarial
+            'china_eu': 50,      # transactional
+            'arabia_russia': 40, # pragmatic energy partners
+            'china_dprg': 35,    # cautious alignment
+            'arabia_china': 40,  # economic partners
+            'dprg_russia': 30,   # legacy alliance
         }
         # Tier 3 brigade: pressure event suspension per NPC
         self.pressure_suspended = {}  # { npc_id: expiry_turn }
@@ -285,7 +297,7 @@ class GameState:
         self.negotiation_log = []
 
         # Session 3 Addendum: Track total aid received from each NPC (for willingness decay)
-        self.total_aid_received = {'usa': 0.0, 'arabia': 0.0, 'eu': 0.0, 'dprg': 0.0}
+        self.total_aid_received = {'usa': 0.0, 'arabia': 0.0, 'eu': 0.0, 'dprg': 0.0, 'russia': 0.0, 'china': 0.0}
 
         # Session 3 Addendum: Per-conversation rapport tracking (resets each turn)
         # { npc_id: { score: int, flattery_used: bool, promises: [...], false_claims: int } }
@@ -307,8 +319,8 @@ class GameState:
         self.regime_history = []          # list of {"turn": N, "from": str, "to": str, "trigger": str}
         self.total_skimmed = 0.0          # sum of all personal_gain across all turns
         self.peak_personal_wealth = 0.0   # highest personal_wealth reached
-        self.relations_high = {'usa': 50, 'arabia': 50, 'eu': 50, 'dprg': 50}
-        self.relations_low = {'usa': 50, 'arabia': 50, 'eu': 50, 'dprg': 50}
+        self.relations_high = {'usa': 50, 'arabia': 50, 'eu': 50, 'dprg': 50, 'russia': 35, 'china': 35}
+        self.relations_low = {'usa': 50, 'arabia': 50, 'eu': 50, 'dprg': 50, 'russia': 35, 'china': 35}
         self.corruption_events_fired = []  # list of event description strings
         self.upgrades_purchased_log = []   # list of upgrade names purchased
         self.sanctions_active_turns = 0    # total turns with USA sanctions active
@@ -339,6 +351,8 @@ class GameState:
             'arabia': False,
             'eu': False,
             'dprg': False,
+            'russia': False,
+            'china': False,
         }
 
         # ── Session 4B: Election Mechanic ──────────────────────────────────
@@ -370,6 +384,7 @@ class GameState:
         self.tech_level = 0.0             # float, accumulates via relationship-weighted passive gain
         self.tech_sources = []            # log of how tech was acquired
         self.tech_gain_last_turn = 0.0    # last turn's gain for display
+        self.middle_power_transition = False  # fires once on first reaching Tier 5
 
         # Session 4D: Intelligence Budget (national, separate from personal wealth)
         self.intel_budget = 0.0           # current intel budget pool (national funds)
@@ -454,9 +469,9 @@ class GameState:
         # ── fixes_13 Fix 28: Emergency tax event ────────────────────────
         self.emergency_tax_event_fired = False
 
-        # ── Session 7C Step 4: Russia and China — passive world actors ──
-        self.russia_relations = 35.0
-        self.china_relations = 35.0
+        # ── 8A: Russia/China relations now in self.relations dict ──
+        # Legacy self.russia_relations / self.china_relations removed.
+        # Backward compat handled in serialize()/deserialize().
 
         # ── Session 7D: Backchannel System ──
         self.backchannel_history = []         # resolved entries: {npc_id, turn, era, day, promise_made, promise_text, detected_by, resolved}
@@ -469,34 +484,15 @@ class GameState:
         self.active_summit_commitments = []   # unresolved public commitments: {commitment_text, day_made, era_made, broken}
         self.summit_credibility = 100.0       # starts 100, drops when commitments broken
 
-        # ── Session 7C: Advisor System (fixed three advisors with trust) ──
-        self.advisors = {
-            "finance_minister": {
-                "name": "Finance Minister",
-                "trust": 75,
-                "assigned_this_turn": False,
-                "defection_triggered": False,
-            },
-            "security_chief": {
-                "name": "Security Chief",
-                "trust": 75,
-                "assigned_this_turn": False,
-                "defection_triggered": False,
-            },
-            "diplomatic_aide": {
-                "name": "Diplomatic Aide",
-                "trust": 75,
-                "assigned_this_turn": False,
-                "defection_triggered": False,
-            },
-        }
-        self.advisor_slots_available = 2  # can increase via Shadow Cabinet or axis threshold
-
-        # Legacy advisor fields (kept for backward compatibility with old saves)
-        self.advisor_pool = []
-        self.advisors_eliminated = []
-        self.advisor_actions_log = []
-        self.advisor_distortions = {}
+        # ── Advisor System (v2: full 9-archetype system with gate-based pool) ──
+        self.advisors = {}  # dict keyed by archetype: {archetype, name, background, trust, competence, loyalty, ...}
+        self.advisor_slots_available = 2  # daily assignment slots (can increase via Shadow Cabinet)
+        self.advisor_pool = []  # list of eligible-to-hire advisors (dynamic, updates on gate change)
+        self.advisors_eliminated = []  # list of permanently eliminated archetype keys
+        self.advisor_actions_log = []  # betrayal/elimination event log
+        self.advisor_distortions = {}  # computed stat distortions for frontend
+        self.advisor_analyses = {}  # cached analysis text per archetype key, persists for the turn
+        self.advisor_assigned_today = []  # list of unique advisor keys assigned this turn (acts as Set for JSON compat)
 
         # ── Session 5: Economic Development Model ──────────────────────────
         self.tax_rates = {
@@ -533,6 +529,15 @@ class GameState:
         # ── Session 5: Brigade Operations ──────────────────────────────────
         # Per-turn tactical deployments (distinct from Security axis investment)
         self.brigade_operations_this_turn = []  # list of operation dicts deployed this turn
+
+        # ── 8B: Education System ─────────────────────────────────────────
+        # education_level: 0-3 (Underdeveloped / Basic / Developed / Advanced)
+        # Progression driven by education_allocation spending each turn.
+        # Underfunding triggers decay after grace period.
+        self.education_level = 0              # current level (0-3)
+        self.education_allocation = 0.0       # $B/turn allocated from national budget
+        self.education_decay_clock = 0        # consecutive days below maintenance (max 5 before decay)
+        self.education_gain_progress = 0.0    # fractional progress toward next level (0.0-1.0, resets on level-up)
 
     def record_action(self, choice_type, npc_target=None):
         """
@@ -692,10 +697,18 @@ class GameState:
         """Update public approval (0-90 max — 100% unrealistic under geopolitical pressure).
         Session 3 Addendum 2: approval_penalty_reduction (from State Media Takeover)
         reduces negative approval changes by the stored percentage (e.g. 0.20 = 20% reduction).
-        Session 4C: approval_floor/approval_ceiling enforce bounds from domestic actions."""
-        if change < 0 and self.approval_penalty_reduction > 0:
-            # Reduce the magnitude of the penalty
-            change = round(change * (1.0 - self.approval_penalty_reduction))
+        Session 4C: approval_floor/approval_ceiling enforce bounds from domestic actions.
+        8B: Education approval sensitivity — higher education dampens negative approval swings."""
+        if change < 0:
+            # 8B: Education approval sensitivity (applied first, before other reductions)
+            _edu_sensitivity = {0: 1.0, 1: 0.95, 2: 0.85, 3: 0.70}
+            _edu_lvl = getattr(self, 'education_level', 0)
+            _sens = _edu_sensitivity.get(_edu_lvl, 1.0)
+            if _sens < 1.0:
+                change = round(change * _sens)
+            # Session 3 Addendum 2: State Media Takeover reduction
+            if self.approval_penalty_reduction > 0:
+                change = round(change * (1.0 - self.approval_penalty_reduction))
         ceiling = min(90, getattr(self, 'approval_ceiling', 100))
         floor = max(0, getattr(self, 'approval_floor', 0))
         self.public_approval = max(floor, min(ceiling, self.public_approval + change))
@@ -774,10 +787,12 @@ class GameState:
         # this NPC has more reason to court Europa → higher leverage for us.
         # USA vs Arabia/DPRG, EU vs DPRG, Arabia vs USA/EU
         _rivals = {
-            'usa': ['arabia', 'dprg'],
+            'usa': ['arabia', 'dprg', 'russia'],
             'arabia': ['usa', 'eu'],
-            'eu': ['dprg', 'arabia'],
+            'eu': ['dprg', 'arabia', 'russia'],
             'dprg': ['usa', 'eu'],
+            'russia': ['usa', 'eu'],
+            'china': ['usa'],
         }
         rival_hostility = 0
         for rival in _rivals.get(npc_id, []):
@@ -884,6 +899,30 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
 {sanctions_flag}{embargo_flag}
 {'='*60}
 """
+
+    def _compute_tech_tier(self):
+        """Compute tech tier (0-5) from tech_level."""
+        tl = float(getattr(self, 'tech_level', 0))
+        if tl >= 100: return 5
+        if tl >= 75:  return 4
+        if tl >= 50:  return 3
+        if tl >= 25:  return 2
+        if tl >= 10:  return 1
+        return 0
+
+    def _compute_tech_tier_name(self):
+        """Compute tech tier name from tech_level."""
+        _names = {0: "Pre-Industrial", 1: "Emerging Capability", 2: "Functional Modernization",
+                  3: "Strategic Capability", 4: "Advanced Economy", 5: "Frontier"}
+        return _names[self._compute_tech_tier()]
+
+    def _compute_advisor_distortions(self):
+        """Compute stat distortions from active assigned advisors for frontend."""
+        try:
+            from advisor_engine import compute_all_distortions
+            return compute_all_distortions(self)
+        except Exception:
+            return {}
 
     def serialize(self):
         """Convert full GameState to a JSON-serializable dict for database storage."""
@@ -997,6 +1036,9 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'tech_level': getattr(self, 'tech_level', 0.0),
             'tech_sources': getattr(self, 'tech_sources', []),
             'tech_gain_last_turn': getattr(self, 'tech_gain_last_turn', 0.0),
+            'middle_power_transition': getattr(self, 'middle_power_transition', False),
+            'tech_tier': self._compute_tech_tier(),
+            'tech_tier_name': self._compute_tech_tier_name(),
             # Session 4D: Intelligence Budget
             'intel_budget': getattr(self, 'intel_budget', 0.0),
             'intel_budget_allocation': getattr(self, 'intel_budget_allocation', 'maintenance'),
@@ -1070,9 +1112,9 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'dprg_coup_deterrence': getattr(self, 'dprg_coup_deterrence', False),
             # fixes_13 Fix 28: Emergency tax event
             'emergency_tax_event_fired': getattr(self, 'emergency_tax_event_fired', False),
-            # Session 7C Step 4: Russia and China passive relations
-            'russia_relations': getattr(self, 'russia_relations', 35.0),
-            'china_relations': getattr(self, 'china_relations', 35.0),
+            # 8A: Backward-compat legacy fields (read from relations dict)
+            'russia_relations': self.relations.get('russia', 35.0),
+            'china_relations': self.relations.get('china', 35.0),
             # Session 7D: Backchannel System
             'backchannel_history': getattr(self, 'backchannel_history', []),
             'active_backchannel_promises': getattr(self, 'active_backchannel_promises', []),
@@ -1082,14 +1124,17 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'summit_history': getattr(self, 'summit_history', []),
             'active_summit_commitments': getattr(self, 'active_summit_commitments', []),
             'summit_credibility': getattr(self, 'summit_credibility', 100.0),
-            # Session 7C: Advisor System (fixed three advisors)
+            # Advisor System (restored 9-archetype pool)
             'advisors': getattr(self, 'advisors', {}),
             'advisor_slots_available': getattr(self, 'advisor_slots_available', 2),
-            # Legacy advisor fields
             'advisor_pool': getattr(self, 'advisor_pool', []),
             'advisors_eliminated': getattr(self, 'advisors_eliminated', []),
             'advisor_actions_log': getattr(self, 'advisor_actions_log', []),
-            'advisor_distortions': getattr(self, 'advisor_distortions', {}),
+            'advisor_distortions': self._compute_advisor_distortions(),
+            'advisor_analyses': getattr(self, 'advisor_analyses', {}),
+            'advisor_assigned_today': getattr(self, 'advisor_assigned_today', []),
+            '_general_coup_boost_turns': getattr(self, '_general_coup_boost_turns', 0),
+            '_general_elim_decay_turns': getattr(self, '_general_elim_decay_turns', 0),
             # Session 5: Economic Development Model
             'tax_rates': getattr(self, 'tax_rates', {'income_tax': 0.20, 'corporate_tax': 0.15, 'resource_tax': 0.25}),
             'gdp_base': getattr(self, 'gdp_base', 100.0),
@@ -1103,6 +1148,11 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'pending_npc_contacts': getattr(self, 'pending_npc_contacts', []),
             # Session 5: Brigade Operations
             'brigade_operations_this_turn': getattr(self, 'brigade_operations_this_turn', []),
+            # 8B: Education System
+            'education_level': getattr(self, 'education_level', 0),
+            'education_allocation': getattr(self, 'education_allocation', 0.0),
+            'education_decay_clock': getattr(self, 'education_decay_clock', 0),
+            'education_gain_progress': getattr(self, 'education_gain_progress', 0.0),
         }
 
     @classmethod
@@ -1141,6 +1191,9 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.npc_relations = data.get('npc_relations', {
             'arabia_dprg': 45, 'arabia_eu': 25, 'arabia_usa': 30,
             'dprg_eu': 15, 'dprg_usa': 10, 'eu_usa': 75,
+            'china_russia': 45, 'russia_usa': 15, 'china_usa': 25,
+            'eu_russia': 20, 'china_eu': 50, 'arabia_russia': 40,
+            'china_dprg': 35, 'arabia_china': 40, 'dprg_russia': 30,
         })
         gs.pressure_suspended = data.get('pressure_suspended', {})
         gs.approval_penalty_reduction = data.get('approval_penalty_reduction', 0.0)
@@ -1208,7 +1261,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.budget_last_eot = data.get('budget_last_eot', None)
         gs.previous_oil_base = data.get('previous_oil_base', 75)
         gs.negotiation_log = data.get('negotiation_log', [])
-        gs.total_aid_received = data.get('total_aid_received', {'usa': 0.0, 'arabia': 0.0, 'eu': 0.0, 'dprg': 0.0})
+        gs.total_aid_received = data.get('total_aid_received', {'usa': 0.0, 'arabia': 0.0, 'eu': 0.0, 'dprg': 0.0, 'russia': 0.0, 'china': 0.0})
         gs.current_rapport = data.get('current_rapport', {})
         gs.binding_promises = data.get('binding_promises', [])
         gs.detection_heat = data.get('detection_heat', 0)
@@ -1218,6 +1271,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.pressure_events_fired = data.get('pressure_events_fired', [])
         gs.relations_100_unlocks = data.get('relations_100_unlocks', {
             'usa': False, 'arabia': False, 'eu': False, 'dprg': False,
+            'russia': False, 'china': False,
         })
         # Pre-Session 4: Legacy tracking
         gs.regime_history = data.get('regime_history', [])
@@ -1258,6 +1312,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.tech_level = float(data.get('tech_level', 0))
         gs.tech_sources = data.get('tech_sources', [])
         gs.tech_gain_last_turn = data.get('tech_gain_last_turn', 0.0)
+        gs.middle_power_transition = data.get('middle_power_transition', False)
         gs.intel_budget = data.get('intel_budget', 0.0)
         gs.intel_budget_allocation = data.get('intel_budget_allocation', 'maintenance')
         gs.intel_turns_unfunded = data.get('intel_turns_unfunded', 0)
@@ -1328,9 +1383,31 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.dprg_coup_deterrence = data.get('dprg_coup_deterrence', False)
         # fixes_13 Fix 28: Emergency tax event
         gs.emergency_tax_event_fired = data.get('emergency_tax_event_fired', False)
-        # Session 7C Step 4: Russia and China passive relations
-        gs.russia_relations = data.get('russia_relations', 35.0)
-        gs.china_relations = data.get('china_relations', 35.0)
+        # 8A: Russia/China migration — inject into relations dict from legacy fields
+        if 'russia' not in gs.relations:
+            gs.relations['russia'] = data.get('russia_relations', 35.0)
+            print("  [game_state] MIGRATION: injected russia from legacy field")
+        if 'china' not in gs.relations:
+            gs.relations['china'] = data.get('china_relations', 35.0)
+            print("  [game_state] MIGRATION: injected china from legacy field")
+        # 8A: Ensure all tracking dicts have russia/china keys
+        for _npc in ('russia', 'china'):
+            gs.times_sided_with.setdefault(_npc, 0)
+            gs.times_ignored.setdefault(_npc, 0)
+            gs.consecutive_sides.setdefault(_npc, 0)
+            gs.consecutive_ignores.setdefault(_npc, 0)
+            gs.total_aid_received.setdefault(_npc, 0.0)
+            gs.relations_high.setdefault(_npc, gs.relations.get(_npc, 35.0))
+            gs.relations_low.setdefault(_npc, gs.relations.get(_npc, 35.0))
+            gs.relations_100_unlocks.setdefault(_npc, False)
+        # 8A: Ensure bilateral pairs exist
+        _bilateral_defaults = {
+            'china_russia': 45, 'russia_usa': 15, 'china_usa': 25,
+            'eu_russia': 20, 'china_eu': 50, 'arabia_russia': 40,
+            'china_dprg': 35, 'arabia_china': 40, 'dprg_russia': 30,
+        }
+        for _pair, _val in _bilateral_defaults.items():
+            gs.npc_relations.setdefault(_pair, _val)
         # Session 7D: Backchannel System
         gs.backchannel_history = data.get('backchannel_history', [])
         gs.active_backchannel_promises = data.get('active_backchannel_promises', [])
@@ -1340,24 +1417,48 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.summit_history = data.get('summit_history', [])
         gs.active_summit_commitments = data.get('active_summit_commitments', [])
         gs.summit_credibility = data.get('summit_credibility', 100.0)
-        # Session 7C: Advisor System (fixed three advisors)
-        _default_advisors = {
-            "finance_minister": {"name": "Finance Minister", "trust": 75, "assigned_this_turn": False, "defection_triggered": False},
-            "security_chief": {"name": "Security Chief", "trust": 75, "assigned_this_turn": False, "defection_triggered": False},
-            "diplomatic_aide": {"name": "Diplomatic Aide", "trust": 75, "assigned_this_turn": False, "defection_triggered": False},
-        }
-        _raw_advisors = data.get('advisors', _default_advisors)
-        # Migration: old list-based advisor system -> new dict-based
+        # Advisor System v2: full 9-archetype with gates
+        _raw_advisors = data.get('advisors', {})
+        # Migration: old formats → v2 archetype dict
+        _V1_ARCHETYPES = {'security_chief', 'diplomatic_aide', 'enforcer'}
         if isinstance(_raw_advisors, list):
-            gs.advisors = _default_advisors
+            gs.advisors = {}  # old list format — start fresh
+            print("  [game_state] ADVISOR MIGRATION: old list format -> v2")
+        elif isinstance(_raw_advisors, dict):
+            # Check for v1 archetypes or missing v2 fields
+            _needs_migration = False
+            for _k, _v in _raw_advisors.items():
+                if isinstance(_v, dict):
+                    if 'archetype' not in _v:
+                        _needs_migration = True
+                        break
+                    if _v.get('archetype') in _V1_ARCHETYPES:
+                        _needs_migration = True
+                        break
+                    if 'competence' not in _v:
+                        _needs_migration = True
+                        break
+            if _needs_migration:
+                gs.advisors = {}  # v1 format — start fresh for v2
+                print("  [game_state] ADVISOR MIGRATION: v1 format -> v2 (fresh start)")
+            else:
+                gs.advisors = _raw_advisors
         else:
-            gs.advisors = _raw_advisors
+            gs.advisors = {}
         gs.advisor_slots_available = data.get('advisor_slots_available', 2)
-        # Legacy advisor fields
         gs.advisor_pool = data.get('advisor_pool', [])
+        # Migrate pool too — remove v1 archetypes from pool
+        if gs.advisor_pool:
+            gs.advisor_pool = [a for a in gs.advisor_pool
+                               if isinstance(a, dict) and a.get('archetype') not in _V1_ARCHETYPES
+                               and 'competence' in a]
         gs.advisors_eliminated = data.get('advisors_eliminated', [])
         gs.advisor_actions_log = data.get('advisor_actions_log', [])
         gs.advisor_distortions = data.get('advisor_distortions', {})
+        gs.advisor_analyses = data.get('advisor_analyses', {})
+        gs.advisor_assigned_today = data.get('advisor_assigned_today', [])
+        gs._general_coup_boost_turns = data.get('_general_coup_boost_turns', 0)
+        gs._general_elim_decay_turns = data.get('_general_elim_decay_turns', 0)
         # Session 5: Economic Development Model
         gs.tax_rates = data.get('tax_rates', {'income_tax': 0.20, 'corporate_tax': 0.15, 'resource_tax': 0.25})
         gs.gdp_base = data.get('gdp_base', 100.0)
@@ -1378,6 +1479,13 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.pending_npc_contacts = data.get('pending_npc_contacts', [])
         # Session 5: Brigade Operations
         gs.brigade_operations_this_turn = data.get('brigade_operations_this_turn', [])
+        # 8B: Education System (safe defaults for pre-8B saves)
+        gs.education_level = data.get('education_level', 0)
+        gs.education_allocation = data.get('education_allocation', 0.0)
+        gs.education_decay_clock = data.get('education_decay_clock', 0)
+        gs.education_gain_progress = data.get('education_gain_progress', 0.0)
+        if 'education_level' not in data:
+            print("  [game_state] 8B EDUCATION FIELDS MIGRATED: added defaults to old save")
         if 'cabinet_axes' not in data:
             print("  [game_state] SESSION 5 FIELDS MIGRATED: added defaults to old save")
             _migrate_to_axes(gs)

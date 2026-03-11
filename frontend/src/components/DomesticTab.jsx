@@ -1,10 +1,16 @@
 /**
- * DomesticTab — Budget Allocation sliders for five categories.
+ * DomesticTab — Budget Allocation sliders for five categories + Education spending.
  * Player adjusts percentages (must sum to 100), then Apply to save.
  * Domestic Affairs Tab — Session 7.
+ * 8B: Education spending row (separate $B allocation, not part of 100% split).
  */
 import { useState, useEffect } from 'react'
 import { api } from '../api'
+
+const EDUCATION_LEVEL_NAMES = ['Underdeveloped', 'Basic', 'Developed', 'Advanced']
+const EDUCATION_LEVEL_COLORS = ['#666', '#4a9eff', '#50c878', '#ffd700']
+const EDUCATION_MAINTENANCE = { 1: 1.5, 2: 3.0, 3: 5.0 }
+const EDUCATION_GAIN_THRESHOLDS = { 0: 2.0, 1: 4.0, 2: 7.0 }
 
 const CATEGORIES = [
   {
@@ -78,12 +84,25 @@ export default function DomesticTab({ gs, sessionId, onGsUpdate }) {
   const [saving, setSaving] = useState(false)
   const [flash, setFlash] = useState(null)
 
+  // 8B: Education state
+  const eduLevel = gs?.education_level ?? 0
+  const eduProgress = gs?.education_gain_progress ?? 0
+  const eduDecayClock = gs?.education_decay_clock ?? 0
+  const savedEduAlloc = gs?.education_allocation ?? 0
+  const [eduAlloc, setEduAlloc] = useState(savedEduAlloc)
+  const [savingEdu, setSavingEdu] = useState(false)
+  const [eduFlash, setEduFlash] = useState(null)
+
   // Sync from gs if it changes externally
   useEffect(() => {
     if (gs?.budget_allocation) {
       setAlloc({ ...gs.budget_allocation })
     }
   }, [gs?.budget_allocation])
+
+  useEffect(() => {
+    setEduAlloc(gs?.education_allocation ?? 0)
+  }, [gs?.education_allocation])
 
   const total = Object.values(alloc).reduce((s, v) => s + v, 0)
   const isDirty = CATEGORIES.some(c => alloc[c.key] !== saved[c.key])
@@ -152,6 +171,34 @@ export default function DomesticTab({ gs, sessionId, onGsUpdate }) {
     }
   }
 
+  // 8B: Education allocation save
+  async function handleEduApply() {
+    if (savingEdu) return
+    setSavingEdu(true)
+    try {
+      const res = await api.educationAllocation(sessionId, eduAlloc)
+      if (res.game_state) {
+        onGsUpdate(res.game_state)
+      }
+      console.log('[EDUCATION] Allocation saved:', eduAlloc)
+      setEduFlash('Education spending saved')
+      setTimeout(() => setEduFlash(null), 2000)
+    } catch (e) {
+      console.error('[EDUCATION] Save failed:', e)
+      setEduFlash('Save failed: ' + e.message)
+      setTimeout(() => setEduFlash(null), 3000)
+    } finally {
+      setSavingEdu(false)
+    }
+  }
+
+  // 8B: Computed education warnings
+  const eduMaintenance = EDUCATION_MAINTENANCE[eduLevel] || 0
+  const eduGainThreshold = EDUCATION_GAIN_THRESHOLDS[eduLevel] ?? null
+  const isDecaying = eduLevel > 0 && eduAlloc < eduMaintenance
+  const isGaining = eduLevel < 3 && eduGainThreshold !== null && eduAlloc >= eduGainThreshold
+  const eduIsDirty = Math.abs(eduAlloc - savedEduAlloc) > 0.05
+
   return (
     <div className="domestic-tab">
       <div className="domestic-header">
@@ -204,6 +251,98 @@ export default function DomesticTab({ gs, sessionId, onGsUpdate }) {
         >
           {saving ? 'Saving...' : 'Apply'}
         </button>
+      </div>
+
+      {/* ── 8B: Education Spending ── */}
+      <div className="domestic-header" style={{ marginTop: '1rem' }}>
+        <span className="domestic-title">🎓 EDUCATION</span>
+        <span className="edu-level-badge" style={{ color: EDUCATION_LEVEL_COLORS[eduLevel] }}>
+          L{eduLevel} — {EDUCATION_LEVEL_NAMES[eduLevel]}
+        </span>
+      </div>
+
+      <div className="education-section">
+        {/* Progress bar */}
+        {eduLevel < 3 && (
+          <div className="edu-progress-row">
+            <span className="edu-progress-label">
+              Progress to {EDUCATION_LEVEL_NAMES[eduLevel + 1]}
+            </span>
+            <div className="edu-progress-bar">
+              <div
+                className="edu-progress-fill"
+                style={{
+                  width: `${Math.min(100, eduProgress * 100)}%`,
+                  backgroundColor: EDUCATION_LEVEL_COLORS[eduLevel + 1],
+                }}
+              />
+            </div>
+            <span className="edu-progress-pct">{(eduProgress * 100).toFixed(0)}%</span>
+          </div>
+        )}
+        {eduLevel === 3 && (
+          <div className="edu-maxed">✅ Maximum education level reached</div>
+        )}
+
+        {/* Slider */}
+        <div className="edu-alloc-row">
+          <span className="edu-alloc-label">Spending:</span>
+          <input
+            type="range"
+            min={0}
+            max={15}
+            step={0.5}
+            value={eduAlloc}
+            onChange={e => setEduAlloc(parseFloat(e.target.value))}
+            className={`domestic-range ${isGaining ? 'slider-high' : isDecaying ? 'slider-low' : 'slider-med'}`}
+          />
+          <span className="edu-alloc-amount">${eduAlloc.toFixed(1)}B/turn</span>
+        </div>
+
+        {/* Status indicators */}
+        <div className="edu-status">
+          {isDecaying && (
+            <span className="edu-decay-warning">
+              ⚠️ Below maintenance (${eduMaintenance.toFixed(1)}B) — decay in {Math.max(0, 5 - eduDecayClock)} days
+            </span>
+          )}
+          {isGaining && (
+            <span className="edu-gaining">
+              📈 Progressing — threshold met (${eduGainThreshold.toFixed(1)}B)
+            </span>
+          )}
+          {!isDecaying && !isGaining && eduLevel > 0 && (
+            <span className="edu-maintaining">
+              ✔️ Maintaining {EDUCATION_LEVEL_NAMES[eduLevel]} (min ${eduMaintenance.toFixed(1)}B)
+            </span>
+          )}
+          {!isDecaying && !isGaining && eduLevel === 0 && eduAlloc < (EDUCATION_GAIN_THRESHOLDS[0] || 2) && eduAlloc > 0 && (
+            <span className="edu-insufficient">
+              ⚡ Below gain threshold (${(EDUCATION_GAIN_THRESHOLDS[0] || 2).toFixed(1)}B needed)
+            </span>
+          )}
+          {eduLevel >= 2 && gs?.stability < 30 && (
+            <span className="edu-brain-drain">
+              🧠 Brain drain risk — stability too low
+            </span>
+          )}
+        </div>
+
+        {/* Apply button */}
+        <div className="domestic-actions">
+          {eduFlash && (
+            <span className={`domestic-flash ${eduFlash.includes('failed') ? 'flash-error' : 'flash-ok'}`}>
+              {eduFlash}
+            </span>
+          )}
+          <button
+            className="domestic-apply-btn"
+            onClick={handleEduApply}
+            disabled={savingEdu || !eduIsDirty}
+          >
+            {savingEdu ? 'Saving...' : 'Set Education Spending'}
+          </button>
+        </div>
       </div>
     </div>
   )

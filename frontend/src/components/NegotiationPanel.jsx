@@ -270,7 +270,7 @@ export default function NegotiationPanel({
         const condNpc = s.condition_npc ?? null
         const condThresh = s.condition_threshold ?? null
         const condNarrative = s.condition_narrative ?? null
-        const npcLabels = { usa: 'USA', arabia: 'Arabia', eu: 'EU', dprg: 'DPRG', europa: 'EU' }
+        const npcLabels = { usa: 'USA', arabia: 'Arabia', eu: 'EU', dprg: 'DPRG', europa: 'EU', russia: 'Russia', china: 'China' }
         // fixes_18 Fix A: Show both numeric and narrative conditions
         const numericStr = condType && condNpc
           ? `${npcLabels[condNpc] ?? condNpc} ${condType === 'relation_below' ? 'below' : 'above'} ${condThresh ?? '?'}`
@@ -316,6 +316,8 @@ export default function NegotiationPanel({
     arabia: 'arabia',
     eu:     'eu',
     dprg:   'dprg',
+    russia: 'russia',
+    china:  'china',
   }[npcKey] || 'usa'
 
   // Separate newest offer (full banner) from older ones (compact rows)
@@ -329,7 +331,7 @@ export default function NegotiationPanel({
         {/* Header */}
         <div className={`negotiation-header npc-color-${npcColorClass}`}>
           <span className="negotiation-npc-name">
-            {npcFlag} {npcLabel} — Private Channel
+            {npcFlag} {npcLabel} — Negotiation
           </span>
           <button className="negotiation-close-btn" onClick={onClose}>✕</button>
         </div>

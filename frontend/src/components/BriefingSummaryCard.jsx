@@ -11,6 +11,8 @@ const NPC_NAMES = {
   arabia: 'Sadam',
   eu: 'Marsha',
   dprg: 'Ji-won Ryang',
+  russia: 'Nikolai Volkov',
+  china: 'Wei Jianming',
 }
 
 export default function BriefingSummaryCard({ gs, currentEvent, intercepts }) {
@@ -46,7 +48,7 @@ export default function BriefingSummaryCard({ gs, currentEvent, intercepts }) {
 
   const ignoredComms = gs?.ignored_communiques || {}
 
-  for (const npc of ['usa', 'arabia', 'eu', 'dprg']) {
+  for (const npc of ['usa', 'arabia', 'eu', 'dprg', 'russia', 'china']) {
     const rel = gs?.relations?.[npc] ?? 50
     const hasSanctions = npc === 'usa' && gs?.usa_sanctions_active
     const hasEmbargo = npc === 'arabia' && gs?.arabia_embargo_active

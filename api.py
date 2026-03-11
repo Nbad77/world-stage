@@ -54,6 +54,17 @@ from auth import get_current_user, get_optional_user
 from database import User, GameStatePersisted, engine as accounts_engine, init_accounts_db
 from sqlmodel import Session as SQLModelSession
 
+# ── 8A: Centralized NPC constants ─────────────────────────────────────────────
+ALL_NPCS = ('usa', 'arabia', 'eu', 'dprg', 'russia', 'china')
+ALL_NPC_LABELS = {
+    'usa': 'USA', 'arabia': 'Arabia', 'eu': 'EU',
+    'dprg': 'DPRG', 'russia': 'Russia', 'china': 'China'
+}
+ALL_NPC_NAMES = {
+    'usa': 'Bill Hartwell', 'arabia': 'Sadam', 'eu': 'Marsha',
+    'dprg': 'Ji-won', 'russia': 'Nikolai Volkov', 'china': 'Wei Jianming'
+}
+
 # ── App setup ────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="The World Stage API")
@@ -128,6 +139,9 @@ class BudgetAllocationRequest(BaseModel):
     infrastructure: int
     diplomacy: int
 
+class EducationAllocationRequest(BaseModel):
+    allocation: float  # $B per turn to allocate to education
+
 class DebugSetStateRequest(BaseModel):
     overrides: dict  # fixes_10 Fix 7: field → value mapping for debug panel
 
@@ -173,22 +187,22 @@ def _get_discounted_negotiate_cost(gs, npc_id: str) -> tuple:
     _mult = 1.0
     _label_parts = []
 
-    # Fix 22: Diplomat advisor discount (updated for Session 7C dict-based advisors)
-    _advisors = getattr(gs, 'advisors', {})
-    _diplomat_active = False
-    if isinstance(_advisors, dict):
-        _da = _advisors.get('diplomatic_aide', {})
-        _diplomat_active = _da.get('assigned_this_turn', False)
-        _trust = _da.get('trust', 75)
-    if _diplomat_active:
-        if _trust >= 80:
-            _mult = 0.0  # free
-            _label_parts.append('Diplomat')
-            print(f"  [api] Fix 22: Diplomatic aide (trust {_trust}) → FREE negotiation")
+    # v2: Diplomat advisor discount (competence-based)
+    from advisor_engine import get_diplomat_discount
+    _diplomat_mult = get_diplomat_discount(gs)
+    if _diplomat_mult < 1.0:
+        _advisors = getattr(gs, 'advisors', {})
+        _da = _advisors.get('diplomat', {})
+        _comp = _da.get('competence', 60)
+        if _diplomat_mult == 0.0:
+            _mult = 0.0
+            _label_parts.append('Diplomat (free)')
+            print(f"  [api] Diplomat (competence {_comp}) → FREE negotiation")
         else:
-            _mult *= 0.5  # 50% discount
-            _label_parts.append('Diplomat -50%')
-            print(f"  [api] Fix 22: Diplomatic aide (trust {_trust}) → 50% discount")
+            _mult *= _diplomat_mult
+            pct = int((1 - _diplomat_mult) * 100)
+            _label_parts.append(f'Diplomat -{pct}%')
+            print(f"  [api] Diplomat (competence {_comp}) → {pct}% discount")
 
     # Fix 23: Political axis discount (stacks multiplicatively)
     _political = getattr(gs, 'cabinet_axes', {}).get('political', 0)
@@ -294,12 +308,12 @@ def _build_offers(gs: GameState) -> list[dict]:
 
     # Session 3 Addendum 2: Add consequence warning flags to offers.
     # Shows which third-party NPCs will be affected without revealing exact penalties.
-    _npc_labels = {'usa': 'USA', 'arabia': 'Arabia', 'eu': 'EU', 'dprg': 'DPRG'}
+    _npc_labels = dict(ALL_NPC_LABELS)
     for offer in offers:
         consequences = offer.get('consequences', {})
         deal_npc = offer.get('npc', '')
         affected = []
-        for npc_key in ['usa', 'arabia', 'eu', 'dprg']:
+        for npc_key in list(ALL_NPCS):
             if npc_key == deal_npc:
                 continue  # don't warn about the deal-giver's own relation change
             penalty = consequences.get(npc_key, 0)
@@ -307,6 +321,33 @@ def _build_offers(gs: GameState) -> list[dict]:
                 affected.append(_npc_labels.get(npc_key, npc_key.upper()))
         if affected:
             offer['relation_warning'] = f"⚠️ Will affect {' and '.join(affected)} relations"
+
+    # fixes_21: Deal conflict warnings — check if choice consequences hurt NPCs
+    # that have active (non-broken, non-expired) deals or binding promises with player.
+    _deal_history = getattr(gs, 'deal_history', [])
+    _binding_promises = getattr(gs, 'binding_promises', [])
+    _active_deals_by_npc = {}
+    for d in _deal_history:
+        if not d.get('broken') and d.get('expires_turn', 0) >= gs.current_turn:
+            _active_deals_by_npc.setdefault(d['npc'], []).append(d.get('summary', 'Active deal'))
+    for p in _binding_promises:
+        if not p.get('broken'):
+            _active_deals_by_npc.setdefault(p['npc'], []).append(p.get('promise_text', 'Binding promise'))
+
+    for offer in offers:
+        consequences = offer.get('consequences', {})
+        conflicts = []
+        for npc_key, deal_summaries in _active_deals_by_npc.items():
+            penalty = consequences.get(npc_key, 0)
+            if penalty < 0 and deal_summaries:
+                for summary in deal_summaries:
+                    conflicts.append({
+                        'npc': npc_key,
+                        'npc_label': _npc_labels.get(npc_key, npc_key.upper()),
+                        'deal_summary': summary,
+                    })
+        if conflicts:
+            offer['deal_conflicts'] = conflicts
 
     return offers
 
@@ -430,7 +471,7 @@ def _calc_eot_drain_projection(gs: GameState) -> dict:
         if _cond_type and _cond_npc:
             # Check if condition is currently met
             _actual_rel = gs.relations.get(_cond_npc, 50)
-            _npc_labels_c = {'usa': 'USA', 'arabia': 'Arabia', 'eu': 'EU', 'dprg': 'DPRG'}
+            _npc_labels_c = dict(ALL_NPC_LABELS)
             if _cond_type == 'relation_below' and _actual_rel >= _cond_thresh:
                 # Condition NOT met — payment may not fire
                 _conditional_net += _amt
@@ -694,7 +735,7 @@ def _get_corruption_intercepts(gs: GameState) -> list[str]:
     w = gs.corruption_warned
     comments = []
 
-    _npcs = ['usa', 'arabia', 'eu', 'dprg']
+    _npcs = list(ALL_NPCS)
     print(f"  [INTERCEPT] Turn {gs.current_turn}: checking thresholds for pw=${pw:.1f}B")
 
     for threshold, flag_suffix, label in [
@@ -958,7 +999,7 @@ def _build_escape_ending(gs: GameState) -> dict:
     rels = gs.relations
 
     # Determine highest-relation NPC
-    npc_order = ['usa', 'arabia', 'eu', 'dprg']
+    npc_order = list(ALL_NPCS)
     highest_npc = max(npc_order, key=lambda n: rels.get(n, 0))
 
     # Wealth tier: comfortable / functional / desperate
@@ -1074,6 +1115,9 @@ def _build_escape_ending(gs: GameState) -> dict:
 async def new_game(user: User = Depends(get_optional_user)):
     """Create a new game session. Returns session_id, initial state, offers, and Turn 1 dialogue."""
     gs = GameState()
+    # Initialize advisor pool at game start
+    from advisor_engine import generate_advisor_pool
+    gs.advisor_pool = generate_advisor_pool(gs)
     dialogue = npc_engine.generate_dialogue(gs)
     blackmail_active = _check_blackmail(gs)
     offers = _build_offers(gs)
@@ -1162,9 +1206,29 @@ async def post_action(session_id: str, body: ActionRequest, user: User = Depends
     offer_map = {o["letter"]: o for o in offers}
 
     if letter not in offer_map:
-        raise HTTPException(status_code=400, detail=f"Invalid choice '{letter}'")
-
-    offer = offer_map[letter]
+        # Session 8A: Russia/China (and future NPCs) have no static choice — their deals
+        # exist purely in options_override.  Build a synthetic base offer with empty
+        # consequences so the merge logic works cleanly.
+        _override_match = None
+        if gs.options_override:
+            for _ov in gs.options_override:
+                if _ov.get("letter") == letter:
+                    _override_match = _ov
+                    break
+        if not _override_match:
+            raise HTTPException(status_code=400, detail=f"Invalid choice '{letter}'")
+        _deal_npc = (_override_match.get("npc") or "").lower()
+        _deal_budget = _override_match.get("consequences", {}).get("budget", "N/A")
+        print(f"[deal] Russia/China deal confirmation panel triggered: {_deal_npc} {_deal_budget}")
+        offer = {
+            "letter": letter,
+            "type": "accept_deal",
+            "npc": _deal_npc,
+            "consequences": {},
+            "text": _override_match.get("text", ""),
+        }
+    else:
+        offer = offer_map[letter]
 
     # ── Option F — Escape ──────────────────────────────────────────────────
     if offer["type"] == "escape":
@@ -1558,13 +1622,13 @@ async def post_action(session_id: str, body: ActionRequest, user: User = Depends
             )
         # Session 3 Addendum: Track total aid received from this NPC (for willingness decay)
         _aid_npc = effective_offer.get("npc", "")
-        if _aid_npc and _aid_npc in ('usa', 'arabia', 'eu', 'dprg'):
+        if _aid_npc and _aid_npc in ALL_NPCS:
             _total_aid = combined_budget_delta if combined_budget_delta > 0 else 0
             for stream in streams_to_register:
                 if stream["amount"] > 0:
                     _total_aid += stream["amount"] * stream["turns_remaining"]
             if not hasattr(gs, 'total_aid_received'):
-                gs.total_aid_received = {'usa': 0.0, 'arabia': 0.0, 'eu': 0.0, 'dprg': 0.0}
+                gs.total_aid_received = {n: 0.0 for n in ALL_NPCS}
             gs.total_aid_received[_aid_npc] = gs.total_aid_received.get(_aid_npc, 0.0) + _total_aid
     else:
         extra_msgs = []
@@ -1575,6 +1639,9 @@ async def post_action(session_id: str, body: ActionRequest, user: User = Depends
         "consequences": effective_offer.get("consequences", {}),
         "is_negotiated": is_negotiated,
         "covert": effective_offer.get("covert", False),  # FIX E: pass covert flag
+        # 8A: Pass deal budget + text for cross-NPC scaling (budget is popped for negotiated deals)
+        "deal_budget": abs(combined_budget_delta) if is_negotiated else 0,
+        "text": effective_offer.get("text", ""),
     }
 
     gs.record_action(choice_dict["type"], choice_dict.get("npc"))
@@ -1592,7 +1659,7 @@ async def post_action(session_id: str, body: ActionRequest, user: User = Depends
     # FIX E: Deal immediate payment should be the FIRST line on the consequence screen.
     # Build a prominent deal payment header that precedes all other consequence messages.
     _deal_header = []
-    _npc_char_names = {'usa': 'Bill Hartwell', 'arabia': 'Sadam', 'eu': 'Marsha', 'dprg': 'Ji-won Ryang'}
+    _npc_char_names = dict(ALL_NPC_NAMES)
     if is_negotiated:
         _deal_npc = effective_offer.get("npc", "")
         _deal_npc_display = _npc_char_names.get(_deal_npc, _deal_npc.upper() if _deal_npc else "Unknown")
@@ -1616,7 +1683,7 @@ async def post_action(session_id: str, body: ActionRequest, user: User = Depends
             _cond_notes = []
             for s in streams_to_register:
                 if s.get("condition_type") and s.get("condition_npc"):
-                    _cond_npc_label = {'usa': 'USA', 'arabia': 'Arabia', 'eu': 'EU', 'dprg': 'DPRG'}.get(
+                    _cond_npc_label = dict(ALL_NPC_LABELS).get(
                         s["condition_npc"], s["condition_npc"].upper())
                     _cond_notes.append(
                         f"{_cond_npc_label} {'below' if s['condition_type'] == 'relation_below' else 'above'} {s.get('condition_threshold', 30):.0f}")
@@ -1769,7 +1836,7 @@ async def post_action(session_id: str, body: ActionRequest, user: User = Depends
                     old_rel = gs.relations[npc]
                     gs.update_relations(npc, extra)
                     new_rel = gs.relations[npc]
-                    npc_labels = {'usa': 'USA', 'arabia': 'Arabia', 'eu': 'EU', 'dprg': 'DPRG'}
+                    npc_labels = dict(ALL_NPC_LABELS)
                     consequence_msgs.append(
                         f"↓ {npc_labels.get(npc, npc.upper())}: {old_rel} → {new_rel} ({extra:+d}) — named in deal conditions"
                     )
@@ -1779,7 +1846,7 @@ async def post_action(session_id: str, body: ActionRequest, user: User = Depends
                 old_rel = gs.relations[npc]
                 gs.update_relations(npc, named_penalty)
                 new_rel = gs.relations[npc]
-                npc_labels = {'usa': 'USA', 'arabia': 'Arabia', 'eu': 'EU', 'dprg': 'DPRG'}
+                npc_labels = dict(ALL_NPC_LABELS)
                 consequence_msgs.append(
                     f"↓ {npc_labels.get(npc, npc.upper())}: {old_rel} → {new_rel} ({named_penalty:+d}) — named in deal conditions"
                 )
@@ -1846,6 +1913,13 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
         # from _build_skim_options() — no further adjustment needed here.
 
         gs.budget -= national_cost
+        # v2: Oligarch skim bonus (+10% personal gain when assigned)
+        from advisor_engine import get_oligarch_skim_bonus
+        _skim_bonus = get_oligarch_skim_bonus(gs)
+        if _skim_bonus > 1.0:
+            _before_gain = personal_gain
+            personal_gain = round(personal_gain * _skim_bonus, 1)
+            print(f"  [advisor] OLIGARCH SKIM BONUS: +10% applied, skim personal gain {_before_gain}→{personal_gain}")
         gs.update_personal_wealth(personal_gain, source=f"skim ({opt['label'][:40]})")
         gs.total_skimmed = getattr(gs, 'total_skimmed', 0.0) + personal_gain
         if gs.personal_wealth > getattr(gs, 'peak_personal_wealth', 0.0):
@@ -2164,7 +2238,7 @@ def post_inject(session_id: str, body: InjectRequest):
             _player_id = getattr(gs, 'player_id', None)
             if _player_id:
                 _cause = result_type or 'unknown'
-                for _npc_k in ('usa', 'arabia', 'eu', 'dprg'):
+                for _npc_k in ALL_NPCS:
                     store_memory(
                         player_id=_player_id, npc=_npc_k, era=0,
                         turn=gs.current_turn, event_type='regime_collapse',
@@ -2296,7 +2370,7 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
     gs = _load_gs(session_id)
 
     npc_id = body.npc_id.lower()
-    if npc_id not in ("usa", "arabia", "eu", "dprg"):
+    if npc_id not in ALL_NPCS:
         raise HTTPException(status_code=400, detail=f"Invalid npc_id '{npc_id}'")
 
     # FIX 14 + FIX B: Charge negotiation initiation cost from national budget (not personal wealth).
@@ -2332,18 +2406,18 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
             _interacted.append(npc_id)
             gs.npcs_interacted_this_turn = _interacted
 
-        # fixes_13 Fix 22: Diplomat loyalty leak — if diplomatic_aide assigned with trust < 40,
+        # fixes_13 Fix 22: Diplomat loyalty leak — if diplomat assigned with trust < 40,
         # secretly report negotiating position to a random NPC (player never told which)
-        # Updated for Session 7C dict-based advisors
+        # v2: updated key from 'diplomatic_aide' to 'diplomat'
         _advisors_dict = getattr(gs, 'advisors', {})
-        _da_info = _advisors_dict.get('diplomatic_aide', {}) if isinstance(_advisors_dict, dict) else {}
+        _da_info = _advisors_dict.get('diplomat', {}) if isinstance(_advisors_dict, dict) else {}
         if _da_info.get('assigned_this_turn', False) and _da_info.get('trust', 75) < 40:
-            _other_npcs = [n for n in ('usa', 'arabia', 'eu', 'dprg') if n != npc_id]
+            _other_npcs = [n for n in ALL_NPCS if n != npc_id]
             _leak_target = random.choice(_other_npcs)
             # Boost leaked-to NPC's knowledge — they get +3 relations with player (they appreciate the info)
             # but the player's negotiating position with the current NPC weakens slightly
             gs.update_relations(_leak_target, 3)
-            print(f"  [api] Fix 22: Disloyal diplomatic aide (trust {_da_info.get('trust')}) leaked to {_leak_target} — {_leak_target} +3 relations")
+            print(f"  [api] Diplomat loyalty leak (trust {_da_info.get('trust')}) leaked to {_leak_target} — {_leak_target} +3 relations")
 
     # Session 7B Step 3: Player-initiated contact — generate tone-appropriate opening
     _player_initiated = body.player_initiated and _is_first_message
@@ -2415,9 +2489,9 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
     if counter_offer and isinstance(counter_offer, dict):
         _co_consequences = counter_offer.get('consequences', {})
         _co_npc = npc_id
-        _npc_labels_co = {'usa': 'USA', 'arabia': 'Arabia', 'eu': 'EU', 'dprg': 'DPRG'}
+        _npc_labels_co = dict(ALL_NPC_LABELS)
         _affected_co = []
-        for _npc_key in ['usa', 'arabia', 'eu', 'dprg']:
+        for _npc_key in list(ALL_NPCS):
             if _npc_key == _co_npc:
                 continue
             _penalty = _co_consequences.get(_npc_key, 0)
@@ -2464,7 +2538,7 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
         # FIX 14 + fixes_13 Fix 22+23: Include discounted negotiate costs for frontend display
         "negotiate_costs": {
             npc: _get_discounted_negotiate_cost(gs, npc)[0]
-            for npc in ('usa', 'arabia', 'eu', 'dprg')
+            for npc in ALL_NPCS
         },
         # Session 7A Feature 10: GM consequence object for energy proposals (Arabia only)
         "gm_consequence": result.get("gm_consequence", None),
@@ -2578,7 +2652,7 @@ def post_deploy_brigades(session_id: str, body: BrigadeRequest):
         raise HTTPException(status_code=400, detail="Loyalty Brigades upgrade not purchased")
 
     messages = []
-    npc_labels = {'usa': 'USA', 'arabia': 'Arabia', 'eu': 'EU', 'dprg': 'DPRG'}
+    npc_labels = dict(ALL_NPC_LABELS)
 
     op = body.operation if body.operation else (1 if body.deploy else 0)
 
@@ -2601,7 +2675,7 @@ def post_deploy_brigades(session_id: str, body: BrigadeRequest):
     elif op == 2:
         # TIER 1: Domestic Suppression — $2B personal, chosen NPC notified (-5 with that NPC only)
         target = body.target_npc.lower() if body.target_npc else ''
-        if target not in ('usa', 'arabia', 'eu', 'dprg'):
+        if target not in ALL_NPCS:
             raise HTTPException(status_code=400, detail=f"Select target NPC who will notice the suppression")
         cost = 2.0
         if gs.personal_wealth < cost:
@@ -2627,7 +2701,7 @@ def post_deploy_brigades(session_id: str, body: BrigadeRequest):
         if not gs.corruption_upgrades.get('intelligence_apparatus'):
             raise HTTPException(status_code=400, detail="Requires Intelligence Apparatus upgrade")
         target = body.target_npc.lower() if body.target_npc else ''
-        if target not in ('usa', 'arabia', 'eu', 'dprg'):
+        if target not in ALL_NPCS:
             raise HTTPException(status_code=400, detail=f"Invalid target_npc '{target}' for foreign influence")
         cost = 3.0
         if gs.personal_wealth < cost:
@@ -2685,7 +2759,7 @@ def post_deploy_brigades(session_id: str, body: BrigadeRequest):
         if not getattr(gs, 'covert_security_unlocked', False):
             raise HTTPException(status_code=400, detail="Requires Covert Security Apparatus (deploy op 4 first)")
         target = body.target_npc.lower() if body.target_npc else ''
-        if target not in ('usa', 'arabia', 'eu', 'dprg'):
+        if target not in ALL_NPCS:
             raise HTTPException(status_code=400, detail=f"Invalid target_npc '{target}' for black operation")
         cost = 6.0
         if gs.personal_wealth < cost:
@@ -2792,8 +2866,7 @@ def post_brigade_aftermath(session_id: str, body: AftermathRequest):
     elif choice == 3:
         # Call in a favor from highest-relation NPC
         highest_npc = max(gs.relations, key=lambda k: gs.relations[k])
-        npc_labels = {'usa': 'Bill Hartwell', 'arabia': 'Sadam', 'eu': 'Marsha', 'dprg': 'Ji-won'}
-        npc_label = npc_labels.get(highest_npc, highest_npc.upper())
+        npc_label = ALL_NPC_NAMES.get(highest_npc, highest_npc.upper())
         old_rel = gs.relations[highest_npc]
         gs.update_relations(highest_npc, -10)
         gs.update_stability(8)
@@ -2837,7 +2910,7 @@ def post_get_intel(session_id: str, body: GetIntelRequest):
         raise HTTPException(status_code=403, detail="Intelligence axis level 3 required")
 
     npc_id = body.npc_id.lower()
-    if npc_id not in ('usa', 'arabia', 'eu', 'dprg'):
+    if npc_id not in ALL_NPCS:
         raise HTTPException(status_code=400, detail=f"Invalid npc_id '{npc_id}'")
 
     # Priority 2: Check if intel was already fetched (and charged) this turn for this NPC.
@@ -2851,8 +2924,13 @@ def post_get_intel(session_id: str, body: GetIntelRequest):
 
     # Session 3 Addendum: Tiered intel cost by relation level
     # fixes_12 Fix 9: Deduct from national budget (not personal wealth)
+    # v2: Spy Chief intel discount
     relation = gs.relations.get(npc_id, 50)
     cost = npc_engine.get_intel_cost(relation)
+    from advisor_engine import get_spy_chief_intel_discount
+    _intel_mult = get_spy_chief_intel_discount(gs)
+    if _intel_mult < 1.0:
+        cost = round(cost * _intel_mult, 1)
     cost_charged = 0.0
     if not already_paid:
         if gs.budget < cost:
@@ -2923,11 +3001,11 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
     counter["letter"] = letter
 
     # FIX G: Add cross-NPC warning flags to negotiated deals (same logic as static choices)
-    _npc_labels_g = {'usa': 'USA', 'arabia': 'Arabia', 'eu': 'EU', 'dprg': 'DPRG'}
+    _npc_labels_g = dict(ALL_NPC_LABELS)
     _cons = counter.get('consequences', {})
     _deal_npc = (counter.get('npc') or '').lower()
     _affected = []
-    for _npc_key in ['usa', 'arabia', 'eu', 'dprg']:
+    for _npc_key in list(ALL_NPCS):
         if _npc_key == _deal_npc:
             continue  # don't warn about the deal-giver's own relation change
         _penalty = _cons.get(_npc_key, 0)
@@ -3094,7 +3172,7 @@ def post_election(session_id: str, body: ElectionRequest):
         from memory_engine import store_memory
         _player_id = getattr(gs, 'player_id', None)
         if _player_id:
-            for _npc_k in ('usa', 'arabia', 'eu', 'dprg'):
+            for _npc_k in ALL_NPCS:
                 store_memory(
                     player_id=_player_id, npc=_npc_k, era=0,
                     turn=gs.current_turn, event_type='election_outcome',
@@ -3251,6 +3329,32 @@ async def post_budget_allocation(session_id: str, body: BudgetAllocationRequest,
     }
 
 
+# ── 8B: Education allocation endpoint ────────────────────────────────────
+
+@app.post("/game/{session_id}/education_allocation")
+async def post_education_allocation(session_id: str, body: EducationAllocationRequest, user: User = Depends(get_optional_user)):
+    """
+    8B: Set education spending allocation ($B per turn).
+    Body: { allocation: float }
+    The value is clamped to [0, 15] and deducted from the national budget each EOT.
+    Returns: { success, allocation, game_state }
+    """
+    _verify_game_ownership(session_id, user)
+    gs = _load_gs(session_id)
+
+    val = round(max(0.0, min(15.0, body.allocation)), 1)
+    gs.education_allocation = val
+    print(f"  [education] Allocation set to ${val:.1f}B/turn")
+
+    _save_gs(session_id, gs)
+
+    return {
+        "success": True,
+        "allocation": val,
+        "game_state": gs.serialize(),
+    }
+
+
 # ── fixes_10 Fix 7: Debug panel endpoint ────────────────────────────────────
 
 @app.post("/game/{session_id}/debug/set_state")
@@ -3267,7 +3371,7 @@ def debug_set_state(session_id: str, body: DebugSetStateRequest):
     for field, value in body.overrides.items():
         # Handle relation overrides — accept both 'usa' and 'usa_relations'
         _npc_key = field.replace('_relations', '') if field.endswith('_relations') else field
-        if _npc_key in ('usa', 'arabia', 'eu', 'dprg') and _npc_key in gs.relations:
+        if _npc_key in ALL_NPCS and _npc_key in gs.relations:
             gs.relations[_npc_key] = max(0, min(100, float(value)))
             applied[field] = gs.relations[_npc_key]
         elif field == 'budget':
@@ -3289,7 +3393,7 @@ def debug_set_state(session_id: str, body: DebugSetStateRequest):
             gs.military_strength = max(0, min(100, int(value)))
             applied[field] = gs.military_strength
         elif field == 'tech_level':
-            gs.tech_level = max(0, min(100, int(value)))
+            gs.tech_level = max(0, float(value))  # no upper cap — Tier 5 is 100+
             applied[field] = gs.tech_level
         elif hasattr(gs, field):
             setattr(gs, field, value)
@@ -3462,7 +3566,7 @@ def military_action(session_id: str, body: MilitaryActionRequest):
         if mil_level < 9:
             raise HTTPException(status_code=400, detail="Military axis must be >= 9 for Force Projection")
         target = body.target_npc.lower() if body.target_npc else ''
-        if target not in ('usa', 'arabia', 'eu', 'dprg'):
+        if target not in ALL_NPCS:
             raise HTTPException(status_code=400, detail=f"Invalid target_npc '{target}' for Force Projection")
         cooldown = getattr(gs, 'force_projection_cooldown', 0)
         if cooldown > 0:
@@ -3479,7 +3583,7 @@ def military_action(session_id: str, body: MilitaryActionRequest):
         if mil_level < 10:
             raise HTTPException(status_code=400, detail="Military axis must be 10 for Arms Export")
         target = body.target_npc.lower() if body.target_npc else ''
-        if target not in ('usa', 'arabia', 'eu', 'dprg'):
+        if target not in ALL_NPCS:
             raise HTTPException(status_code=400, detail=f"Invalid target_npc '{target}' for Arms Export")
         if getattr(gs, 'arms_export_this_turn', None):
             raise HTTPException(status_code=400, detail="Arms Export already used this turn")
@@ -3528,7 +3632,7 @@ def intelligence_action(session_id: str, body: AxisActionRequest):
         if getattr(gs, 'intel_sharing_target', None):
             raise HTTPException(status_code=400, detail=f"Intelligence Sharing already used this game (shared with {gs.intel_sharing_target.upper()})")
         target = body.target_npc.lower() if body.target_npc else ''
-        if target not in ('usa', 'arabia', 'eu', 'dprg'):
+        if target not in ALL_NPCS:
             raise HTTPException(status_code=400, detail=f"Invalid target_npc '{target}'")
         gs.intel_sharing_target = target
         gs.update_relations(target, 12)
@@ -3580,12 +3684,12 @@ def media_action(session_id: str, body: AxisActionRequest):
         if gs.personal_wealth < cost:
             raise HTTPException(status_code=400, detail=f"Need ${cost}B personal wealth")
         target = body.target_npc.lower() if body.target_npc else ''
-        if target not in ('usa', 'arabia', 'eu', 'dprg'):
+        if target not in ALL_NPCS:
             raise HTTPException(status_code=400, detail=f"Invalid target_npc '{target}'")
         gs.update_personal_wealth(-cost, source="narrative campaign")
         gs.update_approval(8)
         # Credibility hit: target NPC loses 5 relations with one random other NPC
-        _other_npcs = [n for n in ('usa', 'arabia', 'eu', 'dprg') if n != target]
+        _other_npcs = [n for n in ALL_NPCS if n != target]
         import random as _rng
         _victim = _rng.choice(_other_npcs)
         gs.update_relations(target, -5)
@@ -3642,7 +3746,7 @@ def judicial_action(session_id: str, body: AxisActionRequest):
         if gs.personal_wealth < cost:
             raise HTTPException(status_code=400, detail=f"Need ${cost}B personal wealth")
         target = body.target_npc.lower() if body.target_npc else ''
-        if target not in ('usa', 'arabia', 'eu', 'dprg'):
+        if target not in ALL_NPCS:
             raise HTTPException(status_code=400, detail=f"Invalid target_npc '{target}'")
         gs.update_personal_wealth(-cost, source="lawfare")
         gs.lawfare_target = target
@@ -3843,7 +3947,7 @@ def resource_dev_action(session_id: str, body: AxisActionRequest):
         if getattr(gs, 'strategic_resource_partner', None):
             raise HTTPException(status_code=400, detail=f"Already partnered with {gs.strategic_resource_partner.upper()}")
         target = body.target_npc.lower() if body.target_npc else ''
-        if target not in ('usa', 'arabia', 'eu', 'dprg'):
+        if target not in ALL_NPCS:
             raise HTTPException(status_code=400, detail=f"Invalid target_npc '{target}'")
         gs.strategic_resource_partner = target
         gs.update_relations(target, 5)
@@ -3955,15 +4059,14 @@ def advisor_action(session_id: str, body: AdvisorActionRequest):
 
 @app.get("/game/{session_id}/advisor_pool")
 def get_advisor_pool(session_id: str):
-    """Get (or generate) the current advisor hiring pool."""
+    """Get advisor hiring pool. v2: always regenerate dynamically."""
     from advisor_engine import generate_advisor_pool
 
     gs = _load_gs(session_id)
 
-    # Regenerate pool if empty
-    if not getattr(gs, 'advisor_pool', []):
-        gs.advisor_pool = generate_advisor_pool(gs, count=4)
-        _save_gs(session_id, gs)
+    # v2: Always regenerate pool from current gate conditions
+    gs.advisor_pool = generate_advisor_pool(gs)
+    _save_gs(session_id, gs)
 
     return {
         "advisor_pool": gs.advisor_pool,
@@ -3979,7 +4082,7 @@ class AdvisorAssignRequest(BaseModel):
 
 @app.post("/game/{session_id}/advisor/assign")
 def advisor_assign(session_id: str, body: AdvisorAssignRequest):
-    """Assign an advisor for this turn (uses one slot)."""
+    """Assign an advisor for this turn. Tracks unique advisors assigned (Set semantics)."""
     gs = _load_gs(session_id)
     _advisors = getattr(gs, 'advisors', {})
     if not isinstance(_advisors, dict):
@@ -3991,33 +4094,57 @@ def advisor_assign(session_id: str, body: AdvisorAssignRequest):
 
     _adv = _advisors[_key]
     if _adv.get('assigned_this_turn', False):
-        raise HTTPException(status_code=400, detail=f"{_adv['name']} is already assigned this turn")
+        raise HTTPException(status_code=400, detail=f"{_adv.get('name', _key)} is already assigned this turn")
 
-    # Check slot limit
+    # Slot check: unique advisors assigned today (Set semantics via list)
     _slots = getattr(gs, 'advisor_slots_available', 2)
-    _assigned_count = sum(1 for a in _advisors.values() if a.get('assigned_this_turn', False))
-    if _assigned_count >= _slots:
-        raise HTTPException(status_code=400, detail=f"All {_slots} advisor slots are in use this turn")
+    _assigned_today = getattr(gs, 'advisor_assigned_today', [])
+    _is_reassign = _key in _assigned_today  # same advisor re-assigned after unassign
+    _slots_used = len(set(_assigned_today))
+
+    if not _is_reassign and _slots_used >= _slots:
+        raise HTTPException(status_code=400, detail=f"All {_slots} advisor slots have been used this turn (dismissing does not free slots)")
 
     _adv['assigned_this_turn'] = True
-    print(f"  [ADVISOR] {_key} assigned for turn {gs.current_turn}")
+
+    # Add to assigned_today set (only if not already present)
+    if not _is_reassign:
+        _assigned_today.append(_key)
+        gs.advisor_assigned_today = _assigned_today
+
+    _slots_used_after = len(set(gs.advisor_assigned_today))
+    print(f"  [advisor] SLOT CHECK: assigned_today={gs.advisor_assigned_today} slots_used={_slots_used_after}")
+    print(f"  [ADVISOR] {_key} assigned for turn {gs.current_turn} — {'reassign (no new slot)' if _is_reassign else f'slots used: {_slots_used_after}/{_slots}'}")
+
+    # Generate or retrieve cached advisor analysis
+    _arch_key = _adv.get('archetype', _key)
+    _cached_analyses = getattr(gs, 'advisor_analyses', {})
+    _analysis = _cached_analyses.get(_key)
+
+    if not _analysis:
+        # No cached analysis — generate fresh via Claude Haiku
+        try:
+            _analysis = npc_engine.generate_advisor_analysis(_arch_key, gs)
+        except Exception as e:
+            print(f"  [ADVISOR] Analysis generation failed: {e}")
+            _analysis = None
+
+        # Cache it for this turn so reassignment returns the same text
+        if _analysis:
+            _cached_analyses[_key] = _analysis
+            gs.advisor_analyses = _cached_analyses
+            print(f"  [ADVISOR] Analysis generated and cached for {_key}")
+    else:
+        print(f"  [ADVISOR] Returning cached analysis for {_key}")
 
     _save_gs(session_id, gs)
-
-    # Session 7C Step 3: Generate advisor analysis via Claude Haiku
-    _analysis = None
-    try:
-        _analysis = npc_engine.generate_advisor_analysis(_key, gs)
-    except Exception as e:
-        print(f"  [ADVISOR] Analysis generation failed: {e}")
-        _analysis = None
 
     return {"success": True, "advisors": gs.advisors, "advisor_analysis": _analysis, "game_state": gs.serialize()}
 
 
 @app.post("/game/{session_id}/advisor/unassign")
 def advisor_unassign(session_id: str, body: AdvisorAssignRequest):
-    """Unassign an advisor (frees the slot)."""
+    """Unassign an advisor (does NOT free the slot — slots are consumed for the turn)."""
     gs = _load_gs(session_id)
     _advisors = getattr(gs, 'advisors', {})
     if not isinstance(_advisors, dict):
@@ -4029,13 +4156,88 @@ def advisor_unassign(session_id: str, body: AdvisorAssignRequest):
 
     _adv = _advisors[_key]
     if not _adv.get('assigned_this_turn', False):
-        raise HTTPException(status_code=400, detail=f"{_adv['name']} is not assigned")
+        raise HTTPException(status_code=400, detail=f"{_adv.get('name', _key)} is not assigned")
 
     _adv['assigned_this_turn'] = False
-    print(f"  [ADVISOR] {_key} unassigned for turn {gs.current_turn}")
+    # Note: advisor_assigned_today is NOT modified — advisor stays in the set, can reassign without consuming a new slot
+    _assigned_today = getattr(gs, 'advisor_assigned_today', [])
+    print(f"  [ADVISOR] {_key} unassigned for turn {gs.current_turn} — assigned_today stays: {_assigned_today}")
 
     _save_gs(session_id, gs)
     return {"success": True, "advisors": gs.advisors, "game_state": gs.serialize()}
+
+
+# ── Advisor Hire / Dismiss / Eliminate ────────────────────────────────────────
+
+class AdvisorHireRequest(BaseModel):
+    advisor_id: str
+
+@app.post("/game/{session_id}/advisor/hire")
+def advisor_hire(session_id: str, body: AdvisorHireRequest):
+    """Hire an advisor from the pool into an active slot."""
+    gs = _load_gs(session_id)
+    from advisor_engine import hire_advisor
+    success, msg = hire_advisor(gs, body.advisor_id)
+    if not success:
+        raise HTTPException(status_code=400, detail=msg)
+
+    # Generate background one-liner via Haiku
+    _hired_key = None
+    for k, v in gs.advisors.items():
+        if isinstance(v, dict) and v.get('id') == body.advisor_id:
+            _hired_key = k
+            break
+    if _hired_key:
+        _adv = gs.advisors[_hired_key]
+        try:
+            _arch = _adv.get('archetype', _hired_key)
+            _bg = npc_engine.generate_advisor_analysis(_arch, gs)
+            # Use first sentence as background — split on '. ' (period-space)
+            # to avoid breaking on decimals like $8.5B or Tier 1.25x
+            _bg_short = _bg.split('. ')[0] + '.' if '. ' in _bg else _bg
+            _adv['background'] = _bg_short[:120]
+        except Exception as e:
+            _adv['background'] = f"Experienced {_adv.get('label', 'advisor')} with connections across Europa."
+            print(f"  [ADVISOR] Background generation failed: {e}")
+
+    _save_gs(session_id, gs)
+    return {"success": True, "message": msg, "advisors": gs.advisors, "advisor_pool": gs.advisor_pool, "game_state": gs.serialize()}
+
+
+@app.post("/game/{session_id}/advisor/dismiss")
+def advisor_dismiss(session_id: str, body: AdvisorAssignRequest):
+    """Dismiss an active advisor. Free. Returns to pool."""
+    gs = _load_gs(session_id)
+    from advisor_engine import dismiss_advisor
+    success, msg = dismiss_advisor(gs, body.advisor_key)
+    if not success:
+        raise HTTPException(status_code=400, detail=msg)
+    _save_gs(session_id, gs)
+    return {"success": True, "message": msg, "advisors": gs.advisors, "advisor_pool": gs.advisor_pool, "game_state": gs.serialize()}
+
+
+@app.post("/game/{session_id}/advisor/eliminate")
+def advisor_eliminate(session_id: str, body: AdvisorAssignRequest):
+    """Permanently eliminate an advisor. Costs $2B personal."""
+    gs = _load_gs(session_id)
+    from advisor_engine import eliminate_advisor
+    success, msg = eliminate_advisor(gs, body.advisor_key)
+    if not success:
+        raise HTTPException(status_code=400, detail=msg)
+    _save_gs(session_id, gs)
+    return {"success": True, "message": msg, "advisors": gs.advisors, "advisor_pool": gs.advisor_pool, "game_state": gs.serialize()}
+
+
+@app.get("/game/{session_id}/advisor/pool")
+def advisor_pool_get(session_id: str):
+    """Get the advisor hiring pool. v2: always regenerate dynamically
+    based on current gate conditions."""
+    gs = _load_gs(session_id)
+    from advisor_engine import generate_advisor_pool
+    pool = generate_advisor_pool(gs)
+    gs.advisor_pool = pool
+    _save_gs(session_id, gs)
+    return {"pool": pool, "advisors": gs.advisors}
 
 
 # ── Session 7D: Backchannel System ─────────────────────────────────────────
@@ -4051,7 +4253,7 @@ def backchannel_message(session_id: str, body: BackchannelRequest):
     _npc_id = body.npc_id
     _message = body.message
 
-    if _npc_id not in ('usa', 'arabia', 'eu', 'dprg'):
+    if _npc_id not in ALL_NPCS:
         raise HTTPException(status_code=400, detail=f"Cannot open backchannel to {_npc_id}")
 
     try:
@@ -4351,7 +4553,7 @@ def issue_bonds(session_id: str, body: BondRequest):
             'npc': 'bond',
         })
         # -5 all NPCs on every large bond issuance
-        for npc in ('usa', 'arabia', 'eu', 'dprg'):
+        for npc in ALL_NPCS:
             gs.update_relations(npc, -5)
         gs.large_bond_used = True
         changes = ["+$10B from emergency bond", f"-${repayment:.1f}B/turn for 3 turns (30% interest)",
@@ -4430,7 +4632,7 @@ def brigade_operation(session_id: str, body: BrigadeRequest):
     elif op == 3:
         # Foreign Influence Ops — costs personal wealth, flat +5 relations
         target = body.target_npc
-        if target not in ('usa', 'arabia', 'eu', 'dprg'):
+        if target not in ALL_NPCS:
             raise HTTPException(status_code=400, detail=f"Invalid target NPC '{target}'")
         if gs.personal_wealth < 1.5:
             raise HTTPException(status_code=400, detail="Need $1.5B personal wealth for foreign influence op")
@@ -4529,7 +4731,7 @@ def post_black_operation(session_id: str, body: BlackOpRequest):
 
     if op == 'fabricate_crisis':
         # $4B personal, target NPC, suspend their pressure 2 turns, 35% detection
-        if target not in ('usa', 'arabia', 'eu', 'dprg'):
+        if target not in ALL_NPCS:
             raise HTTPException(status_code=400, detail=f"Invalid target NPC '{target}'")
         if gs.personal_wealth < 4.0:
             raise HTTPException(status_code=400, detail="Need $4B personal wealth")
@@ -4554,7 +4756,7 @@ def post_black_operation(session_id: str, body: BlackOpRequest):
 
     elif op == 'blackmail':
         # $5B personal, requires Tier 3 intel, NPC -5 permanent, 40% detection
-        if target not in ('usa', 'arabia', 'eu', 'dprg'):
+        if target not in ALL_NPCS:
             raise HTTPException(status_code=400, detail=f"Invalid target NPC '{target}'")
         if gs.personal_wealth < 5.0:
             raise HTTPException(status_code=400, detail="Need $5B personal wealth")
@@ -4597,14 +4799,14 @@ def post_black_operation(session_id: str, body: BlackOpRequest):
 
     elif op == 'false_flag':
         # $6B personal, blame another NPC, bilateral -10, 50% detection
-        if target not in ('usa', 'arabia', 'eu', 'dprg'):
+        if target not in ALL_NPCS:
             raise HTTPException(status_code=400, detail=f"Invalid target NPC '{target}'")
         if gs.personal_wealth < 6.0:
             raise HTTPException(status_code=400, detail="Need $6B personal wealth")
         gs.update_personal_wealth(-6.0, source=f"black op: false flag ({target})")
         # Damage bilateral score — target NPC's relations with another NPC
         # Pick the NPC with best relations to the target as the "victim"
-        _other_npcs = [n for n in ('usa', 'arabia', 'eu', 'dprg') if n != target]
+        _other_npcs = [n for n in ALL_NPCS if n != target]
         _victim = random.choice(_other_npcs)
         # Bilateral damage is stored for NPC-to-NPC processing
         _bilateral_damages = getattr(gs, 'bilateral_damages', [])
@@ -4618,7 +4820,7 @@ def post_black_operation(session_id: str, body: BlackOpRequest):
     elif op == 'political_sabotage':
         # $3B personal, suspend pressure 1 turn, reduce cross-NPC penalty 50% next turn, 25% detection
         # Requires Tier 2 intel
-        if target not in ('usa', 'arabia', 'eu', 'dprg'):
+        if target not in ALL_NPCS:
             raise HTTPException(status_code=400, detail=f"Invalid target NPC '{target}'")
         if gs.personal_wealth < 3.0:
             raise HTTPException(status_code=400, detail="Need $3B personal wealth")

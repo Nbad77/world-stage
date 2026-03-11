@@ -13,7 +13,7 @@
  *   onRestart        : () => void
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '../api'
 import AdvisorPanel from './AdvisorPanel'
 
@@ -243,6 +243,142 @@ const POWER_DESCRIPTIONS = {
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
+
+// ── AdvisorDrawer: Active advisors + hiring pool ─────────────────────────────
+
+// v2 hiring cost display logic per archetype
+const HIRE_COST_LABELS = {
+  finance_minister: '$0.5B national',
+  technocrat: '$0.5B national',
+  diplomat: '$0.5B national',
+  general: '$0.5B national',
+  spy_chief: '$1B national',
+  propagandist: '$0.5B personal',
+  militia_commander: '$0.5B personal',
+  oligarch: '$1B personal',
+  fixer: '$1B personal',
+}
+
+function AdvisorDrawer({ gs, sessionId, loading: parentLoading, setLoading: setParentLoading, onUpgradePurchased }) {
+  const [pool, setPool] = useState(gs?.advisor_pool || [])
+  const [poolLoading, setPoolLoading] = useState(false)
+  const [poolError, setPoolError] = useState(null)
+  const [hireLoading, setHireLoading] = useState(null)
+
+  // Refresh pool from server (v2: dynamic, shows all eligible)
+  async function refreshPool() {
+    setPoolLoading(true)
+    setPoolError(null)
+    try {
+      const res = await api.getAdvisorPool(sessionId)
+      setPool(res.pool || [])
+    } catch (e) {
+      setPoolError(e.message)
+    } finally {
+      setPoolLoading(false)
+    }
+  }
+
+  // Load pool on mount
+  useEffect(() => {
+    refreshPool()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleHire(advisorId) {
+    const hireTarget = pool.find(a => a.id === advisorId)
+    const archetype = hireTarget?.archetype || advisorId
+    console.log(`[advisor] HIRE CLICKED: ${archetype} — pool count before: ${pool.length}`)
+    setHireLoading(advisorId)
+    setPoolError(null)
+    try {
+      const res = await api.hireAdvisor(sessionId, advisorId)
+      const newPool = res.advisor_pool || []
+      const hiredName = hireTarget?.name || advisorId
+      console.log(`[advisor] HIRE COMPLETE: ${hiredName} added to roster — pool count after: ${newPool.length}`)
+      setPool(newPool)
+      if (res.game_state && onUpgradePurchased) onUpgradePurchased(res.game_state)
+    } catch (e) {
+      setPoolError(e.message)
+      setTimeout(() => setPoolError(null), 3000)
+    } finally {
+      setHireLoading(null)
+    }
+  }
+
+  const staffCount = Object.keys(gs?.advisors || {}).filter(k => {
+    const a = gs.advisors[k]
+    return a && typeof a === 'object' && a.archetype
+  }).length
+
+  return (
+    <div className="sc-drawer-content">
+      <div className="sc-drawer-header">ADVISORS</div>
+      <div className="sc-drawer-subtitle">
+        Your inner circle. Assign up to 2 per day. Trust determines loyalty. Betrayal is permanent.
+      </div>
+
+      {/* Staff roster */}
+      <AdvisorPanel
+        gs={gs}
+        sessionId={sessionId}
+        onGsUpdate={(newGs) => {
+          if (onUpgradePurchased) onUpgradePurchased(newGs)
+          // Refresh pool after dismiss/eliminate (archetype may return to pool)
+          refreshPool()
+        }}
+      />
+
+      {/* Hiring Pool */}
+      <div className="advisor-pool-section">
+        <div className="advisor-pool-header">
+          <span className="advisor-pool-title">AVAILABLE TO HIRE</span>
+          <span className="advisor-pool-slots">{staffCount} on staff</span>
+        </div>
+
+        {poolError && <div className="advisor-error">{poolError}</div>}
+
+        {pool.length === 0 && !poolLoading && (
+          <div className="advisor-pool-empty">
+            All eligible archetypes are on staff or eliminated.
+            <button className="advisor-pool-refresh-btn" onClick={refreshPool}>Refresh</button>
+          </div>
+        )}
+
+        {poolLoading && <div className="advisor-pool-empty">Loading pool...</div>}
+
+        <div className="advisor-pool-list">
+          {pool.map(adv => {
+            const costLabel = HIRE_COST_LABELS[adv.archetype] || '$0.5B'
+            return (
+              <div key={adv.id} className="advisor-pool-card">
+                <div className="advisor-pool-card-top">
+                  <span className="advisor-card-icon">{adv.icon || '👤'}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="advisor-card-name">{adv.name}</div>
+                    <div className="advisor-archetype-label">{adv.label}</div>
+                  </div>
+                </div>
+                {/* Competence / Loyalty preview */}
+                <div className="advisor-pool-stats">
+                  <span>C: {adv.competence ?? '—'}</span>
+                  <span>L: {adv.loyalty ?? '—'}</span>
+                </div>
+                <button
+                  className="advisor-pool-hire-btn"
+                  onClick={() => handleHire(adv.id)}
+                  disabled={hireLoading === adv.id}
+                >
+                  {hireLoading === adv.id ? 'Hiring...' : `Hire — ${costLabel}`}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 
 export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchased, onRestart }) {
   const [activeDrawer, setActiveDrawer] = useState(0) // 0=infra, 1=ops, 2=special
@@ -477,6 +613,27 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
           <div className="sc-wealth">${personalWealth.toFixed(1)}B personal funds</div>
         </div>
 
+        {/* fixes_21 Fix M: Budget allocation summary — compact persistent indicator */}
+        {gs?.budget_allocation && (
+          <div className="sc-budget-summary">
+            <span className="sc-budget-tag">
+              🔍 Intel {gs.budget_allocation.intelligence ?? 20}%
+            </span>
+            <span className="sc-budget-tag">
+              ⚔️ Mil {gs.budget_allocation.military ?? 20}%
+            </span>
+            <span className="sc-budget-tag">
+              🏥 Svc {gs.budget_allocation.public_services ?? 20}%
+            </span>
+            <span className="sc-budget-tag">
+              🏗️ Infra {gs.budget_allocation.infrastructure ?? 20}%
+            </span>
+            <span className="sc-budget-tag">
+              🎓 Edu {gs.budget_allocation.education ?? 20}%
+            </span>
+          </div>
+        )}
+
         {/* Feedback messages */}
         {successMsg && <div className="sc-success">{successMsg}</div>}
         {error && <div className="sc-error">{error}</div>}
@@ -601,7 +758,7 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
             {/* Target NPC selector for Foreign Influence */}
             <div className="sc-ops-target">
               <span className="sc-ops-target-label">Influence Target:</span>
-              {['usa', 'arabia', 'eu', 'dprg'].map(npc => (
+              {['usa', 'arabia', 'eu', 'dprg', 'russia', 'china'].map(npc => (
                 <button
                   key={npc}
                   className={`sc-ops-target-btn ${selectedTarget === npc ? 'sc-ops-target-active' : ''}`}
@@ -738,7 +895,7 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
                     <div className="sc-op-effect">Sell weapons: +$4B national, +8 relations with buyer, -5 military</div>
                     <div className="sc-ops-target" style={{ margin: '0.3rem 0' }}>
                       <span className="sc-ops-target-label">Export to:</span>
-                      {['usa', 'arabia', 'eu', 'dprg'].map(npc => (
+                      {['usa', 'arabia', 'eu', 'dprg', 'russia', 'china'].map(npc => (
                         <button
                           key={npc}
                           className={`sc-ops-target-btn ${armsExportTarget === npc ? 'sc-ops-target-active' : ''}`}
@@ -1163,20 +1320,16 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
         )}
 
         {/* ═══════════════════════════════════════════════════════════════════
-            DRAWER 3 — ADVISORS (fixes_11 Fix 3)
+            DRAWER 3 — ADVISORS (restored 9-archetype pool)
         ═══════════════════════════════════════════════════════════════════ */}
         {activeDrawer === 2 && (
-          <div className="sc-drawer-content">
-            <div className="sc-drawer-header">ADVISORS</div>
-            <div className="sc-drawer-subtitle">
-              Your inner circle. Competence shapes your briefings. Loyalty determines what they tell you.
-            </div>
-            <AdvisorPanel
-              gs={gs}
-              sessionId={sessionId}
-              onGsUpdate={(newGs) => onUpgradePurchased && onUpgradePurchased(newGs)}
-            />
-          </div>
+          <AdvisorDrawer
+            gs={gs}
+            sessionId={sessionId}
+            loading={loading}
+            setLoading={setLoading}
+            onUpgradePurchased={onUpgradePurchased}
+          />
         )}
 
         {/* ═══════════════════════════════════════════════════════════════════

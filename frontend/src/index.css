@@ -19,6 +19,8 @@
   --arabia:    #c8a84b;
   --eu:        #5ab4e5;
   --dprg:      #c04040;
+  --russia:    #8b1a1a;   /* dark red */
+  --china:     #c8961e;   /* deep gold */
 
   --success:   #4caf6e;
   --warning:   #e5a34a;
@@ -346,6 +348,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .npc-name.arabia { color: var(--arabia); }
 .npc-name.eu    { color: var(--eu); }
 .npc-name.dprg  { color: var(--dprg); }
+.npc-name.russia { color: var(--russia); }
+.npc-name.china { color: var(--china); }
 
 .npc-text {
   font-size: 0.9rem;
@@ -759,6 +763,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .rel-badge.arabia { color: var(--arabia); border-color: var(--arabia); background: rgba(200,168,75,0.1); }
 .rel-badge.eu    { color: var(--eu);     border-color: var(--eu);     background: rgba(90,180,229,0.1); }
 .rel-badge.dprg  { color: var(--dprg);   border-color: var(--dprg);   background: rgba(192,64,64,0.1); }
+.rel-badge.russia { color: var(--russia); border-color: var(--russia); background: rgba(139,26,26,0.1); }
+.rel-badge.china { color: var(--china); border-color: var(--china); background: rgba(200,150,30,0.1); }
 
 /* Priority 6: Relations 100 unlock indicators */
 .rel-badge-unlocked {
@@ -994,6 +1000,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .npc-color-arabia { border-top: 3px solid var(--arabia); }
 .npc-color-eu     { border-top: 3px solid var(--eu); }
 .npc-color-dprg   { border-top: 3px solid var(--dprg); }
+.npc-color-russia { border-top: 3px solid var(--russia); }
+.npc-color-china  { border-top: 3px solid var(--china); }
 
 .negotiation-npc-name {
   font-size: 0.78rem;
@@ -1056,6 +1064,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .msg-npc.msg-arabia { border-left: 3px solid var(--arabia); }
 .msg-npc.msg-eu     { border-left: 3px solid var(--eu); }
 .msg-npc.msg-dprg   { border-left: 3px solid var(--dprg); }
+.msg-npc.msg-russia { border-left: 3px solid var(--russia); }
+.msg-npc.msg-china  { border-left: 3px solid var(--china); }
 
 .msg-loading {
   align-self: flex-start;
@@ -1286,6 +1296,30 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   margin-right: 0.3rem;
 }
 
+/* ── Session 8A: Russia/China negotiated deal card ──────────────────────── */
+.negotiated-deal-panel {
+  border-color: var(--accent);
+  background: rgba(74,158,255,0.04);
+}
+.negotiated-deal-text {
+  font-family: var(--mono);
+  font-size: 0.88rem;
+  line-height: 1.4;
+  padding: 0.5rem 0;
+  color: var(--fg);
+}
+.negotiated-deal-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+.negotiated-deal-actions .btn-primary {
+  flex: 1;
+}
+.negotiated-deal-actions .btn-ghost {
+  flex: 0 0 auto;
+}
+
 /* ── Confirmation modal (FEATURE 1) ─────────────────────────────────────── */
 .confirm-overlay {
   position: fixed;
@@ -1341,6 +1375,39 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .confirm-commit-btn {
   font-size: 0.83rem;
   padding: 0.4rem 1.1rem;
+}
+
+/* fixes_21: Deal conflict warning in confirm dialog */
+.confirm-has-conflicts {
+  border-color: #e6a23c;
+}
+.confirm-conflicts {
+  background: rgba(230, 162, 60, 0.08);
+  border-top: 1px solid rgba(230, 162, 60, 0.25);
+  border-bottom: 1px solid rgba(230, 162, 60, 0.25);
+  padding: 0.6rem 1rem;
+}
+.confirm-conflicts-header {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #e6a23c;
+  margin-bottom: 0.35rem;
+}
+.confirm-conflict-item {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text);
+  padding: 0.15rem 0;
+}
+.confirm-conflict-item strong {
+  color: #e6a23c;
+}
+.confirm-has-conflicts .confirm-commit-btn {
+  background: #e6a23c;
+  border-color: #e6a23c;
+  color: #111;
 }
 
 /* ── Active deals banner in NegotiationPanel (FEATURE 2) ─────────────────── */
@@ -1860,24 +1927,26 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   background: rgba(0, 0, 0, 0.7);
   z-index: 400;
   display: flex;
-  justify-content: flex-end;
-  align-items: stretch;
+  justify-content: center;
+  align-items: flex-end;
   animation: overlay-fade-in 0.2s ease;
 }
 
 .shadow-cabinet-drawer {
-  width: min(520px, 92vw);  /* fixes_12 Fix 5: widened from 340px for axis tracks + investment controls */
+  width: min(680px, 96vw);
+  max-height: 85vh;
   background: #0d0f14;
-  border-left: 1px solid rgba(200, 168, 75, 0.3);
+  border-top: 1px solid rgba(200, 168, 75, 0.3);
+  border-radius: 12px 12px 0 0;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  animation: sc-slide-in 0.22s ease;
+  animation: sc-slide-up 0.25s ease;
 }
 
-@keyframes sc-slide-in {
-  from { transform: translateX(100%); }
-  to   { transform: translateX(0); }
+@keyframes sc-slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
 }
 
 .sc-header {
@@ -1964,6 +2033,24 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   font-size: 1.15rem;
   font-weight: 700;
   color: var(--arabia);
+}
+
+/* fixes_21 Fix M: Budget allocation compact summary */
+.sc-budget-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.3rem 1rem 0.5rem;
+}
+.sc-budget-tag {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--ws-chrome, rgba(255, 255, 255, 0.08));
+  border-radius: 3px;
+  padding: 0.15rem 0.4rem;
+  letter-spacing: 0.03em;
 }
 
 .sc-success {
@@ -2361,6 +2448,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .sb-rel-arabia .sb-rel-val { color: var(--arabia); }
 .sb-rel-eu     .sb-rel-val { color: var(--eu); }
 .sb-rel-dprg   .sb-rel-val { color: var(--dprg); }
+.sb-rel-russia .sb-rel-val { color: var(--russia); }
+.sb-rel-china  .sb-rel-val { color: var(--china); }
 
 /* Threshold colouring overrides */
 .sb-rel-item.sb-rel-low      .sb-rel-val { color: var(--warning); }

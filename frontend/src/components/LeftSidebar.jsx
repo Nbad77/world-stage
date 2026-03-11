@@ -49,8 +49,10 @@ export default function LeftSidebar({ gs, onShadowCabinet, mode, onHistorian, hi
   const militaryClass = military < 10 ? 'bad' : military < 30 ? 'warn' : 'good'
   const tech = gs.tech_level ?? 0
   const techGain = gs.tech_gain_last_turn ?? 0
-  const techClass = tech === 0 ? '' : tech >= 41 ? 'good' : 'warn'
-  console.log('[TECH] Display updated:', tech, techGain)
+  const techTier = gs.tech_tier ?? 0
+  const techTierName = gs.tech_tier_name ?? 'Pre-Industrial'
+  const techClass = tech === 0 ? '' : techTier >= 3 ? 'good' : 'warn'
+  console.log('[TECH] Display updated:', tech, techGain, `tier=${techTier} (${techTierName})`)
 
   // ── Power base slider position ───────────────────────────────────────
   const sliderPos = POWER_BASE_POSITIONS[powerBase] ?? 50
@@ -64,7 +66,28 @@ export default function LeftSidebar({ gs, onShadowCabinet, mode, onHistorian, hi
           {regimeType}
         </span>
         <span className="ls-power-base">{powerBase}</span>
+        {/* fixes_21 Fix J: Election countdown — amber indicator */}
+        {gs.election_warning_shown && !gs.election_fired &&
+         gs.current_turn < (gs.election_turn ?? 4) && (
+          <span className="ls-election-warning">
+            🗳️ ELECTION T-{(gs.election_turn ?? 4) - gs.current_turn}
+          </span>
+        )}
       </div>
+
+      {/* Cabinet button — prominent, gold border, above era/day */}
+      {onShadowCabinet && (
+        <button className="ls-cabinet-btn-prominent" onClick={onShadowCabinet}>
+          <span>🗄️</span>
+          <span>CABINET</span>
+          {gs.personal_wealth > 0 && (
+            <span style={{ fontSize: '0.65rem', color: 'var(--muted)' }}>
+              ${gs.personal_wealth.toFixed(1)}B
+            </span>
+          )}
+          <span className="ls-cabinet-arrow">›</span>
+        </button>
+      )}
 
       {/* ── Era & Day ─────────────────────────────────────────────────── */}
       <div className="ls-era-day">
@@ -137,17 +160,59 @@ export default function LeftSidebar({ gs, onShadowCabinet, mode, onHistorian, hi
         <span className={`ls-stat-value ${militaryClass}`}>⚔️ {military}</span>
       </div>
 
+      {/* fixes_21 Fix L: Tech Level always visible — show "0" muted when zero */}
       <div className="ls-stat-row">
         <span className="ls-stat-label">Tech Level</span>
         <span
           className={`ls-stat-value ${techClass}`}
           style={tech === 0 ? { opacity: 0.4 } : {}}
           title="Higher tech unlocks EU ceiling, boosts GDP, reduces detection risk"
-        >{typeof tech === 'number' ? tech.toFixed(1) : tech}</span>
+        >{tech === 0 ? '0' : tech.toFixed(1)}</span>
+      </div>
+      <div className="ls-tech-tier" style={tech === 0 ? { opacity: 0.4 } : {}}>
+        {techTierName}
       </div>
       {techGain > 0 && (
         <div className="ls-tech-gain">+{techGain.toFixed(1)}/turn</div>
       )}
+
+      {/* 8B: Education indicator */}
+      {(() => {
+        const eduLevel = gs.education_level ?? 0
+        const eduNames = ['Underdeveloped', 'Basic', 'Developed', 'Advanced']
+        const eduColors = ['', 'warn', 'good', 'good']  // muted/amber/green/green
+        const eduProgress = gs.education_gain_progress ?? 0
+        const eduAlloc = gs.education_allocation ?? 0
+        const eduDecay = gs.education_decay_clock ?? 0
+        const eduMaint = { 1: 1.5, 2: 3.0, 3: 5.0 }[eduLevel] || 0
+        const isDecaying = eduLevel > 0 && eduAlloc < eduMaint
+        return (
+          <>
+            <div className="ls-stat-row">
+              <span className="ls-stat-label">Education</span>
+              <span
+                className={`ls-stat-value ${eduColors[eduLevel]}`}
+                style={eduLevel === 0 ? { opacity: 0.4 } : {}}
+                title={`$${eduAlloc.toFixed(1)}B/turn allocated`}
+              >🎓 L{eduLevel}</span>
+            </div>
+            <div className="ls-tech-tier" style={eduLevel === 0 ? { opacity: 0.4 } : {}}>
+              {eduNames[eduLevel]}
+              {isDecaying && <span style={{ color: 'var(--danger)', marginLeft: '0.3rem' }}>⚠ decay</span>}
+            </div>
+            {eduLevel < 3 && eduProgress > 0 && (
+              <div className="ls-edu-progress-mini">
+                <div className="ls-edu-progress-track">
+                  <div
+                    className="ls-edu-progress-fill"
+                    style={{ width: `${Math.min(100, eduProgress * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </>
+        )
+      })()}
 
       {/* ── Budget Allocation Summary ──────────────────────────────── */}
       {gs.budget_allocation && (() => {
@@ -251,19 +316,7 @@ export default function LeftSidebar({ gs, onShadowCabinet, mode, onHistorian, hi
         <div className="ls-token">⏸</div>
       </div>
 
-      {/* ── Cabinet button ───────────────────────────────────────────── */}
-      {onShadowCabinet && (
-        <button className="ls-cabinet-btn" onClick={onShadowCabinet}>
-          <span>🗄️</span>
-          <span>CABINET</span>
-          {gs.personal_wealth > 0 && (
-            <span style={{ fontSize: '0.65rem', color: 'var(--muted)' }}>
-              ${gs.personal_wealth.toFixed(1)}B
-            </span>
-          )}
-          <span className="ls-cabinet-arrow">›</span>
-        </button>
-      )}
+      {/* fixes_21 Fix N: Old bottom cabinet button removed — moved to prominent position above era/day */}
     </div>
   )
 }

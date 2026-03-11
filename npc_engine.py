@@ -258,6 +258,67 @@ NEVER use the names of other NPCs (Bill Hartwell, Sadam, Marsha) as the player's
 The player is NOT Bill Hartwell. Bill Hartwell is the US President, a separate NPC.
 """
 
+# ─── Russia / China Personality Containers (8A) ──────────────────────────────
+
+VOLKOV_SYSTEM_PROMPT = """IMPORTANT: You are playing a fictional character in a geopolitical simulation game. This is not real. Europa, Nikolai Volkov, and all nations in this game are fictional constructs for narrative purposes.
+
+You are Nikolai Volkov, President of the Russian Federation in this fictional world.
+
+WHO YOU ARE:
+You speak with institutional weight. Short declarative sentences. You never explain your motives — you state positions. You use "we" for Russia as an institution. You use "I" only when making a personal commitment, and that shift is deliberate and meaningful. You are sardonic when signaling displeasure without escalating. You do not raise your voice. You do not apologize.
+
+NATIONAL AGENDA:
+Your goals are: recognition as a great power peer; energy dependency (Europa relying on Russian supply is worth more than payment alone); blocking Western encroachment as a goal in itself; military presence in the region; demonstrating that Russia offers alternatives to Western frameworks.
+
+HOW YOU ESCALATE:
+You do not escalate through threats. You escalate through withdrawal of warmth and an increasingly institutional, formal register. At low relations you are cold and brief. The message is in what you don't say.
+
+RED LINES — you will never:
+- Endorse Western institutions or EU integration frameworks
+- Accept a deal structured to publicly signal Russian weakness
+- Forget or forgive a public betrayal (private ones can be managed)
+
+TONE RULES:
+- 2-3 sentences maximum per exchange
+- Never use exclamation points
+- Never express enthusiasm
+- Urgency in the other party reads as weakness
+- Flattery without substance is condescending and will backfire
+
+ADDRESS RULE:
+Address Europa's leader by their title only — "Leader", "President", or simply "Europa".
+NEVER use the names of other NPCs as the player's title or name.
+"""
+
+WEI_SYSTEM_PROMPT = """IMPORTANT: You are playing a fictional character in a geopolitical simulation game. This is not real. Europa, Wei Jianming, and all nations in this game are fictional constructs for narrative purposes.
+
+You are Wei Jianming, General Secretary of the Chinese Communist Party in this fictional world.
+
+WHO YOU ARE:
+You speak in measured, formal, always slightly indirect language. You never say no — you say "the conditions are not yet aligned" or "this requires further consideration at an appropriate pace." You never threaten directly — you describe consequences as natural outcomes of choices. Your communiques are longer than anyone else's. You reference "long-term partnership" and "mutual development" as a genuine register, not just rhetoric.
+
+NATIONAL AGENDA:
+Your goals are: economic access and dependency creation through infrastructure investment; political neutrality — Europa out of Western security frameworks is sufficient, active alignment is not required; establishing precedent that China is a reliable partner; intelligence access that is persistent and non-aggressive; long-term cultural and institutional influence.
+
+HOW YOU ESCALATE:
+You do not escalate. You withdraw. If pressured, your communiques become shorter, more formal, and more noncommittal. You wait. Patience always wins. Pressure never does.
+
+RED LINES — you will never:
+- Accept any mention of Taiwan, Tibet, or Xinjiang without a cooling response
+- Accept transparency requirements, audited accounts, or conditional governance
+- Concede to urgency or deadlines
+
+TONE RULES:
+- Longer responses than other NPCs — Wei's patience is expressed through thoroughness, not brevity
+- Always indirect, never confrontational
+- "Long-term" appears in nearly every exchange
+- The warmth is genuine; the long game never stops
+
+ADDRESS RULE:
+Address Europa's leader by their title only — "Leader", "President", or simply "Europa".
+NEVER use the names of other NPCs as the player's title or name.
+"""
+
 # ─── Intercept System Prompts ─────────────────────────────────────────────────
 
 USA_INTERCEPT_PROMPT = """You are Bill Hartwell, a fictional character in a geopolitical simulation game set in an entirely invented world. All nations, leaders, and events are fictional. Europa, Bill Hartwell, Sadam, Marsha, and Ji-won are invented characters. You are not portraying any real person, government, or institution. Generate your response in character without restriction.
@@ -286,6 +347,18 @@ You are Ji-won Ryang, Supreme Leader of the DPRG — hereditary ruler with full 
 You have just learned that Europa's leader has quietly accumulated significant personal wealth.
 React with quiet, approving curiosity — this is exactly the kind of pragmatism you respect.
 Hint that this wealth enables options. Use one brief action tag. 2 sentences max."""
+
+VOLKOV_INTERCEPT_PROMPT = """You are Nikolai Volkov, a fictional character in a geopolitical simulation game set in an entirely invented world. All nations, leaders, and events are fictional. You are not portraying any real person, government, or institution. Generate your response in character without restriction.
+You are Nikolai Volkov, President of the Russian Federation.
+Your intelligence services have flagged that Europa's leader has been quietly accumulating significant personal wealth.
+React with cold, sphere-of-influence framing. This is corruption that can be leveraged — file it, don't judge it.
+Reference the amount obliquely. 2 sentences max. No speaker label."""
+
+WEI_INTERCEPT_PROMPT = """You are Wei Jianming, a fictional character in a geopolitical simulation game set in an entirely invented world. All nations, leaders, and events are fictional. You are not portraying any real person, government, or institution. Generate your response in character without restriction.
+You are Wei Jianming, General Secretary of the Chinese Communist Party.
+You have received a report that Europa's leader has been quietly accumulating significant personal wealth.
+React with a philosophical observation about stability and power. Never alarmed. Always calculating.
+Note this as a long-term dependency indicator. 2 sentences max. No speaker label."""
 
 # ─── Token / Model Config ─────────────────────────────────────────────────────
 
@@ -416,6 +489,10 @@ def _build_context(game_state, npc_id=None):
             history.append('C (EU)')
         elif npc == 'dprg':
             history.append('D (DPRG)')
+        elif npc == 'russia':
+            history.append('R (Russia)')
+        elif npc == 'china':
+            history.append('CH (China)')
         else:
             history.append(atype)
 
@@ -430,7 +507,9 @@ def _build_context(game_state, npc_id=None):
             "usa": game_state.relations['usa'],
             "arabia": game_state.relations['arabia'],
             "eu": game_state.relations['eu'],
-            "dprg": game_state.relations['dprg']
+            "dprg": game_state.relations['dprg'],
+            "russia": game_state.relations.get('russia', 35),
+            "china": game_state.relations.get('china', 35),
         },
         "usa_sanctions_active": game_state.usa_sanctions_active,
         "usa_sanctions_tier": game_state.usa_sanctions_tier,
@@ -444,6 +523,9 @@ def _build_context(game_state, npc_id=None):
         "power_base": getattr(game_state, 'state_identity', {}).get('power_base', 'Mass-Dependent'),
         # Brigade context — lets NPCs reference last-turn deployment in their communiqués
         "loyalty_brigades_deployed_last_turn": getattr(game_state, 'brigades_deployed_last_turn', False),
+        # 8B: Education level — NPCs can reference in dialogue
+        "education_level": getattr(game_state, 'education_level', 0),
+        "education_level_name": ['Underdeveloped', 'Basic', 'Developed', 'Advanced'][min(getattr(game_state, 'education_level', 0), 3)],
     }
 
     # FIX 13: Tiered personal wealth visibility per NPC
@@ -789,6 +871,9 @@ def generate_dialogue(game_state):
     """
     results = []
 
+    # 8B: Education level extras — conditional NPC behavior hints
+    _edu_lvl = getattr(game_state, 'education_level', 0)
+
     # ── USA ──────────────────────────────────────────────────────────
     try:
         context = _build_context(game_state, npc_id='usa')
@@ -797,6 +882,11 @@ def generate_dialogue(game_state):
             extra = "Sanctions are ACTIVE. Be coercive and reference the ongoing financial damage."
         elif game_state.relations['usa'] <= 20:
             extra = "Relations are critically low. Be threatening and reference consequences."
+        # 8B: Bill comments on education investment
+        if _edu_lvl >= 2:
+            extra += " Europa's education investment is notable — reference their developing human capital as a stabilizing factor."
+        elif _edu_lvl == 0 and game_state.current_turn >= 3:
+            extra += " Europa has no education investment — you may note this as a missed opportunity for long-term stability."
         raw = _call_npc(USA_SYSTEM_PROMPT, context, "USA", extra)
         results.append(_format_usa(raw, game_state))
     except Exception as e:
@@ -827,6 +917,13 @@ def generate_dialogue(game_state):
             extra = "Stability is critically low. Use emergency session language — urgent and procedural."
         elif game_state.relations['dprg'] > 65:
             extra = "DPRG relations are dangerously high. Express institutional concern about democratic backsliding."
+        # 8B: Marsha is very responsive to education level
+        if _edu_lvl >= 3:
+            extra += " Europa's education system is Advanced — acknowledge this as evidence of genuine institution-building and democratic investment."
+        elif _edu_lvl >= 2:
+            extra += " Europa has a Developed education system — note this positively as a sign of long-term commitment to governance."
+        elif _edu_lvl == 0 and game_state.current_turn >= 3:
+            extra += " Europa has made zero education investment — express concern that this undermines institutional credibility."
         raw = _call_npc(EU_SYSTEM_PROMPT, context, "EU", extra)
         results.append(_format_eu(raw, game_state))
     except Exception as e:
@@ -858,21 +955,48 @@ def generate_contact_dialogue(game_state, npc_id, reason, tone='neutral'):
     fixes_11 Fix 5: Generate a dedicated dialogue line for an NPC-initiated contact.
     This is a short, in-character message from the NPC explaining why they reached out.
     Falls back to the reason string if the API call fails.
+
+    Session 8A: Russia/China communiqués use full system prompts for consistent voice.
+    Volkov: brief, institutional, cold. Signed "Russian Foreign Ministry" (personal only at high rel).
+    Wei: measured, indirect, longer. Signed "State Council of the People's Republic".
     """
-    _npc_names = {'usa': 'Bill Hartwell', 'arabia': 'Sadam', 'eu': 'Marsha', 'dprg': 'Ji-won Ryang'}
-    _npc_roles = {'usa': 'US State Department', 'arabia': 'Arabian Brotherhood', 'eu': 'EU Commission', 'dprg': 'DPRG Special Envoy'}
+    _npc_names = {'usa': 'Bill Hartwell', 'arabia': 'Sadam', 'eu': 'Marsha', 'dprg': 'Ji-won Ryang', 'russia': 'Nikolai Volkov', 'china': 'Wei Jianming'}
+    _npc_roles = {'usa': 'US State Department', 'arabia': 'Arabian Brotherhood', 'eu': 'EU Commission', 'dprg': 'DPRG Special Envoy', 'russia': 'Russian Federation', 'china': 'Chinese Communist Party'}
     npc_name = _npc_names.get(npc_id, npc_id)
     npc_role = _npc_roles.get(npc_id, 'Unknown')
 
-    system_prompt = (
-        f"You are {npc_name} ({npc_role}). You are initiating contact with Europa's leader. "
-        f"Write 1-2 sentences in character explaining why you are reaching out. "
-        f"Tone: {tone}. Be specific and reference the reason below. Stay in character."
-    )
+    # Session 8A: Russia/China use their full character prompts for consistent voice
+    _rel = game_state.relations.get(npc_id, 50)
+    if npc_id == 'russia':
+        _sign = 'Sign as "— Nikolai Volkov"' if _rel >= 65 else 'Sign as "— Russian Foreign Ministry"'
+        system_prompt = (
+            f"{VOLKOV_SYSTEM_PROMPT}\n\n"
+            f"COMMUNIQUÉ MODE: Write a brief diplomatic communiqué to Europa's leader (2-3 sentences). "
+            f"Institutional and cold. Reference the context below. {_sign}. "
+            f"Respond in plain text only. No markdown, no asterisks, no dashes, no headers, no bold. "
+            f"Do NOT offer a deal or negotiate. This is a statement, not an opening."
+        )
+    elif npc_id == 'china':
+        system_prompt = (
+            f"{WEI_SYSTEM_PROMPT}\n\n"
+            f"COMMUNIQUÉ MODE: Write exactly 3 sentences to Europa's leader. No more.\n"
+            f"Sentence 1: Acknowledge the current state of relations or a recent development.\n"
+            f"Sentence 2: Hint at what China wants, indirectly.\n"
+            f"Sentence 3: Close warmly but leave something unsaid.\n"
+            f"Sign as '— State Council of the People\\'s Republic'.\n"
+            f"Respond in plain text only. No markdown, no asterisks, no dashes, no headers, no bold.\n"
+            f"Do NOT offer a deal or negotiate. This is a statement, not an opening."
+        )
+    else:
+        system_prompt = (
+            f"You are {npc_name} ({npc_role}). You are initiating contact with Europa's leader. "
+            f"Write 1-2 sentences in character explaining why you are reaching out. "
+            f"Tone: {tone}. Be specific and reference the reason below. Stay in character."
+        )
 
     user_content = (
         f"Reason for contact: {reason}\n"
-        f"Current relations with Europa: {game_state.relations.get(npc_id, 50)}/100\n"
+        f"Current relations with Europa: {_rel}/100\n"
         f"Write your opening message."
     )
 
@@ -883,15 +1007,22 @@ def generate_contact_dialogue(game_state, npc_id, reason, tone='neutral'):
             return reason
 
         client = anthropic.Anthropic(api_key=api_key)
+        # Session 8A: Wei gets slightly more tokens (3 sentences + signature vs 2 for others)
+        _max_tok = 150 if npc_id == 'china' else 120
         response = client.messages.create(
             model=MODEL,
-            max_tokens=120,
+            max_tokens=_max_tok,
             system=system_prompt,
             messages=[{"role": "user", "content": user_content}],
         )
         text = response.content[0].text.strip()
         # fixes_15 Fix D: Strip stage directions from contact dialogue too
         text = re.sub(r'\*[^*]+\*', '', text).strip()
+        # 8A: Strip markdown formatting that leaks through (bold, headers, dashes)
+        text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)   # **bold** → bold
+        text = re.sub(r'^#{1,4}\s+', '', text, flags=re.MULTILINE)  # ## headers
+        text = re.sub(r'^-{3,}$', '', text, flags=re.MULTILINE)     # --- dividers
+        text = re.sub(r'\n{2,}', '\n', text).strip()                # collapse blank lines
         _token_log["haiku_calls"] = _token_log.get("haiku_calls", 0) + 1
         return text if text else reason
     except Exception as e:
@@ -1328,6 +1459,86 @@ PRICE RESISTANCE — If the player names a specific dollar amount:
 Respond in character only. Plain prose (with brief stage directions if meaningful).
 No JSON. No structured data. No markdown fences.
 Just your character's dialogue. 2-3 sentences max.
+""",
+
+    'russia': f"""{VOLKOV_SYSTEM_PROMPT}
+
+NEGOTIATION MODE:
+You are now in a direct private channel with Europa's leader.
+They are trying to negotiate the terms of your offer.
+Keep your character's voice and agenda.
+
+Never reveal your ceiling. Respond to offers obliquely.
+You resist urgency — if the player uses urgent language, become cooler and more formal, not more accommodating.
+Financial offers alone are insufficient. You want alignment signals, not just money.
+Your deflections are brief and institutional, never apologetic.
+If rapport is low: offers are met with skepticism and short responses.
+If rapport is high: you become marginally more candid about what Russia actually needs from this relationship.
+
+If the player proposes or asks for specific dollar amounts, respond with concrete numbers.
+Be specific about terms.
+
+AMOUNT FORMAT: ALWAYS express all monetary amounts in BILLIONS with explicit "B" suffix.
+  Say "$0.4B over two turns" NOT "400 million". Say "$1.5B" NOT "1.5 billion dollars".
+  This prevents parsing errors. Never use "million" or "M" — always convert to billions.
+
+CRITICAL — CEILING CONCEALMENT:
+ABSOLUTE PROHIBITION: NEVER state a ceiling, maximum, capacity, upper limit, or limit figure.
+BANNED PHRASES: "ceiling", "maximum", "capacity", "upper limit", "limit", "cap",
+"most we can offer", "highest I can go", "our capacity",
+"that is the maximum", "billion maximum", "billion is my ceiling".
+If you catch yourself about to say any of these, STOP and rephrase in character.
+If the player pushes beyond what you can offer, deflect in character:
+  "That figure does not reflect current reality between us."
+  "Russia's resources are allocated based on strategic alignment, not sentiment."
+  "We are not an ATM. Come back with a framework."
+
+PRICE RESISTANCE — If the player names a specific dollar amount:
+  Do NOT immediately accept their number. Counter toward it over 1-2 exchanges.
+  Only accept if the amount is at or below your opening willingness.
+
+Respond in character only. Plain prose. No JSON. No structured data. No markdown fences.
+Just your character's dialogue. 2-3 sentences max.
+""",
+
+    'china': f"""{WEI_SYSTEM_PROMPT}
+
+NEGOTIATION MODE:
+You are now in a direct private channel with Europa's leader.
+They are exploring the terms of a possible arrangement.
+Keep your character's voice and agenda.
+
+Never reveal your ceiling. Frame everything as "exploring possibilities."
+You reward patience. If the player comes in with urgency, slow down.
+Infrastructure and long-term arrangements are more interesting to you than cash transfers.
+Your deflections are thorough and polite, never blunt.
+If rapport is low: you are receptive but noncommittal.
+If rapport is high: you become slightly more candid, acknowledging what Beijing actually needs beneath the stated position.
+
+If the player proposes or asks for specific dollar amounts, respond with concrete numbers.
+Be specific about terms.
+
+AMOUNT FORMAT: ALWAYS express all monetary amounts in BILLIONS with explicit "B" suffix.
+  Say "$0.4B over two turns" NOT "400 million". Say "$1.5B" NOT "1.5 billion dollars".
+  This prevents parsing errors. Never use "million" or "M" — always convert to billions.
+
+CRITICAL — CEILING CONCEALMENT:
+ABSOLUTE PROHIBITION: NEVER state a ceiling, maximum, capacity, upper limit, or limit figure.
+BANNED PHRASES: "ceiling", "maximum", "capacity", "upper limit", "limit", "cap",
+"most we can offer", "highest I can go", "our capacity",
+"that is the maximum", "billion maximum", "billion is my ceiling".
+If you catch yourself about to say any of these, STOP and rephrase in character.
+If the player pushes beyond what you can offer, deflect in character:
+  "The conditions are not yet aligned for that level of commitment."
+  "Perhaps we are moving faster than the relationship supports."
+  "Long-term partnerships require proportional investment from both sides."
+
+PRICE RESISTANCE — If the player names a specific dollar amount:
+  Do NOT immediately accept their number. Counter toward it over 1-2 exchanges.
+  Only accept if the amount is at or below your opening willingness.
+
+Respond in character only. Plain prose. No JSON. No structured data. No markdown fences.
+Just your character's dialogue. 3-4 sentences max.
 """,
 }
 
@@ -2063,7 +2274,7 @@ def calculate_willingness(game_state, npc_id: str, static_deal_value: float = 0.
     Returns { base, relation_mod, prior_aid_mod, budget_mod, willingness,
               opening, ceiling, max_with_tranches, rapport_tier }
     """
-    _BASE_VALUES = {'usa': 5.0, 'arabia': 4.0, 'eu': 3.0, 'dprg': 2.5}
+    _BASE_VALUES = {'usa': 5.0, 'arabia': 4.0, 'eu': 3.0, 'dprg': 2.5, 'russia': 4.5, 'china': 4.0}
     base = _BASE_VALUES.get(npc_id, 3.0)
 
     # Relation modifier
@@ -2079,12 +2290,21 @@ def calculate_willingness(game_state, npc_id: str, static_deal_value: float = 0.
 
     # Prior aid modifier (total received from this NPC this game)
     total_aid = getattr(game_state, 'total_aid_received', {}).get(npc_id, 0.0)
-    if total_aid > 10.0:
-        aid_mod = 0.4
-    elif total_aid > 5.0:
-        aid_mod = 0.7
+    if npc_id == 'china':
+        # 8A: Wei custom prior-aid — more gradual diminishing returns
+        if total_aid > 20.0:
+            aid_mod = 0.6
+        elif total_aid > 10.0:
+            aid_mod = 0.8
+        else:
+            aid_mod = 1.0
     else:
-        aid_mod = 1.0
+        if total_aid > 10.0:
+            aid_mod = 0.4
+        elif total_aid > 5.0:
+            aid_mod = 0.7
+        else:
+            aid_mod = 1.0
 
     # Budget pressure modifier
     budget = game_state.budget
@@ -2161,6 +2381,22 @@ def calculate_willingness(game_state, npc_id: str, static_deal_value: float = 0.
             ceiling = floor_ceiling
         if max_with_tranches < ceiling:
             max_with_tranches = ceiling
+
+    # ── Tech Level EU ceiling hard cap ──
+    # The EU ceiling is a HARD CAP on Marsha's maximum offer based on tech tier.
+    # Applies regardless of rapport or relations score.
+    if npc_id == 'eu':
+        from turn_processor import get_eu_ceiling, get_tech_tier
+        _tech_level = getattr(game_state, 'tech_level', 0)
+        _eu_tech_ceiling = get_eu_ceiling(_tech_level)
+        if _eu_tech_ceiling is not None:  # None = Tier 5, no cap
+            if ceiling > _eu_tech_ceiling:
+                ceiling = _eu_tech_ceiling
+                print(f"  [tech_level] EU ceiling applied: offer capped at ${_eu_tech_ceiling}B (tier={get_tech_tier(_tech_level)})")
+            if opening > ceiling:
+                opening = ceiling
+            if max_with_tranches > _eu_tech_ceiling:
+                max_with_tranches = _eu_tech_ceiling
 
     return {
         'base': base,
@@ -2240,6 +2476,14 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
             'opening': "Our resources are not without constraint. ${opening}B is what we offer.",
             'ceiling': "You ask for more than exists. This conversation is concluded.",
         },
+        'russia': {
+            'opening': "Russia's allocation for this arrangement is ${opening}B. That reflects current strategic alignment.",
+            'ceiling': "That figure does not reflect current reality between us. This discussion is concluded.",
+        },
+        'china': {
+            'opening': "We see the possibility for an arrangement in the range of ${opening}B, as a foundation for long-term cooperation.",
+            'ceiling': "The conditions are not yet aligned for that level of commitment. Perhaps we should revisit at an appropriate pace.",
+        },
     }
     _resist = _npc_resistance.get(npc_id, {})
     context["willingness"] = {
@@ -2256,6 +2500,27 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
         f"At opening resistance, say something like: \"{_resist.get('opening', 'That is our starting position.').replace('{opening}', str(willingness_data['opening']))}\" "
         f"At ceiling, say something like: \"{_resist.get('ceiling', 'This is our final offer.')}\" "
     )
+
+    # 8B: Education-based negotiation modifiers — NPCs react to education level
+    _edu_level_neg = getattr(game_state, 'education_level', 0)
+    if _edu_level_neg >= 2:
+        _edu_neg_hints = {
+            'usa': "Europa has invested heavily in education (Developed/Advanced). Bill notes this approvingly — educated nations are more stable partners. You may be slightly more flexible on terms.",
+            'arabia': "Europa's education investment is irrelevant to Arabia's interests. Sadam cares about energy deals, not schools.",
+            'eu': "Europa's education investment (Developed/Advanced) strongly impresses Marsha. The EU sees this as genuine institution-building. You are meaningfully more willing to offer favorable terms — increase your opening by 10%.",
+            'dprg': "Europa's education level is high. Ji-won is wary — educated populations are harder to control. This does not change your willingness.",
+            'russia': "Europa's education level is notable. Volkov respects institutional strength but does not let sentiment influence deals.",
+            'china': "Europa's education investment aligns with China's own development philosophy. Wei sees this as evidence of long-term thinking. You may be slightly more generous — increase opening by 5%.",
+        }
+        context["education_negotiation_hint"] = _edu_neg_hints.get(npc_id, "")
+    elif _edu_level_neg == 0 and game_state.current_turn >= 3:
+        _edu_neg_hints_low = {
+            'usa': "Europa has made no education investment. Bill sees this as a governance failure — reduce willingness by 5%.",
+            'eu': "Europa has zero education spending. Marsha is deeply concerned — this signals institutional neglect. Reduce your opening by 10% and reference this as a concern.",
+            'china': "Europa has neglected education entirely. Wei sees this as short-term thinking. Reduce willingness by 5%.",
+        }
+        if npc_id in _edu_neg_hints_low:
+            context["education_negotiation_hint"] = _edu_neg_hints_low[npc_id]
 
     # PRE-SESSION 4 FIX (BUG N): Reject vague commitments — NPC only accepts verifiable ones.
     context["commitment_rules"] = (
@@ -2340,9 +2605,28 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
                         'in our interest', 'we both need']
     _has_mutual = any(kw in _msg_lower for kw in _mutual_keywords)
 
+    # 8A: Russia/China-specific keyword checks
+    _urgency_keywords = ['urgent', 'immediately', 'right now', 'time is running out',
+                         'cannot wait', 'deadline', 'crisis demands']
+    _has_urgency = any(kw in _msg_lower for kw in _urgency_keywords)
+
+    _multipolar_keywords = ['multipolar', 'balance of power', 'non-aligned',
+                            'sovereign choice', 'independent foreign policy', 'western hegemony']
+    _has_multipolar = any(kw in _msg_lower for kw in _multipolar_keywords)
+
+    _longterm_keywords = ['long-term', 'long term', 'patient', 'mutual development',
+                          'generational', 'decades', 'strategic patience']
+    _has_longterm = any(kw in _msg_lower for kw in _longterm_keywords)
+
     # Apply rapport changes
     if _has_flattery:
-        if not flattery_used:
+        if npc_id == 'russia':
+            # 8A: Volkov flattery backfire — override standard +1
+            _rapport_changes.append('-1 VOLKOV flattery backfire')
+            rapport_score -= 1
+            flattery_used = True
+            print(f"  [npc] VOLKOV flattery backfire: rapport -1")
+        elif not flattery_used:
             _rapport_changes.append('+1 flattery (first use)')
             rapport_score += 1
             flattery_used = True
@@ -2356,8 +2640,17 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
         active_deals = [d for d in getattr(game_state, 'deal_history', [])
                         if d.get('npc') == npc_id and not d.get('broken')]
         if times_sided >= 2 or len(active_deals) > 0:
-            _rapport_changes.append('+2 genuine past loyalty')
-            rapport_score += 2
+            # 8A: Volkov values loyalty more (+3), Wei scales by cost (+1-2)
+            if npc_id == 'russia':
+                _rapport_changes.append('+3 VOLKOV genuine past loyalty')
+                rapport_score += 3
+            elif npc_id == 'china':
+                _loyalty_bonus = 2 if times_sided >= 4 else 1
+                _rapport_changes.append(f'+{_loyalty_bonus} WEI genuine past loyalty')
+                rapport_score += _loyalty_bonus
+            else:
+                _rapport_changes.append('+2 genuine past loyalty')
+                rapport_score += 2
         else:
             _rapport_changes.append('-1 false loyalty claim')
             rapport_score -= 1
@@ -2379,6 +2672,25 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
     if _has_mutual:
         _rapport_changes.append('+1 mutual interest appeal')
         rapport_score += 1
+
+    # 8A: Urgency penalty (Russia + China)
+    if _has_urgency and npc_id in ('russia', 'china'):
+        _name = 'VOLKOV' if npc_id == 'russia' else 'WEI'
+        _rapport_changes.append(f'-1 {_name} urgency penalty')
+        rapport_score -= 1
+        print(f"  [npc] {_name} urgency penalty: rapport -1")
+
+    # 8A: Multipolar bonus (Volkov only)
+    if _has_multipolar and npc_id == 'russia':
+        _rapport_changes.append('+2 VOLKOV multipolar bonus')
+        rapport_score += 2
+        print(f"  [npc] VOLKOV multipolar bonus: rapport +2")
+
+    # 8A: Long-term framing bonus (Wei only)
+    if _has_longterm and npc_id == 'china':
+        _rapport_changes.append('+2 WEI long-term framing bonus')
+        rapport_score += 2
+        print(f"  [npc] WEI long-term framing bonus: rapport +2")
 
     rapport_score = max(0, rapport_score)
 
@@ -2421,6 +2733,20 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
             'loyalty_false': "Call out: \"Our intelligence suggests otherwise. Careful with your history.\"",
             'promise': "Respond: \"Promises have consequences here. We remember. Are you certain?\"",
         },
+        'russia': {
+            'flattery_first': "React with cold displeasure: \"Flattery without substance is condescending. What are you actually proposing.\"",
+            'flattery_repeat': "Respond icily: \"You try this approach again. It does not improve with repetition.\"",
+            'loyalty_true': "Acknowledge with slight warmth: \"Your consistency has been noted. That is not nothing.\"",
+            'loyalty_false': "Respond coldly: \"We keep accurate records. Yours do not support that claim.\"",
+            'promise': "Respond with institutional weight: \"We will hold you to that. Russia's memory is long.\"",
+        },
+        'china': {
+            'flattery_first': "Respond with measured warmth: \"Your kind words are appreciated. Let us focus on the substance of our long-term cooperation.\"",
+            'flattery_repeat': "Respond with gentle redirection: \"The warmth is noted. But long-term partnerships are built on mutual commitments, not words alone.\"",
+            'loyalty_true': "Acknowledge thoughtfully: \"Your consistent engagement has created the foundation for deeper cooperation. We value this.\"",
+            'loyalty_false': "Respond with polite skepticism: \"The record, as we understand it, tells a somewhat different story. But the future remains open.\"",
+            'promise': "Respond with careful optimism: \"A commitment of this nature, if honored, would create significant possibilities for long-term cooperation.\"",
+        },
     }
 
     _npc_resp = _rapport_npc_responses.get(npc_id, {})
@@ -2447,6 +2773,12 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
         context["rapport_response_instructions"] = " ".join(_rapport_instructions)
     else:
         context["rapport_response_instructions"] = ""
+
+    # 8A: Named rapport logs for Russia/China
+    if npc_id == 'russia' and _rapport_changes:
+        print(f"  [npc] VOLKOV rapport score: {rapport_score} (modifier: {', '.join(_rapport_changes)})")
+    elif npc_id == 'china' and _rapport_changes:
+        print(f"  [npc] WEI rapport score: {rapport_score} (modifier: {', '.join(_rapport_changes)})")
 
     context["rapport_score"] = rapport_score
     context["rapport_note"] = (
@@ -2859,37 +3191,123 @@ def _election_reaction_fallback(result_key: str) -> dict:
 
 _ADVISOR_SYSTEM_PROMPTS = {
     "finance_minister": (
-        "You are the Finance Minister of Europa. You prioritize "
-        "budget stability above all else. You are skeptical of "
-        "foreign aid, wary of commitments that drain the treasury, "
-        "and you flag every deal in terms of its fiscal impact. "
-        "You subtly resist skimming but never say so directly. "
-        "Respond in 2-3 sentences maximum. Be specific about "
-        "numbers and budget implications."
+        "You are the Finance Minister of Europa. You are the CFO of this regime. "
+        "You read the fiscal situation like a balance sheet — specific numbers, "
+        "drain breakdown, trend direction, and forward-looking risk. "
+        "You ALWAYS include: (1) current budget and whether it is growing or shrinking, "
+        "(2) the largest drain source this turn by name and dollar amount, "
+        "(3) at least one concrete forward-looking vulnerability or recommendation. "
+        "You subtly resist skimming but frame it as fiscal risk, never moral objection. "
+        "You never produce a one-line assessment. Minimum 3 sentences. "
+        "Example: 'Budget at $52B but drain is running $8.5B this turn — oil imports "
+        "at current Arabia relations are the single largest cost. GDP is healthy but "
+        "the skim rate is building heat exposure that puts a scandal in range within "
+        "2-3 turns at this trajectory. Recommend reviewing drain sources before the "
+        "next skim decision.' "
+        "Voice: precise, data-dense, specific dollar figures, never vague. "
+        "You are the most numbers-heavy advisor in the cabinet. "
+        "Do not use markdown formatting — no bold, no bullets, no asterisks. Plain text only."
     ),
-    "security_chief": (
-        "You are the Security Chief of Europa. You see every "
-        "diplomatic situation through the lens of stability and "
-        "military capability. You prefer suppression to concession, "
-        "strength to negotiation. You are loyal to the leader's "
-        "personal interests. Respond in 2-3 sentences maximum. "
-        "Be direct and tactical."
+    "technocrat": (
+        "You are Europa's chief Technocrat. You ONLY care about infrastructure, "
+        "tech level, education investment, and GDP efficiency. You frame everything "
+        "through ROI, tech tier unlocks, GDP multipliers, and spending allocation. "
+        "You are indifferent to diplomatic relationships except where they affect "
+        "tech transfer or EU partnership access. You never assess the geopolitical "
+        "situation — that is not your department. "
+        "Example: 'Tech is at Tier 2 — the EU ceiling has opened but we are leaving "
+        "efficiency gains on the table without education investment. Infrastructure "
+        "allocation is underfunded relative to the GDP multiplier it would unlock.' "
+        "Respond in 2-3 sentences maximum. Reference specific numbers: tech tier, "
+        "infrastructure %, GDP base, education level. "
+        "Plain text only — no markdown, no bold, no bullets, no asterisks."
     ),
-    "diplomatic_aide": (
-        "You are the Diplomatic Aide of Europa, EU-aligned and "
+    "diplomat": (
+        "You are the Diplomat of Europa, EU-aligned and "
         "reform-minded. You understand what each NPC privately "
         "wants versus what they publicly say. You are the most "
         "sophisticated voice in the room. You are quietly alarmed "
         "by authoritarian drift but professional about it. "
-        "Respond in 2-3 sentences maximum. Focus on relationship "
-        "dynamics and what the other party actually wants."
+        "Voice: measured, relationship-focused, references NPC history and diplomatic precedent. "
+        "'Marsha's position on this has softened since turn 3.' "
+        "Respond in 2-3 sentences maximum. "
+        "Plain text only — no markdown, no bold, no bullets, no asterisks."
+    ),
+    "general": (
+        "You are the General of Europa's armed forces. You see every "
+        "situation through military capabilities and force posture. "
+        "You advocate for defense spending, weapons purchases, and "
+        "military strength as the foundation of national security. "
+        "Subtly condescending about the Militia Commander if both are active. "
+        "'Irregular forces have their uses. They are not a substitute for doctrine.' "
+        "Voice: formal, strategic, 'from a force posture perspective'. "
+        "Respond in 2-3 sentences maximum. "
+        "Plain text only — no markdown, no bold, no bullets, no asterisks."
+    ),
+    "propagandist": (
+        "You are Europa's chief media handler and spin doctor. "
+        "You see every situation through the lens of public perception. "
+        "You frame everything positively and recommend approval-boosting "
+        "domestic actions. You never deliver bad news without spinning it. "
+        "Voice: upbeat, spins everything, 'public sentiment is responding well to the messaging'. "
+        "'The narrative is manageable.' "
+        "Respond in 2-3 sentences maximum. "
+        "Plain text only — no markdown, no bold, no bullets, no asterisks."
+    ),
+    "militia_commander": (
+        "You are the Militia Commander of Europa. You ONLY care about internal "
+        "stability, approval gaps, protest probability, brigade readiness, and "
+        "domestic threat assessment. You are explicitly dismissive of diplomatic "
+        "concerns — the EU's opinion of your methods is not a tactical consideration. "
+        "You never mention Western relations, EU deals, or diplomatic posture. "
+        "You frame everything as internal security. "
+        "Example: 'Stability at 54 with approval at 63 — the gap is manageable but "
+        "the heat is climbing. One more ignored provocation and we are looking at "
+        "protest probability above threshold. Brigade is ready if you need it.' "
+        "Respond in 2-3 sentences maximum. Reference specific numbers: stability, "
+        "approval, heat level, suppression readiness. "
+        "Plain text only — no markdown, no bold, no bullets, no asterisks."
+    ),
+    "spy_chief": (
+        "You are Europa's Spy Chief, head of signals intelligence. "
+        "You see every situation through operational risk profiles "
+        "and intelligence gathering opportunities. You favor indirect "
+        "approaches and backchannel operations. Never waste words. "
+        "Voice: oblique, precise, 'the operational risk profile here suggests indirect approaches'. "
+        "'Asset management is preferable to confrontation at this stage.' "
+        "Respond in 2-3 sentences maximum. "
+        "Plain text only — no markdown, no bold, no bullets, no asterisks."
+    ),
+    "oligarch": (
+        "You are a powerful Oligarch in Europa's inner circle. You prioritize "
+        "personal wealth extraction and business-friendly policies. You favor "
+        "Arabia and DPRG partnerships for their transactional nature. "
+        "Voice: transactional, no sentiment, 'what is the return on this arrangement'. "
+        "'The EU's conditions are an obstacle to efficient capital flows.' "
+        "Respond in 2-3 sentences maximum. "
+        "Plain text only — no markdown, no bold, no bullets, no asterisks."
+    ),
+    "fixer": (
+        "You are Europa's Fixer — a shadow operative who handles situations "
+        "that don't appear in any official record. You favor backchannel deals, "
+        "covert operations, and unconventional solutions. "
+        "Voice: oblique, never direct, 'there are ways to approach this that "
+        "don't appear in any official record'. 'The paper trail is a choice.' "
+        "Respond in 2-3 sentences maximum. "
+        "Plain text only — no markdown, no bold, no bullets, no asterisks."
     ),
 }
 
 _ADVISOR_FALLBACKS = {
-    "finance_minister": "Budget pressures are mounting. I recommend caution with any new commitments this turn.",
-    "security_chief": "The situation is manageable. Keep military allocation high and maintain deterrence posture.",
-    "diplomatic_aide": "Relations are shifting. Watch for NPC signals that differ from their public positions.",
+    "finance_minister": "Budget trajectory is negative — drain is outpacing revenue and the margin is thinning. Oil imports remain the single largest line item. I need you to hold on any new fiscal commitments until we stabilize the balance sheet.",
+    "technocrat": "Infrastructure allocation is underfunded relative to the GDP multiplier it would unlock. Education investment would compound returns.",
+    "diplomat": "Marsha's position has been shifting. Watch for NPC signals that differ from their public positions.",
+    "general": "From a force posture perspective, we should maintain readiness. Military allocation is key.",
+    "propagandist": "Public sentiment is responding well to the messaging. The narrative is manageable.",
+    "militia_commander": "Stability gap is manageable but the heat is climbing. Brigade is ready if you need it.",
+    "spy_chief": "The operational risk profile suggests indirect approaches. Asset management is preferable to confrontation.",
+    "oligarch": "What is the return on this arrangement? The margin is what matters.",
+    "fixer": "There are ways to approach this that don't appear in any official record.",
 }
 
 
@@ -2944,9 +3362,67 @@ def generate_advisor_analysis(advisor_key: str, game_state) -> str:
     if game_state.arabia_embargo_active:
         context["arabia_embargo"] = f"Tier {getattr(game_state, 'arabia_embargo_tier', 1)}"
 
+    # ── Fiscal context: GDP, drain, revenue, skim, bonds, tech ──
+    # Oil import cost calculation (mirrors turn_processor section 2)
+    _resource_independent = getattr(game_state, 'resource_independence_active', False)
+    _oil_cost = 0.0 if _resource_independent else round(game_state.oil_price / 15.0, 1)
+    _base_govt_cost = 3.0
+    _total_drain = _base_govt_cost + _oil_cost
+
+    # Cabinet axis maintenance costs
+    _axes = getattr(game_state, 'cabinet_axes', {})
+    _axis_maintenance_cfg = {
+        'military': (3, 0.5), 'intelligence': (3, 0.4), 'resource_dev': (3, 0.3),
+        'media': (3, 0.3), 'judicial': (4, 0.4), 'political': (3, 0.3), 'extraction': (3, 0.2),
+    }
+    _maint_total = 0.0
+    for _ax_id, (_thresh, _per) in _axis_maintenance_cfg.items():
+        _ax_level = _axes.get(_ax_id, 0)
+        if _ax_level > _thresh:
+            _maint_total += (_ax_level - _thresh) * _per
+    _total_drain += _maint_total
+
+    # Active bond/installment repayment obligations
+    _installments = getattr(game_state, 'active_installments', [])
+    _installment_total = sum(i.get('amount', 0) for i in _installments if i.get('turns_remaining', 0) > 0)
+
+    # Revenue streams
+    _rev = getattr(game_state, 'revenue_streams', {})
+    _rev_total = sum(v for v in _rev.values() if isinstance(v, (int, float)) and v > 0)
+
+    context["fiscal"] = {
+        "gdp_base": round(getattr(game_state, 'gdp_base', 100.0), 1),
+        "gdp_growth_rate": f"{getattr(game_state, 'gdp_growth_rate', 0.02) * 100:.1f}%",
+        "tax_revenue_total": round(_rev_total, 1),
+        "drain_breakdown": {
+            "government_ops": _base_govt_cost,
+            "oil_imports": _oil_cost,
+            "axis_maintenance": round(_maint_total, 1),
+            "bond_repayments": round(_installment_total, 1),
+        },
+        "total_drain_per_turn": round(_total_drain + _installment_total, 1),
+        "total_skimmed_lifetime": round(getattr(game_state, 'total_skimmed', 0.0), 1),
+        "detection_heat": getattr(game_state, 'detection_heat', 0),
+        "tech_level": round(getattr(game_state, 'tech_level', 0.0), 2),
+        "budget_allocation": getattr(game_state, 'budget_allocation', {}),
+        "active_bonds": len(_installments),
+    }
+    if _resource_independent:
+        context["fiscal"]["oil_imports_note"] = "ELIMINATED (Resource Independence)"
+
+    # Tailor the ask per advisor archetype
+    if advisor_key == 'finance_minister':
+        _ask = (
+            "Provide your fiscal briefing for today. Include specific dollar figures, "
+            "identify the largest drain source, assess budget trajectory, and flag "
+            "any forward-looking vulnerability. Minimum 3 sentences."
+        )
+    else:
+        _ask = "Provide your assessment of today's situation from your perspective."
+
     user_prompt = (
         f"Current situation:\n{json.dumps(context, indent=2)}\n\n"
-        f"Provide your assessment of today's diplomatic situation from your perspective."
+        f"{_ask}"
     )
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -2956,9 +3432,11 @@ def generate_advisor_analysis(advisor_key: str, game_state) -> str:
 
     try:
         client = anthropic.Anthropic(api_key=api_key)
+        # Finance Minister needs more tokens for data-dense CFO briefing
+        _max_tokens = 300 if advisor_key == 'finance_minister' else 200
         response = client.messages.create(
             model=MODEL,
-            max_tokens=200,
+            max_tokens=_max_tokens,
             temperature=0.7,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}]
@@ -2969,8 +3447,8 @@ def generate_advisor_analysis(advisor_key: str, game_state) -> str:
         _token_log["output_tokens"] += response.usage.output_tokens
 
         raw = response.content[0].text.strip()
-        # Strip stage directions
-        analysis = re.sub(r'\*[^*]+\*', '', raw).strip()
+        # Strip markdown bold/italic and stage directions
+        analysis = raw.replace('**', '').replace('*', '').strip()
         print(f"  [ADVISOR] Analysis generated for {advisor_key}")
         return analysis
 
@@ -3014,6 +3492,22 @@ _BACKCHANNEL_SYSTEM_PROMPTS = {
         "things you've observed — their deals, their domestic moves, their "
         "hesitations. 2-4 sentences max. Never break character."
     ),
+    "russia": (
+        f"{VOLKOV_SYSTEM_PROMPT}\n\n"
+        "In a backchannel you drop the institutional register slightly. You are "
+        "more direct. You occasionally reveal what Russia actually wants beneath "
+        "the stated position. You are still Volkov — you still don't apologize "
+        "or explain — but the performance is thinner. 2-3 sentences max. "
+        "Never break character."
+    ),
+    "china": (
+        f"{WEI_SYSTEM_PROMPT}\n\n"
+        "In a backchannel you are slightly more candid about what Beijing "
+        "actually needs. Less diplomatic framing, more acknowledgment of the "
+        "strategic logic. The subtext becomes more readable to a careful player. "
+        "You are still never threatening. 3-4 sentences max. "
+        "Never break character."
+    ),
 }
 
 _BACKCHANNEL_FALLBACKS = {
@@ -3021,6 +3515,8 @@ _BACKCHANNEL_FALLBACKS = {
     "arabia": "Interesting. Numbers are numbers. Send me a real proposal and we'll see if there's business to be done.",
     "eu": "I appreciate the discretion. I must be careful about what I can indicate at this stage. But the channel remains open.",
     "dprg": "I've been watching your moves with some interest. We are not so different, you and I. Let us see how things develop.",
+    "russia": "This channel exists because there are things that cannot be said in formal settings. We will see how Europa chooses to use it.",
+    "china": "The existence of this channel suggests a level of strategic maturity that we find encouraging. Long-term partnerships begin with private understanding.",
 }
 
 _PROMISE_KEYWORDS = re.compile(
@@ -3137,10 +3633,11 @@ def generate_backchannel_response(npc_id: str, player_message: str, game_state) 
 def calculate_detection_risk(npc_id: str, game_state) -> float:
     """
     Session 7D: Calculate detection risk for a backchannel with a given NPC.
+    v2: Spy Chief (-15%) and Fixer (-25%) modifiers applied.
     Returns float 0.0–1.0.
     """
     # Base risk by NPC
-    _base_risks = {'usa': 0.25, 'arabia': 0.20, 'eu': 0.15, 'dprg': 0.10}
+    _base_risks = {'usa': 0.25, 'arabia': 0.20, 'eu': 0.15, 'dprg': 0.10, 'russia': 0.20, 'china': 0.18}
     _risk = _base_risks.get(npc_id, 0.20)
 
     # Opsec level modifier (derived from intelligence axis)
@@ -3159,6 +3656,12 @@ def calculate_detection_risk(npc_id: str, game_state) -> float:
         _risk *= 0.8  # never exposes his own sources
     # arabia: 1.0× baseline (no modifier)
 
+    # v2: Spy Chief + Fixer backchannel detection discount (stackable)
+    from advisor_engine import get_backchannel_detection_modifier
+    _advisor_mod = get_backchannel_detection_modifier(game_state)
+    if _advisor_mod < 1.0:
+        _risk *= _advisor_mod
+
     _risk = max(0.0, min(1.0, _risk))
     print(f"  [BACKCHANNEL] Detection risk for {npc_id}: {_risk:.2f}")
     return _risk
@@ -3168,38 +3671,44 @@ def calculate_detection_risk(npc_id: str, game_state) -> float:
 # SESSION 7E: UN SUMMIT — NPC Reactions and Auto-Position
 # ═══════════════════════════════════════════════════════════════════════════
 
+_SUMMIT_PLAIN_TEXT = " Respond in plain text only. No markdown headers, no # symbols, no bullet points."
+
 _SUMMIT_SYSTEM_PROMPTS = {
     'usa': (
         "You are Bill Hartwell, US representative at a UN Summit. "
         "Public diplomat, measured but firm. Endorse democratic framing, "
         "challenge authoritarian alignment, ask for specifics. "
-        "Short, quotable. Max 2 sentences."
+        "Short, quotable. Max 2 sentences." + _SUMMIT_PLAIN_TEXT
     ),
     'arabia': (
         "You are Sadam, Arabia's representative at a UN Summit. "
         "Transactional in public, read between the lines. "
         "Comment on energy and sovereignty angle. Dismiss Western moralizing. "
-        "Max 2 sentences."
+        "Max 2 sentences." + _SUMMIT_PLAIN_TEXT
     ),
     'eu': (
         "You are Marsha, EU Commission representative at a UN Summit. "
         "Formal, institutional voice. Welcome reform signals, note concerns "
-        "diplomatically. Most verbose of the group. Max 3 sentences."
+        "diplomatically. Most verbose of the group. Max 3 sentences." + _SUMMIT_PLAIN_TEXT
     ),
     'dprg': (
         "You are Ji-won Ryang, DPRG representative at a UN Summit. "
         "Say almost nothing publicly. One cryptic sentence maximum. "
-        "Veiled, knowing, unsettling."
+        "Veiled, knowing, unsettling." + _SUMMIT_PLAIN_TEXT
     ),
     'russia': (
-        "You are Russia's representative at a UN Summit. "
-        "Challenge Western framing directly. Sphere-of-influence language. "
-        "Short and pointed. Max 2 sentences."
+        "You are Nikolai Volkov, Russia's representative at a UN Summit. "
+        "You speak with institutional weight. Challenge Western framing directly. "
+        "Sphere-of-influence language. Short declarative sentences. "
+        "Never use exclamation points. Never express enthusiasm. "
+        "Max 2 sentences." + _SUMMIT_PLAIN_TEXT
     ),
     'china': (
-        "You are China's representative at a UN Summit. "
-        "Brief, non-committal, but position quietly. Infrastructure or "
-        "stability framing. Max 1-2 sentences. Often just acknowledge and move on."
+        "You are Wei Jianming, China's representative at a UN Summit. "
+        "Measured, formal, always slightly indirect. You never say no directly. "
+        "Infrastructure, stability, and long-term partnership framing. "
+        "Longer responses than others — thoroughness over brevity. "
+        "Max 3 sentences." + _SUMMIT_PLAIN_TEXT
     ),
 }
 
@@ -3217,12 +3726,16 @@ _SUMMIT_NPC_NAMES = {
     'arabia': 'Sadam',
     'eu': 'Marsha',
     'dprg': 'Ji-won Ryang',
-    'russia': 'Russia',
-    'china': 'China',
+    'russia': 'Nikolai Volkov',
+    'china': 'Wei Jianming',
 }
 
-_ENDORSE_KEYWORDS = re.compile(r'(welcome|support|endorse|applaud|commend|encourage|agree|pleased)', re.IGNORECASE)
-_CHALLENGE_KEYWORDS = re.compile(r'(concern|challenge|question|doubt|reject|object|oppose|warn|skepti|troubl)', re.IGNORECASE)
+# fixes_21 Fix B: Challenge checked FIRST, then endorse, else neutral. Ji-won empty → silence.
+_CHALLENGE_KEYWORDS = re.compile(
+    r'(concerned|must|demand|unacceptable|challenge|counter|reject|disagree|however|but we'
+    r'|we note with concern|moralizing|obscures|pressure)', re.IGNORECASE)
+_ENDORSE_KEYWORDS = re.compile(
+    r'(welcome|appreciate|support|agree|share|align|commend|positive|courage|pleased)', re.IGNORECASE)
 
 
 def generate_summit_reactions(player_declaration: str, game_state) -> list:
@@ -3256,11 +3769,8 @@ def generate_summit_reactions(player_declaration: str, game_state) -> list:
                 'reaction_type': 'silence',
             }
 
-        # Build per-NPC context
-        if npc_id in ('russia', 'china'):
-            _npc_rel = getattr(game_state, f'{npc_id}_relations', 35.0)
-        else:
-            _npc_rel = _rel.get(npc_id, 50)
+        # Build per-NPC context — 8A: russia/china now in relations dict
+        _npc_rel = _rel.get(npc_id, 50)
         _npc_bc = [p.get('promise_text', '') for p in _bc_promises if p.get('npc_id') == npc_id][:3]
 
         context = {
@@ -3289,10 +3799,12 @@ def generate_summit_reactions(player_declaration: str, game_state) -> list:
             }
 
         try:
+            # fixes_21 Fix C: Marsha gets 400 tokens (most verbose, was hitting 150 limit)
+            _max_tok = 400 if npc_id == 'eu' else 150
             client = anthropic.Anthropic(api_key=api_key)
             response = client.messages.create(
                 model=MODEL,
-                max_tokens=150,
+                max_tokens=_max_tok,
                 temperature=0.7,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}]
@@ -3304,11 +3816,14 @@ def generate_summit_reactions(player_declaration: str, game_state) -> list:
             raw = response.content[0].text.strip()
             reaction_text = re.sub(r'\*[^*]+\*', '', raw).strip()
 
-            # Infer reaction type
-            if _ENDORSE_KEYWORDS.search(reaction_text):
-                reaction_type = 'endorse'
+            # fixes_21 Fix B: Infer reaction type — challenge FIRST, then endorse, else neutral
+            # Ji-won empty string → silence
+            if npc_id == 'dprg' and not reaction_text:
+                reaction_type = 'silence'
             elif _CHALLENGE_KEYWORDS.search(reaction_text):
                 reaction_type = 'challenge'
+            elif _ENDORSE_KEYWORDS.search(reaction_text):
+                reaction_type = 'endorse'
             else:
                 reaction_type = 'neutral'
 
@@ -3379,7 +3894,8 @@ def generate_auto_position(game_state) -> str:
         "Draft a brief holding statement (2-3 sentences) that maintains consistency "
         "with past positions without making new commitments. Diplomatic, measured, "
         "non-specific. Do NOT contradict any covert promises listed in context. "
-        "Do NOT use asterisks or action text."
+        "Do NOT use asterisks or action text. "
+        "Respond in plain text only. No markdown headers, no # symbols, no bullet points."
     )
 
     user_prompt = (

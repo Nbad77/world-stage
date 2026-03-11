@@ -14,12 +14,12 @@ import { useState, useRef, useEffect } from 'react'
 import { api } from '../api'
 
 const NPC_INFO = {
-  usa:    { name: 'Bill Hartwell',  flag: '🇺🇸', isObserver: false },
-  arabia: { name: 'Sadam',          flag: '🛢️',  isObserver: false },
-  eu:     { name: 'Marsha',         flag: '🇪🇺', isObserver: false },
-  dprg:   { name: 'Ji-won Ryang',   flag: '⚡',  isObserver: false },
-  russia: { name: 'Russia',         flag: '🇷🇺', isObserver: true },
-  china:  { name: 'China',          flag: '🇨🇳', isObserver: true },
+  usa:    { name: 'Bill Hartwell',    flag: '🇺🇸', isObserver: false },
+  arabia: { name: 'Sadam',            flag: '🛢️',  isObserver: false },
+  eu:     { name: 'Marsha',           flag: '🇪🇺', isObserver: false },
+  dprg:   { name: 'Ji-won Ryang',     flag: '⚡',  isObserver: false },
+  russia: { name: 'Nikolai Volkov',   flag: '🇷🇺', isObserver: false },
+  china:  { name: 'Wei Jianming',     flag: '🇨🇳', isObserver: false },
 }
 
 const REACTION_BADGES = {
@@ -203,13 +203,12 @@ export default function SummitModal({ gs, sessionId, onClose, onGsUpdate }) {
           return (
             <div
               key={i}
-              className={`summit-message ${item.reaction_type || 'neutral'} ${info.isObserver ? 'summit-observer' : ''}`}
+              className={`summit-message ${item.reaction_type || 'neutral'}`}
             >
               <div className="summit-message-header">
                 <div className="summit-npc-identity">
                   <span className="summit-npc-flag">{info.flag}</span>
                   <span className="summit-npc-name">{info.name}</span>
-                  {info.isObserver && <span className="summit-observer-badge">OBSERVER</span>}
                 </div>
                 <span className="summit-reaction-badge" style={{ color: badge.color }}>
                   {badge.label}

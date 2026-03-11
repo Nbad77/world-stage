@@ -11,6 +11,8 @@ const NPC_FLAGS = {
   arabia: '🛢️',
   eu:     '🇪🇺',
   dprg:   '⚡',
+  russia: '🇷🇺',
+  china:  '🇨🇳',
 }
 
 function formatEffect(key, val) {

@@ -1,5 +1,5 @@
 /**
- * NPC dialogue panel — shows 4 NPC messages for the current turn.
+ * NPC dialogue panel — shows 4 base NPC messages + Russia/China INCOMING communiqués.
  *
  * The live API format (from npc_engine._format_* wrappers) is:
  *   Line 1: "🇺🇸 USA (State Department):"   ← name + optional (subtitle)
@@ -26,10 +26,13 @@ import { useState, useEffect, useRef } from 'react'
 import { api } from '../api'
 
 const NPC_ORDER = [
-  { key: 'usa',    label: 'Bill Hartwell',  flag: '🇺🇸' },
+  { key: 'usa',    label: 'Bill Hartwell',    flag: '🇺🇸' },
   { key: 'arabia', label: 'Sadam',            flag: '🛢️' },
   { key: 'eu',     label: 'Marsha',           flag: '🇪🇺' },
   { key: 'dprg',   label: 'Ji-won Ryang',     flag: '⚡' },
+  // Session 8A: Russia/China communiqués — only render when INCOMING contact exists
+  { key: 'russia', label: 'Nikolai Volkov',   flag: '🇷🇺', optional: true },
+  { key: 'china',  label: 'Wei Jianming',     flag: '🇨🇳', optional: true },
 ]
 
 // Known NPC name prefixes that Claude sometimes adds verbatim — strip these
@@ -37,7 +40,9 @@ const NPC_PREFIX_RE = /^(?:🇺🇸\s*)?(?:USA|BILL)[^:]*:\s*/i
 const ARABIA_PREFIX_RE = /^(?:🛢️?\s*)?SADAM[^:]*:\s*/i
 const EU_PREFIX_RE = /^(?:🇪🇺\s*)?(?:EU|MARSHA)[^:]*:\s*/i
 const DPRG_PREFIX_RE = /^(?:⚡\s*)?(?:JI-WON|JIWON)[^:]*:\s*/i
-const ALL_PREFIXES = [NPC_PREFIX_RE, ARABIA_PREFIX_RE, EU_PREFIX_RE, DPRG_PREFIX_RE]
+const RUSSIA_PREFIX_RE = /^(?:🇷🇺\s*)?(?:RUSSIA|VOLKOV|NIKOLAI)[^:]*:\s*/i
+const CHINA_PREFIX_RE = /^(?:🇨🇳\s*)?(?:CHINA|WEI|JIANMING)[^:]*:\s*/i
+const ALL_PREFIXES = [NPC_PREFIX_RE, ARABIA_PREFIX_RE, EU_PREFIX_RE, DPRG_PREFIX_RE, RUSSIA_PREFIX_RE, CHINA_PREFIX_RE]
 
 function stripNpcPrefix(text) {
   for (const re of ALL_PREFIXES) {
@@ -409,14 +414,16 @@ export default function DialoguePanel({
           {leverageMsg}
         </div>
       )}
-      {NPC_ORDER.map(({ key, label, flag }, i) => {
+      {NPC_ORDER.map(({ key, label, flag, optional }, i) => {
+        // Session 8A: Russia/China are optional — only render when they have an INCOMING contact
+        const pendingContacts = gs?.pending_npc_contacts || []
+        const incomingContact = pendingContacts.find(c => c.npc === key)
+        if (optional && !incomingContact) return null
+
         const { subtitle, text } = parseNpcString(dialogue[i])
         const isNegotiating = negotiatingNpc === key
         const leverage = computeLeverage(gs, key)
         const leverageStyle = leverage ? LEVERAGE_TIERS[leverage.tier] : null
-        // Session 5: Check for pending NPC-initiated contacts
-        const pendingContacts = gs?.pending_npc_contacts || []
-        const incomingContact = pendingContacts.find(c => c.npc === key)
         // FIX C: INCOMING rendering log moved to useEffect above (fixes_19 Fix A)
 
         // fixes_13 Fix 7: INCOMING replaces regular communiqué — show private channel text instead
@@ -475,7 +482,7 @@ export default function DialoguePanel({
                 {flag} {label}
                 {/* fixes_13 Fix 7: Show "Private Channel" instead of department subtitle for INCOMING */}
                 {incomingContact ? (
-                  <span className="npc-incoming-badge">{incomingContact.leverage_type ? '⚡ LEVERAGE DEMAND' : '⚡ INCOMING — Private Channel'}</span>
+                  <span className="npc-incoming-badge">{incomingContact.leverage_type ? '⚡ LEVERAGE DEMAND' : incomingContact.is_communique ? '📨 INCOMING — Communiqué' : '⚡ INCOMING — Private Channel'}</span>
                 ) : subtitle ? (
                   <span style={{ fontWeight: 400, opacity: 0.65, marginLeft: '0.4rem', fontSize: '0.65rem' }}>
                     — {subtitle}
@@ -521,7 +528,7 @@ export default function DialoguePanel({
                     onClick={() => canAfford || isNegotiating ? onNegotiate(isNegotiating ? null : key, isNegotiating ? null : (incomingText || text)) : null}
                     title={isNegotiating ? 'Close negotiation' : negCost === 0 ? (incomingContact ? 'Open diplomatic channel — Free (INCOMING)' : negDiscountLabel ? `Open diplomatic channel — Free (${negDiscountLabel})` : 'Open diplomatic channel — Free') : canAfford ? `Open diplomatic channel — $${negCost.toFixed(1)}B from budget${negDiscountLabel ? ` (${negDiscountLabel})` : ''}` : `Need $${negCost.toFixed(1)}B budget`}
                   >
-                    {isNegotiating ? 'Close ✕' : negCost === 0 ? (incomingContact ? 'Negotiate — Free →' : `Negotiate — Free (${negDiscountLabel}) →`) : negDiscountLabel ? `Negotiate — $${negCost.toFixed(1)}B (${negDiscountLabel}) →` : `Negotiate — $${negCost.toFixed(1)}B →`}
+                    {isNegotiating ? 'Close ✕' : negCost === 0 ? (incomingContact ? 'Negotiate — Free (INCOMING) →' : `Negotiate — Free (${negDiscountLabel}) →`) : negDiscountLabel ? `Negotiate — $${negCost.toFixed(1)}B (${negDiscountLabel}) →` : `Negotiate — $${negCost.toFixed(1)}B →`}
                   </button>
                 )
               })()}

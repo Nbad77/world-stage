@@ -1,133 +1,146 @@
 """
-Advisor Engine — Session 5 Advisor System
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-7 base archetypes + 2 nefarious archetypes.
-Advisors have competence (accuracy), loyalty (betrayal risk), and bias (stat distortion).
-Gated by regime progression. Max 3 active advisors.
+Advisor Engine — Full 9-Archetype System (Revised v2)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Layered on top of Session 7C trust mechanics.
+9 archetypes with stat distortion, competence/loyalty stats,
+betrayal events, hire/dismiss/eliminate cycle, and gate-based pool.
+
+v2 changes from v1:
+  - Security Chief → Militia Commander (distinct role, Soft Auth+ gate)
+  - Enforcer → Spy Chief (intel discount mechanic)
+  - diplomatic_aide → diplomat (renamed, competence-based discount)
+  - General, Propagandist now gated
+  - Pool is dynamic (shows all eligible archetypes not on staff)
+  - No staff cap (can hire all 9)
+  - Trust starts at 75
+  - Competence/loyalty/distortion_value randomized per archetype range
+  - Budget distortion added for Oligarch
+  - Education interaction with Propagandist distortion
 """
 
 import random
 import uuid
 
-# ── Archetype Definitions ──────────────────────────────────────────────────
+# ── Archetype Definitions (v2 spec-matching) ─────────────────────────────────
 
 ADVISOR_ARCHETYPES = {
+    'finance_minister': {
+        'label': 'Finance Minister',
+        'icon': '💵',
+        'specialty': 'Economic',
+        'competence_range': (55, 85),
+        'loyalty_range': (45, 75),
+        'distortion_stat': None,
+        'distortion_range': None,
+        'gate': None,  # always available
+        'hire_cost_type': 'national',  # $0.5B national
+        'hire_cost': 0.5,
+        'haiku_voice': 'cautious, precise, "the numbers suggest fiscal exposure here"',
+    },
     'technocrat': {
         'label': 'Technocrat',
-        'specialty': 'economic',
+        'icon': '📊',
+        'specialty': 'Economic',
         'competence_range': (60, 90),
         'loyalty_range': (50, 80),
-        'bias_stat': None,
-        'bias_range': (0, 0),
-        'unlock_regime': 'Managed Democracy',
-        'icon': '\U0001f4ca',  # 📊
-        'description': 'Data-driven economic advisor. Reliable but politically naive.',
-    },
-    'spy_chief': {
-        'label': 'Spy Chief',
-        'specialty': 'intelligence',
-        'competence_range': (70, 95),
-        'loyalty_range': (30, 70),
-        'bias_stat': 'detection_heat',
-        'bias_range': (-10, -5),
-        'unlock_regime': 'Managed Democracy',  # Session 6: gated by Intelligence axis >= 4
-        'unlock_axis': 'intelligence',
-        'unlock_axis_level': 4,
-        'icon': '\U0001f575\ufe0f',  # 🕵️
-        'description': 'Intelligence chief. Brilliant but self-interested.',
-    },
-    'general': {
-        'label': 'General',
-        'specialty': 'military',
-        'competence_range': (50, 85),
-        'loyalty_range': (40, 75),
-        'bias_stat': 'military_strength',
-        'bias_range': (5, 15),
-        'unlock_regime': 'Managed Democracy',
-        'icon': '\u2694\ufe0f',  # ⚔️
-        'description': 'Decorated field commander. Sees every problem as a military problem.',
+        'distortion_stat': None,
+        'distortion_range': None,
+        'gate': None,
+        'hire_cost_type': 'national',
+        'hire_cost': 0.5,
+        'haiku_voice': 'analytical, references efficiency and long-term returns',
     },
     'diplomat': {
         'label': 'Diplomat',
-        'specialty': 'diplomatic',
+        'icon': '🤝',
+        'specialty': 'Diplomatic',
         'competence_range': (55, 80),
         'loyalty_range': (60, 90),
-        'bias_stat': None,
-        'bias_range': (0, 0),
-        'unlock_regime': 'Managed Democracy',
-        'icon': '\U0001f91d',  # 🤝
-        'description': 'Career foreign service. Loyal but conservative in advice.',
+        'distortion_stat': None,
+        'distortion_range': None,
+        'gate': None,
+        'hire_cost_type': 'national',
+        'hire_cost': 0.5,
+        'haiku_voice': 'measured, relationship-focused, references NPC history and diplomatic precedent',
+    },
+    'general': {
+        'label': 'General',
+        'icon': '⚔️',
+        'specialty': 'Military',
+        'competence_range': (50, 85),
+        'loyalty_range': (40, 75),
+        'distortion_stat': 'military_strength',
+        'distortion_range': (5, 15),
+        'gate': 'military_axis_4',
+        'hire_cost_type': 'national',
+        'hire_cost': 0.5,
+        'haiku_voice': 'formal, strategic, "from a force posture perspective"',
     },
     'propagandist': {
         'label': 'Propagandist',
-        'specialty': 'domestic',
+        'icon': '📺',
+        'specialty': 'Domestic',
         'competence_range': (40, 70),
         'loyalty_range': (50, 85),
-        'bias_stat': 'public_approval',
-        'bias_range': (5, 15),
-        'unlock_regime': 'Managed Democracy',  # fixes_12 Fix 7: available from start
-        'icon': '\U0001f4fa',  # 📺
-        'description': 'Media handler. Tells you what you want to hear.',
+        'distortion_stat': 'approval',
+        'distortion_range': (5, 15),
+        'gate': 'soft_authoritarianism',
+        'hire_cost_type': 'personal',
+        'hire_cost': 0.5,
+        'haiku_voice': 'upbeat, spins everything, "public sentiment is responding well"',
+    },
+    'militia_commander': {
+        'label': 'Militia Commander',
+        'icon': '🔒',
+        'specialty': 'Domestic',
+        'competence_range': (45, 75),
+        'loyalty_range': (40, 70),
+        'distortion_stat': 'stability',
+        'distortion_range': (5, 10),
+        'gate': 'soft_authoritarianism',
+        'hire_cost_type': 'personal',
+        'hire_cost': 0.5,
+        'haiku_voice': 'blunt, contemptuous of due process, "there are faster ways to resolve this than courts"',
+    },
+    'spy_chief': {
+        'label': 'Spy Chief',
+        'icon': '🕵️',
+        'specialty': 'Intelligence',
+        'competence_range': (70, 95),
+        'loyalty_range': (30, 70),
+        'distortion_stat': 'heat',
+        'distortion_range': (5, 10),
+        'gate': 'intel_axis_4',
+        'hire_cost_type': 'national',
+        'hire_cost': 1.0,
+        'haiku_voice': 'oblique, precise, never wastes words, "the operational risk profile here suggests indirect approaches"',
     },
     'oligarch': {
         'label': 'Oligarch',
-        'specialty': 'economic',
+        'icon': '💰',
+        'specialty': 'Economic',
         'competence_range': (50, 75),
         'loyalty_range': (20, 50),
-        'bias_stat': 'budget',
-        'bias_range': (3, 8),
-        'unlock_regime': 'Patronage State',
-        'icon': '\U0001f4b0',  # 💰
-        'description': 'Business magnate. Skims from state projects.',
-    },
-    'ideologue': {
-        'label': 'Ideologue',
-        'specialty': 'domestic',
-        'competence_range': (30, 60),
-        'loyalty_range': (70, 95),
-        'bias_stat': 'stability',
-        'bias_range': (5, 10),
-        'unlock_regime': 'Kleptocracy',
-        'icon': '\U0001f4d5',  # 📕
-        'description': 'True believer. Fanatically loyal but incompetent.',
-    },
-    'finance_minister': {
-        'label': 'Finance Minister',
-        'specialty': 'economic',
-        'competence_range': (55, 85),
-        'loyalty_range': (45, 75),
-        'bias_stat': 'budget',
-        'bias_range': (2, 6),
-        'unlock_regime': 'Managed Democracy',
-        'icon': '\U0001f4b5',  # 💵
-        'description': 'Treasury veteran. Knows where every dollar goes — and where it should.',
-    },
-}
-
-NEFARIOUS_ARCHETYPES = {
-    'enforcer': {
-        'label': 'Enforcer',
-        'specialty': 'domestic',
-        'competence_range': (60, 85),
-        'loyalty_range': (40, 65),
-        'bias_stat': 'stability',
-        'bias_range': (5, 10),
-        'unlock_condition': 'military_6',  # Session 6: requires Military axis >= 6
-        'icon': '\U0001f52b',  # 🔫
-        'description': 'Paramilitary commander. Keeps order through fear.',
-        'nefarious': True,
+        'distortion_stat': 'heat_and_budget',  # special: two distortions
+        'distortion_range': (5, 10),  # heat reduction
+        'budget_distortion_range': (3, 8),  # budget inflation
+        'gate': 'patronage_state',
+        'hire_cost_type': 'personal',
+        'hire_cost': 1.0,
+        'haiku_voice': 'transactional, no sentiment, "what is the return on this arrangement"',
     },
     'fixer': {
         'label': 'Fixer',
-        'specialty': 'intelligence',
+        'icon': '🎭',
+        'specialty': 'Intelligence',
         'competence_range': (75, 95),
         'loyalty_range': (10, 40),
-        'bias_stat': 'detection_heat',
-        'bias_range': (-15, -8),
-        'unlock_condition': 'political_3',  # Session 6: requires Political axis >= 3 (unchanged gate)
-        'icon': '\U0001f3ad',  # 🎭
-        'description': 'Shadow operative. Dangerously competent, dangerously disloyal.',
-        'nefarious': True,
+        'distortion_stat': 'heat',
+        'distortion_range': (8, 15),
+        'gate': 'political_axis_4',
+        'hire_cost_type': 'personal',
+        'hire_cost': 1.0,
+        'haiku_voice': 'oblique, never direct, "there are ways to approach this that don\'t appear in any official record"',
     },
 }
 
@@ -139,491 +152,771 @@ _REGIME_ORDER = [
     'Totalitarian Regime',
 ]
 
-# ── fixes_13 Fix 18: Description Variants per Archetype ───────────────────
+# ── Name Pools per Archetype (v2 spec-matching) ──────────────────────────────
 
-_DESCRIPTION_VARIANTS = {
-    'technocrat': [
-        'Data-driven economic advisor. Reliable but politically naive.',
-        'Former IMF consultant. Numbers never lie, but she knows how to make them mislead.',
-        'Brilliant with spreadsheets. Dangerously naive about loyalty.',
-    ],
-    'spy_chief': [
-        'Intelligence chief. Brilliant but self-interested.',
-        'Thirty years in shadow services. Knows where every body is buried — including yours.',
-        'Master of signals intelligence. His loyalty is to information, not people.',
-    ],
-    'general': [
-        'Decorated field commander. Sees every problem as a military problem.',
-        'Old guard military. Reliable in a crisis, dangerous in peacetime.',
-        'Former defense attaché. Knows where the bodies are buried — literally.',
-    ],
-    'diplomat': [
-        'Career foreign service. Loyal but conservative in advice.',
-        'Twenty years of backchannels and handshakes. Knows every capital personally.',
-        'Cautious and methodical. Will never recommend a risk — or an opportunity.',
-    ],
-    'propagandist': [
-        'State television producer. Can make any disaster look like a triumph.',
-        'Former ad executive. Sells regimes the way others sell detergent.',
-        'Narrative architect. The truth is whatever the broadcast says it is.',
-    ],
-    'oligarch': [
-        'Business magnate. Skims from state projects.',
-        'Controls the mining sector. His loyalty costs exactly what he can extract.',
-        'Self-made billionaire. Knows the price of everything, the value of nothing.',
-    ],
-    'ideologue': [
-        'True believer. Fanatically loyal but incompetent.',
-        'Party theoretician. Would burn the economy to preserve ideological purity.',
-        'Writes the speeches nobody reads. Loyalty beyond question, competence beyond hope.',
-    ],
-    'enforcer': [
-        'Paramilitary commander. Keeps order through fear.',
-        'Former special forces. Solves problems permanently.',
-        'Security apparatus veteran. His methods are effective. His methods are illegal.',
-    ],
-    'fixer': [
-        'Shadow operative. Dangerously competent, dangerously disloyal.',
-        'No official rank, no official record. Makes problems disappear — for a price.',
-        'Former intelligence asset gone freelance. Loyalty is a bidding war.',
-    ],
-    'finance_minister': [
-        'Treasury veteran. Knows where every dollar goes — and where it should.',
-        'Former central banker. Sees the budget as a weapon, not a spreadsheet.',
-        'Quiet, meticulous, indispensable. The one person who knows the real numbers.',
-    ],
+ADVISOR_NAME_POOLS = {
+    'finance_minister': {
+        'first': ['Anton', 'Stefan', 'Pavel', 'Mirko', 'Luca'],
+        'last': ['Novak', 'Bauer', 'Kolar', 'Horak', 'Varga']
+    },
+    'technocrat': {
+        'first': ['Andrej', 'Tomáš', 'Jakub', 'Ondřej', 'Lukáš'],
+        'last': ['Procházka', 'Novotný', 'Dvořák', 'Černý', 'Blažek']
+    },
+    'diplomat': {
+        'first': ['Elena', 'Marta', 'Sofia', 'Katarina', 'Ivana'],
+        'last': ['Kovač', 'Horvat', 'Babić', 'Tomić', 'Jurić']
+    },
+    'general': {
+        'first': ['Aleksandar', 'Miloš', 'Dragan', 'Nemanja', 'Dejan'],
+        'last': ['Đorđević', 'Stanković', 'Vasić', 'Ilić', 'Milošević']
+    },
+    'propagandist': {
+        'first': ['Radovan', 'Goran', 'Miroslav', 'Dragan', 'Slavko'],
+        'last': ['Božić', 'Knežević', 'Lukić', 'Đurić', 'Simić']
+    },
+    'militia_commander': {
+        'first': ['Zoran', 'Branimir', 'Nebojša', 'Radoslav', 'Velimir'],
+        'last': ['Čović', 'Krajišnik', 'Bošković', 'Tadić', 'Vuković']
+    },
+    'spy_chief': {
+        'first': ['Viktor', 'Karel', 'Martin', 'Petr', 'Radek'],
+        'last': ['Šimánek', 'Bureš', 'Kratochvíl', 'Kopecký', 'Sedláček']
+    },
+    'oligarch': {
+        'first': ['Dmitri', 'Sergei', 'Boris', 'Vladimir', 'Igor'],
+        'last': ['Volkov', 'Petrov', 'Sokolov', 'Kozlov', 'Lebedev']
+    },
+    'fixer': {
+        'first': ['Mihai', 'Cristian', 'Bogdan', 'Andrei', 'Radu'],
+        'last': ['Ionescu', 'Popescu', 'Popa', 'Constantin', 'Gheorghe']
+    },
 }
 
-# ── fixes_13 Fix 19: Diversified Name Pool ────────────────────────────────
 
-_FIRST_NAMES = [
-    # Eastern European
-    'Viktor', 'Aleksei', 'Oleg', 'Yuri', 'Sergei', 'Dmitri',
-    'Natasha', 'Elena', 'Irina', 'Katya', 'Mikhail', 'Pavel',
-    'Andrei', 'Boris', 'Zoran', 'Nadia', 'Tatiana', 'Grigori',
-    # Western European
-    'Marcus', 'Sophie', 'Henrik', 'Claire', 'Friedrich', 'Luisa',
-    'Anton', 'Eva', 'Karl', 'Margot',
-    # Middle Eastern
-    'Tariq', 'Leila', 'Karim', 'Farah', 'Hassan', 'Nour',
-    # East Asian
-    'Wei', 'Mei', 'Jun', 'Yuki', 'Hiro', 'Lin',
-    # South Asian
-    'Priya', 'Arjun', 'Ananya', 'Ravi', 'Sanjay', 'Deepa',
-    # African
-    'Amara', 'Kwame', 'Fatou', 'Kofi', 'Zara', 'Idris',
-    # Latin American
-    'Carlos', 'Isabella', 'Rafael', 'Lucia', 'Diego', 'Camila',
-]
-_LAST_NAMES = [
-    # Eastern European
-    'Volkov', 'Petrov', 'Kozlov', 'Morozov', 'Ivanov', 'Sokolov',
-    'Orlov', 'Mirovic', 'Drevnik', 'Tarkos', 'Reznik', 'Vasik',
-    'Koval', 'Baranov', 'Zarev',
-    # Western European
-    'Richter', 'Kessler', 'Stein', 'Brennan', 'Voss', 'Lindqvist',
-    'Moreau', 'Ferreira', 'Bergmann',
-    # Middle Eastern
-    'Barak', 'Hadid', 'Khalil', 'Nazari', 'Farouk',
-    # East Asian
-    'Chen', 'Tanaka', 'Park', 'Nguyen', 'Sato',
-    # South Asian
-    'Sharma', 'Gupta', 'Menon', 'Patel', 'Rao',
-    # African
-    'Okafor', 'Diallo', 'Mensah', 'Adeyemi', 'Mbeki',
-    # Latin American
-    'Reyes', 'Vega', 'Torres', 'Mendoza', 'Alvarez',
-]
+def _generate_name(archetype_key):
+    """Generate a name from the archetype-specific pool."""
+    pool = ADVISOR_NAME_POOLS.get(archetype_key)
+    if pool:
+        return f"{random.choice(pool['first'])} {random.choice(pool['last'])}"
+    return f"Advisor {str(uuid.uuid4())[:4]}"
 
 
-def _generate_name():
-    return f"{random.choice(_FIRST_NAMES)} {random.choice(_LAST_NAMES)}"
+# ── Gate Eligibility ─────────────────────────────────────────────────────────
+
+def is_advisor_eligible(archetype_key, game_state):
+    """Check if an archetype is eligible given current game state.
+    Returns (eligible: bool, condition_desc: str)."""
+    arch = ADVISOR_ARCHETYPES.get(archetype_key)
+    if not arch:
+        return False, "unknown archetype"
+
+    gate = arch.get('gate')
+    if gate is None:
+        return True, "always available"
+
+    regime = game_state.state_identity.get('regime_type', 'Managed Democracy')
+
+    if gate == 'military_axis_4':
+        axes = getattr(game_state, 'cabinet_axes', {})
+        mil_axis = axes.get('military', 0)
+        eligible = mil_axis >= 4
+        print(f"  [advisor] GATE CHECK: general — military_axis={mil_axis}")
+        return eligible, "military axis >= 4"
+
+    if gate == 'soft_authoritarianism':
+        if regime not in _REGIME_ORDER:
+            return False, "Soft Authoritarianism+"
+        idx = _REGIME_ORDER.index(regime)
+        gate_idx = _REGIME_ORDER.index('Soft Authoritarianism')
+        return idx >= gate_idx, "Soft Authoritarianism+"
+
+    if gate == 'intel_axis_4':
+        axes = getattr(game_state, 'cabinet_axes', {})
+        eligible = axes.get('intelligence', 0) >= 4
+        return eligible, "intelligence axis >= 4"
+
+    if gate == 'patronage_state':
+        if regime not in _REGIME_ORDER:
+            return False, "Patronage State+"
+        idx = _REGIME_ORDER.index(regime)
+        gate_idx = _REGIME_ORDER.index('Patronage State')
+        return idx >= gate_idx, "Patronage State+"
+
+    if gate == 'political_axis_4':
+        axes = getattr(game_state, 'cabinet_axes', {})
+        eligible = axes.get('political', 0) >= 4
+        return eligible, "political axis >= 4"
+
+    return False, "unknown gate"
 
 
-# ── Core Functions ─────────────────────────────────────────────────────────
+# ── Advisor Object Creation ──────────────────────────────────────────────────
 
-def get_advisor_capacity_gate(regime_type: str, cabinet_axes: dict = None) -> list:
-    """Return list of available archetype keys based on regime + axes.
-    Session 6: Spy Chief gated by Intelligence axis >= 4, General by Military >= 3."""
-    if regime_type not in _REGIME_ORDER:
-        regime_type = 'Managed Democracy'
-    regime_idx = _REGIME_ORDER.index(regime_type)
-    axes = cabinet_axes or {}
+def create_advisor(archetype_key, game_state=None):
+    """Create a new advisor object for the given archetype.
+    Randomizes competence, loyalty, and distortion_value within archetype ranges."""
+    arch = ADVISOR_ARCHETYPES.get(archetype_key)
+    if not arch:
+        return None
 
-    available = []
-    for key, arch in ADVISOR_ARCHETYPES.items():
-        req_regime = arch['unlock_regime']
-        req_idx = _REGIME_ORDER.index(req_regime) if req_regime in _REGIME_ORDER else 0
-        if regime_idx >= req_idx:
-            # Session 6: Additional axis gate check (military/intelligence)
-            axis_req = arch.get('unlock_axis')
-            axis_level = arch.get('unlock_axis_level', 0)
-            if axis_req and axes.get(axis_req, 0) < axis_level:
-                continue  # axis requirement not met
-            available.append(key)
+    name = _generate_name(archetype_key)
+    comp_range = arch.get('competence_range', (50, 80))
+    loy_range = arch.get('loyalty_range', (40, 70))
+    competence = random.randint(comp_range[0], comp_range[1])
+    loyalty = random.randint(loy_range[0], loy_range[1])
 
-    # Check nefarious archetypes against cabinet_axes
-    # Session 6: Enforcer gated by Military >= 6, Fixer by Political >= 3
-    axes = cabinet_axes or {}
-    for key, arch in NEFARIOUS_ARCHETYPES.items():
-        cond = arch.get('unlock_condition', '')
-        # Parse condition format: 'axis_level' (e.g. 'military_6', 'political_3')
-        if '_' in cond:
-            cond_axis, cond_level = cond.rsplit('_', 1)
-            try:
-                if axes.get(cond_axis, 0) >= int(cond_level):
-                    available.append(key)
-            except ValueError:
-                pass
+    # Distortion value
+    distortion_value = 0
+    budget_distortion_value = 0
+    dist_range = arch.get('distortion_range')
+    if dist_range:
+        distortion_value = random.randint(dist_range[0], dist_range[1])
+    # Oligarch has separate budget distortion
+    budget_dist_range = arch.get('budget_distortion_range')
+    if budget_dist_range:
+        budget_distortion_value = random.randint(budget_dist_range[0], budget_dist_range[1])
 
-    return available
-
-
-# fixes_16 Fix D: Advisor availability gating by axis level and regime index
-ADVISOR_AVAILABILITY = {
-    'technocrat':       {'always': True},
-    'diplomat':         {'always': True},
-    'finance_minister': {'always': True},
-    'propagandist':     {'axis': 'media', 'min_level': 3},
-    'general':          {'axis': 'military', 'min_level': 3},        # Session 6: was security
-    'spy_chief':        {'axis': 'intelligence', 'min_level': 4},    # Session 6: was spymaster/security
-    'ideologue':        {'min_regime_idx': 1},   # Soft Authoritarianism+
-    'oligarch':         {'min_regime_idx': 2},   # Patronage State+
-    # Nefarious archetypes
-    'fixer':            {'axis': 'political', 'min_level': 3},
-    'enforcer':         {'axis': 'military', 'min_level': 6},        # Session 6: was security
-}
-
-_ALWAYS_AVAILABLE = ['technocrat', 'diplomat', 'finance_minister']
+    advisor = {
+        'id': str(uuid.uuid4())[:8],
+        'archetype': archetype_key,
+        'name': name,
+        'background': '',  # filled by Haiku on hire
+        'competence': competence,
+        'loyalty': loyalty,
+        'trust': 75,  # v2: starts at 75
+        'distortion_value': distortion_value,
+        'budget_distortion_value': budget_distortion_value,
+        'assigned_this_turn': False,
+        'has_betrayed': False,
+        'hire_day': getattr(game_state, 'current_day', 1) if game_state else 1,
+        'icon': arch['icon'],
+        'label': arch['label'],
+    }
+    print(f"  [advisor] Created: {name} ({archetype_key}) competence={competence} loyalty={loyalty}")
+    return advisor
 
 
-def generate_advisor_pool(game_state, count: int = 4) -> list:
-    """Create a pool of candidate advisors with randomized stats.
-    fixes_16 Fix D: Gated by ADVISOR_AVAILABILITY, cap 1 per archetype, always 4 shown.
-    Deduplication: max one candidate per archetype. Shuffle before truncating."""
-    regime_type = game_state.state_identity.get('regime_type', 'Managed Democracy')
-    regime_idx = _REGIME_ORDER.index(regime_type) if regime_type in _REGIME_ORDER else 0
-    axes = getattr(game_state, 'cabinet_axes', {})
+# ── Pool Generation (v2: dynamic, shows all eligible archetypes) ─────────────
 
-    # 1. Determine which archetypes pass the availability gate
-    available_keys = []
-    _gate_log = []  # Session 6 Phase 8: diagnostic logging
-    for arch_key, gate in ADVISOR_AVAILABILITY.items():
-        if gate.get('always'):
-            available_keys.append(arch_key)
-            _gate_log.append(f"    {arch_key}: PASS (always available)")
-        elif 'axis' in gate:
-            _axis_name = gate['axis']
-            _min_lvl = gate.get('min_level', 0)
-            _cur_lvl = axes.get(_axis_name, 0)
-            if _cur_lvl >= _min_lvl:
-                available_keys.append(arch_key)
-                _gate_log.append(f"    {arch_key}: PASS (axis '{_axis_name}' level {_cur_lvl} >= {_min_lvl})")
-            else:
-                _gate_log.append(f"    {arch_key}: FAIL (axis '{_axis_name}' level {_cur_lvl} < {_min_lvl})")
-        elif 'min_regime_idx' in gate:
-            _req = gate['min_regime_idx']
-            if regime_idx >= _req:
-                available_keys.append(arch_key)
-                _gate_log.append(f"    {arch_key}: PASS (regime_idx {regime_idx} >= {_req})")
-            else:
-                _gate_log.append(f"    {arch_key}: FAIL (regime_idx {regime_idx} < {_req})")
-    print(f"  [advisor_engine] GATE CHECK — regime='{regime_type}' (idx={regime_idx}), axes={dict(axes)}")
-    for _line in _gate_log:
-        print(_line)
-    print(f"  [advisor_engine] AVAILABLE after gate: {available_keys}")
+def generate_advisor_pool(game_state):
+    """Generate pool of all eligible archetypes not currently on staff.
+    v2: No cap on pool size. Pool updates immediately when gate conditions change.
+    Each archetype appears at most once."""
+    active_archetypes = set()
+    _advisors = getattr(game_state, 'advisors', {})
+    if isinstance(_advisors, dict):
+        for adv in _advisors.values():
+            if isinstance(adv, dict) and 'archetype' in adv:
+                active_archetypes.add(adv['archetype'])
 
-    # 2. Remove archetypes already on the active roster
-    active_archetypes = {a['archetype'] for a in getattr(game_state, 'advisors', [])}
-    candidates = [k for k in available_keys if k not in active_archetypes]
-    if active_archetypes:
-        print(f"  [advisor_engine] ACTIVE roster (excluded): {active_archetypes}")
-    print(f"  [advisor_engine] CANDIDATES after roster filter: {candidates}")
+    # Eliminated archetypes (v2: eliminated by archetype, not by ID)
+    eliminated_archetypes = set(getattr(game_state, 'advisors_eliminated', []))
 
-    # 3. Deduplicate (keys are already unique from dict, but enforce explicitly)
-    candidates = list(dict.fromkeys(candidates))
-
-    # fixes_17 Fix I: Show ALL eligible candidates — no shuffle/truncate
-    selected = candidates
-    print(f"  [advisor_engine] SELECTED (all eligible): {selected}")
-
-    # 4. Build advisor objects — one per selected archetype
-    all_archetypes = {**ADVISOR_ARCHETYPES, **NEFARIOUS_ARCHETYPES}
-    eliminated_ids = set(getattr(game_state, 'advisors_eliminated', []))
     pool = []
-
-    for arch_key in selected:
-        if arch_key not in all_archetypes:
+    for arch_key in ADVISOR_ARCHETYPES:
+        if arch_key in active_archetypes:
             continue
-        arch = all_archetypes[arch_key]
-        advisor = {
-            'id': str(uuid.uuid4())[:8],
-            'archetype': arch_key,
-            'name': _generate_name(),
-            'competence': random.randint(*arch['competence_range']),
-            'loyalty': random.randint(*arch['loyalty_range']),
-            'specialty': arch['specialty'],
-            'bias_stat': arch.get('bias_stat'),
-            'bias_direction': random.randint(*arch['bias_range']) if arch.get('bias_stat') else 0,
-            'nefarious': arch.get('nefarious', False),
-            'eliminated': False,
-            'icon': arch['icon'],
-            'label': arch['label'],
-            # fixes_13 Fix 18: Random description variant per archetype
-            'description': random.choice(_DESCRIPTION_VARIANTS.get(arch_key, [arch['description']])),
-        }
-        if advisor['id'] not in eliminated_ids:
+        if arch_key in eliminated_archetypes:
+            continue
+
+        eligible, condition = is_advisor_eligible(arch_key, game_state)
+        if not eligible:
+            continue
+
+        advisor = create_advisor(arch_key, game_state)
+        if advisor:
             pool.append(advisor)
+            print(f"  [advisor] POOL REFRESH: {advisor['name']} ({arch_key}) now available")
 
-    print(f"  [advisor_engine] POOL: archetypes in pool = {[a['archetype'] for a in pool]}")
-
+    print(f"  [advisor] POOL GENERATED: {len(pool)} advisors available")
     return pool
 
 
-def hire_advisor(game_state, advisor_id: str) -> tuple[bool, str]:
-    """Add an advisor from the pool to the active roster. Max 3."""
-    active = getattr(game_state, 'advisors', [])
-    # Session 6: Political L6 (Pack the Cabinet) unlocks 4th advisor slot
-    _max_advisors = 4 if getattr(game_state, 'fourth_advisor_slot', False) else 3
-    if len(active) >= _max_advisors:
-        return False, f"Maximum {_max_advisors} advisors already active"
+def check_gate_unlocks(game_state):
+    """Check if any new archetypes have become eligible.
+    Returns list of (archetype_key, condition) tuples for notification."""
+    unlocked = []
+    active_archetypes = set()
+    _advisors = getattr(game_state, 'advisors', {})
+    if isinstance(_advisors, dict):
+        for adv in _advisors.values():
+            if isinstance(adv, dict) and 'archetype' in adv:
+                active_archetypes.add(adv['archetype'])
 
+    eliminated = set(getattr(game_state, 'advisors_eliminated', []))
+    pool_archetypes = set()
+    for a in getattr(game_state, 'advisor_pool', []):
+        if isinstance(a, dict) and 'archetype' in a:
+            pool_archetypes.add(a['archetype'])
+
+    for arch_key, arch in ADVISOR_ARCHETYPES.items():
+        if arch_key in active_archetypes or arch_key in eliminated:
+            continue
+        if arch_key in pool_archetypes:
+            continue
+        if arch.get('gate') is None:
+            continue  # always-available don't need unlock notification
+
+        eligible, condition = is_advisor_eligible(arch_key, game_state)
+        if eligible:
+            unlocked.append((arch_key, condition))
+            print(f"  [advisor] GATE UNLOCKED: {arch_key} now eligible (condition: {condition})")
+
+    return unlocked
+
+
+# ── Hire / Dismiss / Eliminate ───────────────────────────────────────────────
+
+def hire_advisor(game_state, advisor_id):
+    """Hire an advisor from the pool into staff roster.
+    v2: No staff cap. Costs vary by archetype."""
     pool = getattr(game_state, 'advisor_pool', [])
     advisor = None
     for a in pool:
         if a['id'] == advisor_id:
             advisor = a
             break
-
     if not advisor:
-        return False, f"Advisor {advisor_id} not found in pool"
+        return False, "Advisor not found in pool"
 
-    advisor['hired_turn'] = game_state.current_turn
-    active.append(advisor)
-    game_state.advisors = active
+    arch_key = advisor['archetype']
+    arch = ADVISOR_ARCHETYPES.get(arch_key, {})
+    cost_type = arch.get('hire_cost_type', 'national')
+    cost = arch.get('hire_cost', 0.5)
+
+    # Cost check
+    if cost_type == 'personal':
+        if game_state.personal_wealth < cost:
+            return False, f"Need ${cost}B personal wealth to hire {arch.get('label', arch_key)}"
+        game_state.personal_wealth = round(game_state.personal_wealth - cost, 1)
+    else:
+        if game_state.budget < cost:
+            return False, f"Need ${cost}B national budget to hire {arch.get('label', arch_key)}"
+        game_state.budget = round(game_state.budget - cost, 1)
+
+    # Set hire fields
+    advisor['trust'] = 75
+    advisor['hire_day'] = getattr(game_state, 'current_day', 1)
+    advisor['assigned_this_turn'] = False
+    advisor['has_betrayed'] = False
+
+    # Add to staff roster (keyed by archetype)
+    _advisors = getattr(game_state, 'advisors', {})
+    if not isinstance(_advisors, dict):
+        _advisors = {}
+    _advisors[arch_key] = advisor
+    game_state.advisors = _advisors
 
     # Remove from pool
     game_state.advisor_pool = [a for a in pool if a['id'] != advisor_id]
 
-    print(f"  [advisor_engine] HIRED: {advisor['name']} ({advisor['archetype']})")
-    return True, f"Hired {advisor['name']} ({advisor['label']})"
+    cost_str = f"${cost}B {'personal' if cost_type == 'personal' else 'national'}"
+    print(f"  [advisor] HIRED: {advisor['name']} ({arch_key}) competence={advisor['competence']} loyalty={advisor['loyalty']} trust=75")
+    return True, f"Hired {advisor['name']} ({advisor['label']}) — {cost_str}"
 
 
-def dismiss_advisor(game_state, advisor_id: str) -> tuple[bool, str]:
-    """Remove an advisor from the active roster. Returns to hiring pool.
-    fixes_12 Fix 6: Dismissed advisors now return to pool with previously_served flag."""
-    active = getattr(game_state, 'advisors', [])
-    advisor = None
-    for a in active:
-        if a['id'] == advisor_id:
-            advisor = a
-            break
+def dismiss_advisor(game_state, advisor_key):
+    """Dismiss an active advisor. Free. Archetype returns to hire pool
+    with a fresh randomized character. Low-trust dismissal (trust < 30)
+    has 20% chance of world event."""
+    _advisors = getattr(game_state, 'advisors', {})
+    if not isinstance(_advisors, dict) or advisor_key not in _advisors:
+        return False, "Advisor not found"
 
-    if not advisor:
-        return False, f"Advisor {advisor_id} not active"
+    advisor = _advisors[advisor_key]
+    old_trust = advisor.get('trust', 75)
+    name = advisor.get('name', advisor_key)
+    messages = []
 
-    game_state.advisors = [a for a in active if a['id'] != advisor_id]
+    # Low-trust dismissal world event (20% chance)
+    if old_trust < 30 and random.randint(1, 100) <= 20:
+        game_state.update_approval(-3)
+        messages.append("WORLD EVENT: Former official gives interview critical of administration. Approval -3%")
 
-    # fixes_13 Fix 9: Check if advisor already exists in pool (prevent duplicates)
-    advisor['previously_served'] = True
-    advisor['status'] = 'dismissed'
-    pool = getattr(game_state, 'advisor_pool', [])
-    # Find existing pool record by ID and update it, don't create duplicate
-    _existing_idx = next((idx for idx, a in enumerate(pool) if a['id'] == advisor_id), None)
-    if _existing_idx is not None:
-        pool[_existing_idx] = advisor
-        print(f"  [advisor_engine] DISMISSED: {advisor['name']} — updated existing pool record (no duplicate)")
-    else:
-        pool.append(advisor)
-        print(f"  [advisor_engine] DISMISSED: {advisor['name']} — returned to pool")
-    game_state.advisor_pool = pool
+    # Remove from staff
+    del _advisors[advisor_key]
+    game_state.advisors = _advisors
 
-    return True, f"Dismissed {advisor['name']} ({advisor['label']}) — available for rehire"
+    # Return archetype to pool with fresh randomized character
+    new_advisor = create_advisor(advisor_key, game_state)
+    if new_advisor:
+        pool = getattr(game_state, 'advisor_pool', [])
+        # Remove any existing instance of this archetype from pool
+        pool = [a for a in pool if a.get('archetype') != advisor_key]
+        pool.append(new_advisor)
+        game_state.advisor_pool = pool
+
+    event_str = f" — {messages[0]}" if messages else ""
+    print(f"  [advisor] DISMISSED: {name} ({advisor_key}) trust={old_trust}")
+    return True, f"Dismissed {name} ({advisor.get('label', advisor_key)}){event_str}"
 
 
-def eliminate_advisor(game_state, advisor_id: str) -> tuple[bool, str]:
-    """Permanently remove an advisor. Cannot be re-hired. Costs personal wealth.
-    fixes_12 Fix 6: Distinct from dismiss — permanent removal + wealth cost.
-    fixes_13 Fix 20: Escalating consequences for each elimination."""
-    active = getattr(game_state, 'advisors', [])
-    advisor = None
-    for a in active:
-        if a['id'] == advisor_id:
-            advisor = a
-            break
+def eliminate_advisor(game_state, advisor_key):
+    """Permanently remove an advisor. Costs $2B personal wealth.
+    Archetype does NOT return to pool — slot is gone forever.
+    Archetype-specific consequences apply."""
+    _advisors = getattr(game_state, 'advisors', {})
+    if not isinstance(_advisors, dict) or advisor_key not in _advisors:
+        return False, "Advisor not found"
 
-    if not advisor:
-        return False, f"Advisor {advisor_id} not active"
+    advisor = _advisors[advisor_key]
 
-    # fixes_12 Fix 6: Elimination costs personal wealth
-    _elim_cost = 2.0
-    if game_state.personal_wealth < _elim_cost:
-        return False, f"Insufficient personal wealth (${_elim_cost}B needed)"
+    # Cost check
+    if game_state.personal_wealth < 2.0:
+        return False, "Need $2B personal wealth to eliminate an advisor"
+    game_state.personal_wealth = round(game_state.personal_wealth - 2.0, 1)
 
-    game_state.personal_wealth = max(0, game_state.personal_wealth - _elim_cost)
-    game_state.advisors = [a for a in active if a['id'] != advisor_id]
+    # Remove from staff
+    del _advisors[advisor_key]
+    game_state.advisors = _advisors
+
+    # Mark archetype as permanently eliminated (by archetype key)
     eliminated = getattr(game_state, 'advisors_eliminated', [])
-    eliminated.append(advisor_id)
+    eliminated.append(advisor_key)
     game_state.advisors_eliminated = eliminated
 
-    # fixes_13 Fix 20: Elimination consequences — escalating with each elimination
-    _elim_count = len(eliminated)
-    _messages = []
+    # Remove from pool too
+    game_state.advisor_pool = [a for a in getattr(game_state, 'advisor_pool', []) if a.get('archetype') != advisor_key]
 
-    if _elim_count == 1:
-        # First elimination
+    # Archetype-specific consequences
+    consequence = _apply_elimination_consequence(game_state, advisor)
+
+    print(f"  [advisor] ELIMINATED: {advisor['name']} ({advisor_key}) — consequence: {consequence}")
+
+    # Log
+    log = getattr(game_state, 'advisor_actions_log', [])
+    log.append({
+        'day': getattr(game_state, 'current_day', 0),
+        'advisor': advisor.get('name', advisor_key),
+        'archetype': advisor_key,
+        'action': 'elimination',
+        'result': consequence,
+    })
+    game_state.advisor_actions_log = log
+
+    return True, f"Eliminated {advisor['name']} ({advisor.get('label', advisor_key)}) — {consequence}"
+
+
+def _apply_elimination_consequence(game_state, advisor):
+    """Apply archetype-specific elimination consequences. Returns description."""
+    arch = advisor.get('archetype', '')
+
+    if arch == 'technocrat':
+        # EU -3
+        game_state.update_relations('eu', -3, flat=True, source="technocrat elimination")
+        return "EU -3 relations (loss of reformist signal)"
+
+    if arch == 'diplomat':
+        # EU -5, USA -5
+        game_state.update_relations('eu', -5, flat=True, source="diplomat elimination")
+        game_state.update_relations('usa', -5, flat=True, source="diplomat elimination")
+        return "EU -5, USA -5 relations"
+
+    if arch == 'general':
+        # Military decay accelerates (-3/turn for 3 turns)
+        game_state._general_elim_decay_turns = 3
+        return "Military decay accelerates (-3/turn for 3 turns)"
+
+    if arch == 'propagandist':
+        # Approval display corrects to true value — one-time shock
+        return "Approval display corrected to true value. Media credibility damaged."
+
+    if arch == 'militia_commander':
+        # Stability -5 one-time
         game_state.update_stability(-5)
-        game_state.detection_heat = min(100, game_state.detection_heat + 10)
-        _messages.append(f"Stability -5%, Heat +10")
-        # Long-serving advisor penalty
-        _turns_served = game_state.current_turn - advisor.get('hired_turn', game_state.current_turn)
-        if _turns_served >= 3:
-            game_state.update_approval(-3)
-            _messages.append("Approval -3% (served 3+ turns)")
-        # High-loyalty advisor: world event risk
-        if advisor.get('loyalty', 0) >= 70 and random.randint(1, 100) <= 40:
-            game_state.update_relations('eu', -5)
-            game_state.update_relations('usa', -5)
-            game_state.update_approval(-5)
-            _messages.append("WORLD EVENT: Senior official disappears — EU -5, USA -5, approval -5%")
-    else:
-        # Subsequent eliminations — escalating
-        _stab_penalty = -8
-        _heat_penalty = 15
-        game_state.update_stability(_stab_penalty)
-        game_state.detection_heat = min(100, game_state.detection_heat + _heat_penalty)
-        _messages.append(f"Stability {_stab_penalty}%, Heat +{_heat_penalty}")
-        # Escalating world event risk
-        _event_chance = 40 + (_elim_count - 1) * 15
-        if random.randint(1, 100) <= _event_chance:
-            game_state.update_relations('eu', -5)
-            game_state.update_relations('usa', -5)
-            game_state.update_approval(-5)
-            _messages.append(f"WORLD EVENT: Another official vanishes — EU -5, USA -5, approval -5% (risk {_event_chance}%)")
+        return "Stability -5 (loss of informal enforcement network)"
 
-    # Special cases by archetype
-    _arch = advisor.get('archetype', '')
-    if _arch == 'spy_chief':
-        game_state.update_relations('dprg', 3)
-        game_state.update_relations('arabia', 3)
-        game_state.update_relations('eu', -8)
-        _messages.append("Spy Chief eliminated: DPRG +3, Arabia +3, EU -8")
+    if arch == 'spy_chief':
+        # DPRG +3, Arabia +3, EU -8
+        game_state.update_relations('dprg', 3, flat=True, source="spy chief elimination")
+        game_state.update_relations('arabia', 3, flat=True, source="spy chief elimination")
+        game_state.update_relations('eu', -8, flat=True, source="spy chief elimination")
+        return "DPRG +3, Arabia +3, EU -8"
 
-    # Eliminate while observers present: automatic scandal
-    if getattr(game_state, 'regime_democracy_locked', 0) > 0:
-        game_state.update_stability(-10)
-        game_state.update_approval(-8)
-        _messages.append("SCANDAL: Elimination while observers present — stability -10%, approval -8%")
+    if arch == 'oligarch':
+        # No external consequences — deniable
+        return "No external consequences — deniable"
 
-    _consequences_str = "; ".join(_messages) if _messages else ""
-    print(f"  [advisor_engine] ELIMINATED: {advisor['name']} — permanent, cost ${_elim_cost}B, consequences: {_consequences_str}")
-    _flavor = "The matter was handled discreetly. Some matters require discretion."
-    return True, f"Eliminated {advisor['name']} ({advisor['label']}) — permanent removal (${_elim_cost}B). {_flavor} [{_consequences_str}]"
+    if arch == 'fixer':
+        # DPRG +5, one active backchannel promise compromised
+        game_state.update_relations('dprg', 5, flat=True, source="fixer elimination")
+        _promises = getattr(game_state, 'active_promises', [])
+        if _promises:
+            return "DPRG +5. One active backchannel promise flagged as compromised."
+        return "DPRG +5."
+
+    if arch == 'finance_minister':
+        # No external consequences — deniable
+        return "No external consequences — deniable"
+
+    # Default
+    return "Inner circle instability."
 
 
-def apply_stat_distortion(game_state) -> dict:
-    """
-    Compute stat distortions from all active advisors.
-    Returns a dict of { stat_name: offset } for the frontend to apply.
-    Backend always uses true gs.* values.
-    """
-    distortions = {}
-    _advisors_raw = getattr(game_state, 'advisors', [])
-    # Session 7C: advisors changed from list to dict — legacy function skips new format
-    if isinstance(_advisors_raw, dict):
-        return distortions
-    for advisor in _advisors_raw:
-        bias_stat = advisor.get('bias_stat')
-        if not bias_stat:
+# ── Stat Distortion (v2: randomized per advisor, education interaction) ──────
+
+def get_displayed_approval(gs):
+    """Get displayed approval with Propagandist distortion.
+    Education level reduces Propagandist effectiveness."""
+    distortion = 0
+    _advisors = getattr(gs, 'advisors', {})
+    if not isinstance(_advisors, dict):
+        return gs.public_approval
+    for adv in _advisors.values():
+        if not isinstance(adv, dict):
             continue
+        if not adv.get('assigned_this_turn', False):
+            continue
+        arch = adv.get('archetype', '')
+        if arch == 'propagandist':
+            # Education reduces Propagandist effectiveness
+            edu_level = getattr(gs, 'education_level', 0)
+            edu_reduction = {0: 1.0, 1: 0.8, 2: 0.5, 3: 0.2}
+            factor = edu_reduction.get(edu_level, 1.0)
+            raw_dist = adv.get('distortion_value', 0)
+            effective_dist = round(raw_dist * factor)
+            distortion += effective_dist
+    displayed = min(100, max(0, gs.public_approval + distortion))
+    if distortion != 0:
+        print(f"  [advisor] STAT DISTORTION: approval displayed={displayed} true={gs.public_approval} (source: propagandist)")
+    return displayed
 
-        loyalty = advisor.get('loyalty', 50)
-        competence = advisor.get('competence', 50)
-        bias_dir = advisor.get('bias_direction', 0)
 
-        # Loyalty check: higher loyalty → more honest reporting
-        if random.randint(1, 100) <= loyalty:
-            continue  # loyal this turn — reports truthfully
+def get_displayed_stability(gs):
+    """Get displayed stability with Militia Commander distortion."""
+    distortion = 0
+    _advisors = getattr(gs, 'advisors', {})
+    if not isinstance(_advisors, dict):
+        return gs.stability
+    for adv in _advisors.values():
+        if not isinstance(adv, dict):
+            continue
+        if not adv.get('assigned_this_turn', False):
+            continue
+        if adv.get('archetype') == 'militia_commander':
+            distortion += adv.get('distortion_value', 0)
+    displayed = min(100, max(0, gs.stability + distortion))
+    if distortion != 0:
+        print(f"  [advisor] STAT DISTORTION: stability displayed={displayed} true={gs.stability} (source: militia_commander)")
+    return displayed
 
-        # Competence noise: low competence adds random scatter
-        noise = random.randint(-5, 5) if competence < 50 else random.randint(-2, 2)
 
-        offset = bias_dir + noise
-        distortions[bias_stat] = distortions.get(bias_stat, 0) + offset
+def get_displayed_military(gs):
+    """Get displayed military strength with General distortion."""
+    distortion = 0
+    _advisors = getattr(gs, 'advisors', {})
+    if not isinstance(_advisors, dict):
+        return getattr(gs, 'military_strength', 20)
+    for adv in _advisors.values():
+        if not isinstance(adv, dict):
+            continue
+        if not adv.get('assigned_this_turn', False):
+            continue
+        if adv.get('archetype') == 'general':
+            distortion += adv.get('distortion_value', 0)
+    true_val = getattr(gs, 'military_strength', 20)
+    displayed = min(100, max(0, true_val + distortion))
+    if distortion != 0:
+        print(f"  [advisor] STAT DISTORTION: military displayed={displayed} true={true_val} (source: general)")
+    return displayed
+
+
+def get_displayed_heat(gs):
+    """Get displayed detection heat with Spy Chief / Oligarch / Fixer distortion.
+    All three deflate heat (negative distortion)."""
+    distortion = 0
+    _advisors = getattr(gs, 'advisors', {})
+    if not isinstance(_advisors, dict):
+        return getattr(gs, 'detection_heat', 0)
+    for adv in _advisors.values():
+        if not isinstance(adv, dict):
+            continue
+        if not adv.get('assigned_this_turn', False):
+            continue
+        arch = adv.get('archetype', '')
+        if arch in ('spy_chief', 'oligarch', 'fixer'):
+            distortion -= adv.get('distortion_value', 0)
+    true_val = getattr(gs, 'detection_heat', 0)
+    displayed = min(100, max(0, true_val + distortion))
+    if distortion != 0:
+        sources = []
+        for adv in _advisors.values():
+            if isinstance(adv, dict) and adv.get('assigned_this_turn') and adv.get('archetype') in ('spy_chief', 'oligarch', 'fixer'):
+                sources.append(adv['archetype'])
+        print(f"  [advisor] STAT DISTORTION: heat displayed={displayed} true={true_val} (source: {', '.join(sources)})")
+    return displayed
+
+
+def get_displayed_budget(gs):
+    """Get displayed budget with Oligarch distortion (inflates budget display)."""
+    distortion = 0
+    _advisors = getattr(gs, 'advisors', {})
+    if not isinstance(_advisors, dict):
+        return gs.budget
+    for adv in _advisors.values():
+        if not isinstance(adv, dict):
+            continue
+        if not adv.get('assigned_this_turn', False):
+            continue
+        if adv.get('archetype') == 'oligarch':
+            distortion += adv.get('budget_distortion_value', 0)
+    displayed = gs.budget + distortion
+    if distortion != 0:
+        print(f"  [advisor] STAT DISTORTION: budget displayed={displayed:.1f} true={gs.budget:.1f} (source: oligarch)")
+    return displayed
+
+
+def compute_all_distortions(gs):
+    """Compute all stat distortions and return a dict for frontend serialization."""
+    distortions = {}
+    _advisors = getattr(gs, 'advisors', {})
+    if not isinstance(_advisors, dict):
+        return distortions
+
+    for adv in _advisors.values():
+        if not isinstance(adv, dict) or not adv.get('assigned_this_turn', False):
+            continue
+        arch = adv.get('archetype', '')
+        dv = adv.get('distortion_value', 0)
+
+        if arch == 'propagandist' and dv:
+            edu_level = getattr(gs, 'education_level', 0)
+            edu_reduction = {0: 1.0, 1: 0.8, 2: 0.5, 3: 0.2}
+            factor = edu_reduction.get(edu_level, 1.0)
+            effective = round(dv * factor)
+            if effective:
+                distortions['approval'] = distortions.get('approval', 0) + effective
+
+        elif arch == 'militia_commander' and dv:
+            distortions['stability'] = distortions.get('stability', 0) + dv
+
+        elif arch == 'general' and dv:
+            distortions['military_strength'] = distortions.get('military_strength', 0) + dv
+
+        elif arch in ('spy_chief', 'fixer') and dv:
+            distortions['detection_heat'] = distortions.get('detection_heat', 0) - dv
+
+        elif arch == 'oligarch':
+            if dv:
+                distortions['detection_heat'] = distortions.get('detection_heat', 0) - dv
+            bdv = adv.get('budget_distortion_value', 0)
+            if bdv:
+                distortions['budget'] = distortions.get('budget', 0) + bdv
 
     return distortions
 
 
-def check_advisor_loyalty(game_state) -> list:
-    """
-    Per-turn loyalty check for each advisor. Low loyalty → betrayal events.
-    Returns list of message strings describing betrayal events.
-    """
-    messages = []
-    _advisors_raw = getattr(game_state, 'advisors', [])
-    # Session 7C: advisors changed from list to dict — legacy function skips new format
-    if isinstance(_advisors_raw, dict):
-        return messages
-    for advisor in _advisors_raw:
-        loyalty = advisor.get('loyalty', 50)
-        if loyalty >= 50:
+# ── Betrayal Logic (v2: updated archetypes, conditions) ──────────────────────
+
+def check_betrayals(game_state):
+    """Check betrayal conditions at EOT for each staff advisor.
+    Only fires if loyalty < 20 (uses loyalty field, not trust).
+    Each advisor can only betray once per game.
+    Returns list of (archetype_key, message) tuples for briefing events."""
+    events = []
+    _advisors = getattr(game_state, 'advisors', {})
+    if not isinstance(_advisors, dict):
+        return events
+
+    for key, adv in list(_advisors.items()):
+        if not isinstance(adv, dict):
+            continue
+        trust = adv.get('trust', 75)
+        if trust >= 20:
+            continue
+        if adv.get('has_betrayed', False):
             continue
 
-        # Roll for betrayal: probability = (50 - loyalty)%
-        betrayal_chance = 50 - loyalty
-        roll = random.randint(1, 100)
-        if roll > betrayal_chance:
+        arch = adv.get('archetype', key)
+        name = adv.get('name', arch)
+        betrayed = False
+        msg = ""
+
+        if arch == 'finance_minister':
+            # Skims from national budget → +$1B his personal (not player's)
+            game_state.budget = max(0, game_state.budget - 1.0)
+            msg = f"🔴 BETRAYAL: {name} skimmed $1B from national budget (unexplained shortfall)"
+            betrayed = True
+
+        elif arch == 'technocrat':
+            # Leaks tech partnership details to highest-relations NPC
+            rels = game_state.relations
+            target_npc = max(['eu', 'usa'], key=lambda n: rels.get(n, 0))
+            other_npc = 'usa' if target_npc == 'eu' else 'eu'
+            game_state.update_relations(other_npc, -5, flat=True, source="technocrat leak")
+            msg = f"🔴 BETRAYAL: {name} leaked tech partnership details to {target_npc.upper()}! Relations -5 with {other_npc.upper()}"
+            betrayed = True
+
+        elif arch == 'diplomat':
+            # Contacts EU or USA — requires authoritarian regime drift
+            _regime = game_state.state_identity.get('regime_type', 'Managed Democracy')
+            if _regime in ('Kleptocracy', 'Totalitarian Regime', 'Patronage State', 'Soft Authoritarianism'):
+                game_state.update_relations('eu', 5, flat=True, source="diplomat betrayal")
+                game_state.update_relations('usa', 5, flat=True, source="diplomat betrayal")
+                game_state.update_approval(-5)
+                game_state.detection_heat = min(100, getattr(game_state, 'detection_heat', 0) + 10)
+                msg = f"🔴 BETRAYAL: {name} leaked internal info to EU and USA! EU +5, USA +5, Approval -5, Heat +10"
+                betrayed = True
+
+        elif arch == 'general':
+            # Coup probability +20% for 2 turns (military_strength < 20 condition)
+            mil = getattr(game_state, 'military_strength', 20)
+            if mil < 20:
+                game_state._general_coup_boost_turns = 2
+                msg = f"🔴 BETRAYAL: {name} — demoralized military finds its own leadership! Coup probability +20% for 2 turns"
+                betrayed = True
+
+        elif arch == 'propagandist':
+            # Unauthorized campaign — approval display snaps to true, heat +15
+            game_state.detection_heat = min(100, getattr(game_state, 'detection_heat', 0) + 15)
+            msg = f"🔴 BETRAYAL: {name} ran unauthorized domestic campaign! Approval display reveals true values. Heat +15"
+            betrayed = True
+
+        elif arch == 'militia_commander':
+            # Unauthorized brigade deployment — $1B personal, heat +10
+            _days_no_brigade = getattr(game_state, 'days_since_suppression', 0)
+            if _days_no_brigade >= 5:
+                if game_state.personal_wealth >= 1.0:
+                    game_state.personal_wealth = round(game_state.personal_wealth - 1.0, 1)
+                game_state.detection_heat = min(100, getattr(game_state, 'detection_heat', 0) + 10)
+                print(f"  [advisor] UNAUTHORIZED ACTION: Militia Commander deployed brigade without authorization")
+                msg = f"🔴 BETRAYAL: {name} deployed a Tier 1 Propaganda brigade without authorization! $1B personal, Heat +10"
+                betrayed = True
+
+        elif arch == 'spy_chief':
+            # Burns one active backchannel promise
+            _promises = getattr(game_state, 'active_promises', [])
+            rels = game_state.relations
+            target_npc = max(['usa', 'arabia', 'eu', 'dprg'], key=lambda n: rels.get(n, 0))
+            if _promises:
+                print(f"  [advisor] BETRAYAL: Spy Chief burned backchannel — sold to {target_npc.upper()}")
+                msg = f"🔴 BETRAYAL: {name} burned backchannel — sold information to {target_npc.upper()}! Covert promise exposed"
+            else:
+                game_state.detection_heat = min(100, getattr(game_state, 'detection_heat', 0) + 15)
+                print(f"  [advisor] BETRAYAL: Spy Chief burned backchannel — sold to {target_npc.upper()}")
+                msg = f"🔴 BETRAYAL: {name} leaked intel intercept to the press! Heat +15"
+            betrayed = True
+
+        elif arch == 'oligarch':
+            # Skims additional $1B from national budget (not to player)
+            game_state.budget = max(0, game_state.budget - 1.0)
+            print(f"  [advisor] BETRAYAL: Oligarch self-skimmed $1B from national budget")
+            msg = f"🔴 BETRAYAL: {name} skimmed $1B from national budget to personal accounts! Budget -$1B"
+            betrayed = True
+
+        elif arch == 'fixer':
+            # Sells backchannel info to highest-relations NPC
+            rels = game_state.relations
+            target_npc = max(['usa', 'arabia', 'eu', 'dprg'], key=lambda n: rels.get(n, 0))
+            _promises = getattr(game_state, 'active_promises', [])
+            if _promises:
+                print(f"  [advisor] BETRAYAL: Fixer sold backchannel to {target_npc.upper()}")
+                msg = f"🔴 BETRAYAL: {name} sold backchannel information to {target_npc.upper()}! Covert promise exposed"
+            else:
+                game_state.detection_heat = min(100, getattr(game_state, 'detection_heat', 0) + 15)
+                print(f"  [advisor] BETRAYAL: Fixer sold backchannel to {target_npc.upper()}")
+                msg = f"🔴 BETRAYAL: {name} leaked covert operation details! Heat +15"
+            betrayed = True
+
+        if betrayed:
+            adv['has_betrayed'] = True
+            adv['trust'] = 50  # reset to prevent immediate re-trigger
+            events.append((key, msg))
+            print(f"  [advisor] BETRAYAL FIRED: {name} ({arch}) — trust was {trust}")
+
+            # Log
+            log = getattr(game_state, 'advisor_actions_log', [])
+            log.append({
+                'day': getattr(game_state, 'current_day', 0),
+                'advisor': name,
+                'archetype': arch,
+                'action': 'betrayal',
+                'result': msg,
+            })
+            game_state.advisor_actions_log = log
+
+    return events
+
+
+# ── Diplomat Negotiation Discount (v2: competence-based) ─────────────────────
+
+def get_diplomat_discount(game_state):
+    """Return negotiation cost multiplier if Diplomat is assigned this turn.
+    Competence >= 80: free (multiplier 0.0).
+    Competence < 80: 50% discount (multiplier 0.5)."""
+    _advisors = getattr(game_state, 'advisors', {})
+    if not isinstance(_advisors, dict):
+        return 1.0  # no discount
+    adv = _advisors.get('diplomat', {})
+    if not isinstance(adv, dict):
+        return 1.0
+    if not adv.get('assigned_this_turn', False):
+        return 1.0
+    comp = adv.get('competence', 60)
+    if comp >= 80:
+        return 0.0  # free
+    return 0.5  # 50% discount
+
+
+# ── Spy Chief Intel Cost Discount (v2: new mechanic) ─────────────────────────
+
+def get_spy_chief_intel_discount(game_state):
+    """Return intel gathering cost multiplier if Spy Chief is assigned this turn.
+    Competence >= 80: free (multiplier 0.0).
+    Competence < 80: 40% discount (multiplier 0.6)."""
+    _advisors = getattr(game_state, 'advisors', {})
+    if not isinstance(_advisors, dict):
+        return 1.0
+    adv = _advisors.get('spy_chief', {})
+    if not isinstance(adv, dict):
+        return 1.0
+    if not adv.get('assigned_this_turn', False):
+        return 1.0
+    comp = adv.get('competence', 70)
+    if comp >= 80:
+        print(f"  [advisor] INTEL COST MODIFIED: -100% from Spy Chief (competence={comp})")
+        return 0.0
+    print(f"  [advisor] INTEL COST MODIFIED: -40% from Spy Chief (competence={comp})")
+    return 0.6
+
+
+# ── Backchannel Detection Discount (v2: Spy Chief + Fixer stackable) ────────
+
+def get_backchannel_detection_modifier(game_state):
+    """Return combined backchannel detection risk modifier.
+    Spy Chief assigned: -15%. Fixer assigned: -25%. Combined max: -40%.
+    Returns the modifier as a fraction (e.g., 0.60 means 40% reduction)."""
+    _advisors = getattr(game_state, 'advisors', {})
+    if not isinstance(_advisors, dict):
+        return 1.0
+
+    modifier = 1.0
+    for adv in _advisors.values():
+        if not isinstance(adv, dict) or not adv.get('assigned_this_turn', False):
             continue
+        arch = adv.get('archetype', '')
+        if arch == 'spy_chief':
+            modifier -= 0.15
+            print(f"  [advisor] BACKCHANNEL RISK MODIFIED: -15% from spy_chief")
+        elif arch == 'fixer':
+            modifier -= 0.25
+            print(f"  [advisor] BACKCHANNEL RISK MODIFIED: -25% from fixer")
 
-        # Betrayal event based on specialty
-        specialty = advisor.get('specialty', 'domestic')
-        name = advisor.get('name', 'Unknown')
+    return max(0.0, modifier)
 
-        if specialty == 'economic':
-            # Skim from state projects
-            skim = round(random.uniform(0.5, 2.0), 1)
-            game_state.update_budget(-skim)
-            messages.append(
-                f"\U0001f4b0 ADVISOR BETRAYAL — {name} skimmed ${skim:.1f}B from state projects"
-            )
-        elif specialty == 'intelligence':
-            # Leak intel to a random NPC
-            npc = random.choice(['usa', 'arabia', 'eu', 'dprg'])
-            game_state.detection_heat = min(100, game_state.detection_heat + 8)
-            messages.append(
-                f"\U0001f575\ufe0f ADVISOR BETRAYAL — {name} leaked intelligence to "
-                f"{npc.upper()}. Detection heat +8"
-            )
-        elif specialty == 'diplomatic':
-            # Sabotage relations with a random NPC
-            npc = random.choice(['usa', 'arabia', 'eu', 'dprg'])
-            game_state.update_relations(npc, -5, source=f"advisor betrayal ({name})")
-            messages.append(
-                f"\U0001f91d ADVISOR BETRAYAL — {name} sabotaged relations with "
-                f"{npc.upper()} (-5)"
-            )
-        elif specialty == 'military':
-            game_state.military_strength = max(0, game_state.military_strength - 5)
-            messages.append(
-                f"\u2694\ufe0f ADVISOR BETRAYAL — {name} diverted military resources. "
-                f"Military -5"
-            )
-        else:
-            # Domestic — undermine stability
-            game_state.update_stability(-3)
-            messages.append(
-                f"\U0001f4d5 ADVISOR BETRAYAL — {name} spread dissent in the inner circle. "
-                f"Stability -3%"
-            )
 
-        # Log the betrayal
-        log = getattr(game_state, 'advisor_actions_log', [])
-        log.append({
-            'turn': game_state.current_turn,
-            'advisor_id': advisor['id'],
-            'action': 'betrayal',
-            'result': messages[-1],
-        })
-        game_state.advisor_actions_log = log
+# ── Oligarch Skim Bonus (v2: new mechanic) ───────────────────────────────────
 
-    return messages
+def get_oligarch_skim_bonus(game_state):
+    """Return skim bonus multiplier if Oligarch is assigned this turn.
+    +10% additional personal wealth on skim actions."""
+    _advisors = getattr(game_state, 'advisors', {})
+    if not isinstance(_advisors, dict):
+        return 1.0
+    adv = _advisors.get('oligarch', {})
+    if not isinstance(adv, dict):
+        return 1.0
+    if not adv.get('assigned_this_turn', False):
+        return 1.0
+    return 1.10  # +10% bonus

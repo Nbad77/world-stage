@@ -206,11 +206,11 @@ export default function ElectionPanel({ gameState, sessionId, onElectionDone, di
         {/* NPC Reactions */}
         <div className="election-reactions">
           <div className="election-section-label">World Reactions</div>
-          {['usa', 'arabia', 'eu', 'dprg'].map(npc => (
+          {['usa', 'arabia', 'eu', 'dprg', 'russia', 'china'].map(npc => (
             reactions[npc] ? (
               <div key={npc} className="election-reaction">
                 <span className="election-npc-tag" style={{ color: `var(--${npc})` }}>
-                  {npc === 'usa' ? 'Bill' : npc === 'arabia' ? 'Sadam' : npc === 'eu' ? 'Marsha' : 'Ji-won'}
+                  {npc === 'usa' ? 'Bill' : npc === 'arabia' ? 'Sadam' : npc === 'eu' ? 'Marsha' : npc === 'dprg' ? 'Ji-won' : npc === 'russia' ? 'Volkov' : 'Wei'}
                 </span>
                 <span className="election-reaction-text">{reactions[npc]}</span>
               </div>

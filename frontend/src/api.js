@@ -105,6 +105,10 @@ export const api = {
   budgetAllocation: (id, allocation) =>
     request('POST', `/game/${id}/budget_allocation`, allocation),
 
+  /** POST /game/{id}/education_allocation — 8B Education spending */
+  educationAllocation: (id, allocation) =>
+    request('POST', `/game/${id}/education_allocation`, { allocation }),
+
   /** POST /game/{id}/debug/set_state — body: { overrides } — fixes_10 Fix 7 */
   debugSetState: (id, overrides) =>
     request('POST', `/game/${id}/debug/set_state`, { overrides }),
@@ -115,21 +119,29 @@ export const api = {
   cabinetInvest: (id, axis, direction) =>
     request('POST', `/game/${id}/cabinet_invest`, { axis, direction }),
 
-  /** POST /game/{id}/advisor_action — body: { action, advisor_id } (legacy) */
-  advisorAction: (id, action, advisor_id) =>
-    request('POST', `/game/${id}/advisor_action`, { action, advisor_id }),
-
-  /** GET /game/{id}/advisor_pool (legacy) */
-  getAdvisorPool: (id) =>
-    request('GET', `/game/${id}/advisor_pool`),
-
-  /** POST /game/{id}/advisor/assign — Session 7C: assign advisor for this turn */
+  /** POST /game/{id}/advisor/assign — assign advisor for this turn */
   assignAdvisor: (id, advisorKey) =>
     request('POST', `/game/${id}/advisor/assign`, { advisor_key: advisorKey }),
 
-  /** POST /game/{id}/advisor/unassign — Session 7C: unassign advisor */
+  /** POST /game/{id}/advisor/unassign — unassign advisor */
   unassignAdvisor: (id, advisorKey) =>
     request('POST', `/game/${id}/advisor/unassign`, { advisor_key: advisorKey }),
+
+  /** POST /game/{id}/advisor/hire — hire from pool into active slot */
+  hireAdvisor: (id, advisorId) =>
+    request('POST', `/game/${id}/advisor/hire`, { advisor_id: advisorId }),
+
+  /** POST /game/{id}/advisor/dismiss — dismiss active advisor back to pool */
+  dismissAdvisor: (id, advisorKey) =>
+    request('POST', `/game/${id}/advisor/dismiss`, { advisor_key: advisorKey }),
+
+  /** POST /game/{id}/advisor/eliminate — permanently eliminate advisor ($2B personal) */
+  eliminateAdvisor: (id, advisorKey) =>
+    request('POST', `/game/${id}/advisor/eliminate`, { advisor_key: advisorKey }),
+
+  /** GET /game/{id}/advisor/pool — get advisor hiring pool */
+  getAdvisorPool: (id) =>
+    request('GET', `/game/${id}/advisor/pool`),
 
   /** POST /game/{id}/backchannel — Session 7D: send covert message */
   backchannel: (id, npcId, message) =>

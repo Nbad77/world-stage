@@ -80,13 +80,13 @@ export default function StatusBar({ gs, onShadowCabinet }) {
         <span className={`stat-value mono ${(gs.military_strength ?? 20) < 10 ? 'bad' : (gs.military_strength ?? 20) < 30 ? 'warn' : 'good'}`}>⚔️ {gs.military_strength ?? 20}</span>
       </div>
 
-      {/* fixes_8 Fix 4: Tech Level always visible — greyed at 0 */}
+      {/* fixes_8 Fix 4 + fixes_21 Fix L: Tech Level always visible — greyed at 0 */}
       <div className="stat">
         <span className="stat-label">Tech</span>
-        <span className={`stat-value mono ${(gs.tech_level ?? 0) === 0 ? '' : gs.tech_level >= 41 ? 'good' : 'warn'}`}
+        <span className={`stat-value mono ${(gs.tech_level ?? 0) === 0 ? '' : (gs.tech_tier ?? 0) >= 3 ? 'good' : 'warn'}`}
           style={(gs.tech_level ?? 0) === 0 ? { opacity: 0.4 } : {}}
-          title="Higher tech unlocks EU ceiling, boosts GDP, reduces detection risk"
-        >{typeof gs.tech_level === 'number' ? gs.tech_level.toFixed(1) : (gs.tech_level ?? 0)}</span>
+          title={`${gs.tech_tier_name ?? 'Pre-Industrial'} — Higher tech unlocks EU ceiling, boosts GDP, reduces detection risk`}
+        >{(gs.tech_level ?? 0) === 0 ? '0' : gs.tech_level.toFixed(1)} <span style={{ fontSize: '0.7em', opacity: 0.7 }}>T{gs.tech_tier ?? 0}</span></span>
       </div>
 
       {/* Session 5: Latent stats — Soft Power + Diplomatic Capital */}
@@ -114,11 +114,11 @@ export default function StatusBar({ gs, onShadowCabinet }) {
         <span className={`state-identity-regime ${regimeColorClass}`}>{regimeType}</span>
         <span className="state-identity-sep">·</span>
         <span className="state-identity-power">{powerBase}</span>
-        {/* fixes_10 Fix 3: Election warning — flag set one turn earlier by backend */}
+        {/* fixes_10 Fix 3 + fixes_21 Fix J: Election countdown — amber indicator */}
         {gs.election_warning_shown && !gs.election_fired &&
          gs.current_turn < (gs.election_turn ?? 4) && (
           <span style={{ marginLeft: '0.5rem', color: '#ffb74d', fontWeight: 600, fontSize: '0.72rem' }}>
-            | 🗳️ Election Next Turn
+            | 🗳️ ELECTION T-{(gs.election_turn ?? 4) - gs.current_turn}
           </span>
         )}
         {/* Session 5: NPC-Initiated Contact indicator */}

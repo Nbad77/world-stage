@@ -38,10 +38,12 @@ const NPC_NAMES = {
   arabia: 'Sadam',
   eu:     'Marsha',
   dprg:   'Ji-won Ryang',
+  russia: 'Nikolai Volkov',
+  china:  'Wei Jianming',
 }
 
 const NPC_FLAGS = {
-  usa: '🇺🇸', arabia: '🛢️', eu: '🇪🇺', dprg: '⚡',
+  usa: '🇺🇸', arabia: '🛢️', eu: '🇪🇺', dprg: '⚡', russia: '🇷🇺', china: '🇨🇳',
 }
 
 export default function PromiseTracker({ gs }) {

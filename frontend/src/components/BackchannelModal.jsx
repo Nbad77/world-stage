@@ -16,7 +16,7 @@ import { useState, useRef, useEffect } from 'react'
 import { api } from '../api'
 
 // Client-side detection risk — mirrors npc_engine.calculate_detection_risk
-const BASE_RISK = { usa: 0.25, arabia: 0.20, eu: 0.15, dprg: 0.10 }
+const BASE_RISK = { usa: 0.25, arabia: 0.20, eu: 0.15, dprg: 0.10, russia: 0.20, china: 0.18 }
 const OPSEC_MULT = { 0: 1.0, 1: 0.7, 2: 0.45 }
 
 function calcDetectionRisk(npcKey, gs) {

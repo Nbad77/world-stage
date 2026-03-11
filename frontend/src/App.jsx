@@ -36,20 +36,25 @@ export default function App() {
   const [error, setError]         = useState(null)
   const [gameKey, setGameKey]     = useState(0)   // increments to force GameScreen remount
 
-  // hasResumable: false = no session (default), true = session ready
-  const [hasResumable, setHasResumable] = useState(false)
+  // hasResumable: null = checking backend, false = no session, true = session ready
+  const [hasResumable, setHasResumable] = useState(
+    localStorage.getItem(SESSION_KEY) ? null : false
+  )
   const [resumeData, setResumeData]     = useState(null)   // data from GET /game/{id}
 
   // ── On mount: probe localStorage for an existing active session ──────────
   useEffect(() => {
     const saved = localStorage.getItem(SESSION_KEY)
     if (!saved) {
+      console.log('[RESUME] No saved session in localStorage')
       setHasResumable(false)
       return
     }
+    console.log('[RESUME] Found saved session:', saved.slice(0, 8) + '…')
     // Attempt to fetch the saved session from backend
     api.getGame(saved)
       .then(data => {
+        console.log('[RESUME] Backend returned status:', data.status)
         if (data.status === 'active') {
           setResumeData(data)
           setHasResumable(true)
@@ -59,9 +64,17 @@ export default function App() {
           setHasResumable(false)
         }
       })
-      .catch(() => {
-        // Session not found or expired
-        localStorage.removeItem(SESSION_KEY)
+      .catch((err) => {
+        // fixes_21 Fix F: Only clear localStorage on definitive 404 (session gone).
+        // Transient errors (500, network timeout, cold start) should NOT destroy
+        // the saved session reference — next refresh can retry.
+        const is404 = /404|not found|expired/i.test(err.message)
+        if (is404) {
+          console.log('[RESUME] Session not found/expired — clearing localStorage')
+          localStorage.removeItem(SESSION_KEY)
+        } else {
+          console.warn('[RESUME] Transient error checking session (kept for retry):', err.message)
+        }
         setHasResumable(false)
       })
   }, [])

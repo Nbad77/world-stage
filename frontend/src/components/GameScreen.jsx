@@ -49,10 +49,12 @@ const PHASE = {
 }
 
 const NPC_INFO = {
-  usa:    { label: 'Bill Hartwell', flag: '🇺🇸', letter: 'A' },
-  arabia: { label: 'Sadam',          flag: '🛢️',  letter: 'B' },
-  eu:     { label: 'Marsha',         flag: '🇪🇺', letter: 'C' },
-  dprg:   { label: 'Ji-won Ryang',   flag: '⚡',  letter: 'D' },
+  usa:    { label: 'Bill Hartwell',    flag: '🇺🇸', letter: 'A' },
+  arabia: { label: 'Sadam',            flag: '🛢️',  letter: 'B' },
+  eu:     { label: 'Marsha',           flag: '🇪🇺', letter: 'C' },
+  dprg:   { label: 'Ji-won Ryang',     flag: '⚡',  letter: 'D' },
+  russia: { label: 'Nikolai Volkov',   flag: '🇷🇺', letter: 'R' },
+  china:  { label: 'Wei Jianming',     flag: '🇨🇳', letter: 'W' },
 }
 
 export default function GameScreen({ sessionId, initialData, onGameEnd, onRestart, onSnapshotLoad }) {
@@ -189,7 +191,9 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     const text = counter
       ? `[NEGOTIATED] ${counter.text}`
       : base?.text || `Option ${letter}`
-    setPendingConfirm({ type: 'choice', value: letter, text })
+    // fixes_21: Pass deal conflicts from offer so confirm modal can warn
+    const dealConflicts = base?.deal_conflicts || []
+    setPendingConfirm({ type: 'choice', value: letter, text, dealConflicts })
   }
 
   function requestConfirmSkim(choice) {
@@ -1297,6 +1301,52 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               />
             )}
 
+            {/* Session 8A: Russia/China negotiated deal confirmation panels.
+                These NPCs have no static choice button (A-D), so when a deal is accepted
+                in NegotiationPanel it lands in counterOffers['R'] or ['W'] with no
+                OffersPanel button to trigger it.  Show a dedicated confirmation card. */}
+            {['russia', 'china'].map(npcKey => {
+              const info = NPC_INFO[npcKey]
+              if (!info) return null
+              const counter = counterOffers[info.letter]
+              if (!counter) return null
+              // Don't show if there IS a matching static offer (future-proofing)
+              if ((offers || []).some(o => o.letter === info.letter)) return null
+              console.log(`[deal] Russia/China deal confirmation panel triggered: ${npcKey} ${counter.consequences?.budget ?? 'N/A'}`)
+              return (
+                <div key={npcKey} className="panel negotiated-deal-panel">
+                  <div className="panel-header" style={{ color: 'var(--accent)' }}>
+                    {info.flag} NEGOTIATED DEAL — {info.label}
+                  </div>
+                  <div className="negotiated-deal-text">
+                    ⚡ {counter.text}
+                  </div>
+                  {counter.relation_warning && (
+                    <div className="offer-warning" style={{ marginTop: '0.3rem' }}>{counter.relation_warning}</div>
+                  )}
+                  <div className="negotiated-deal-actions">
+                    <button
+                      className="btn-primary"
+                      onClick={() => handleChoice(info.letter)}
+                      disabled={loading || gs?.summit_due}
+                    >
+                      Accept Deal
+                    </button>
+                    <button
+                      className="btn-ghost"
+                      onClick={() => setCounterOffers(prev => {
+                        const next = { ...prev }
+                        delete next[info.letter]
+                        return next
+                      })}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+
             {/* Abandon moved into Shadow Cabinet drawer (with confirmation) */}
           </>
         )}
@@ -1548,13 +1598,24 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       {/* FEATURE 1: Confirmation modal */}
       {pendingConfirm && (
         <div className="confirm-overlay">
-          <div className="confirm-dialog">
+          <div className={`confirm-dialog ${pendingConfirm.dealConflicts?.length ? 'confirm-has-conflicts' : ''}`}>
             <div className="confirm-header">
               {pendingConfirm.type === 'choice' ? 'Confirm Diplomatic Choice' : 'Confirm Allocation'}
             </div>
             <div className="confirm-body">
               {pendingConfirm.text}
             </div>
+            {/* fixes_21: Deal conflict warnings */}
+            {pendingConfirm.dealConflicts?.length > 0 && (
+              <div className="confirm-conflicts">
+                <div className="confirm-conflicts-header">⚠️ DEAL CONFLICT WARNING</div>
+                {pendingConfirm.dealConflicts.map((c, i) => (
+                  <div key={i} className="confirm-conflict-item">
+                    This action harms <strong>{c.npc_label}</strong> — conflicts with: {c.deal_summary}
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="confirm-actions">
               <button
                 className="btn-ghost confirm-back-btn"
@@ -1566,7 +1627,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
                 className="btn-primary confirm-commit-btn"
                 onClick={handleConfirmExecute}
               >
-                Confirm
+                {pendingConfirm.dealConflicts?.length ? 'Proceed Anyway' : 'Confirm'}
               </button>
             </div>
           </div>

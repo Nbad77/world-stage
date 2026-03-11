@@ -1,13 +1,13 @@
 /**
  * Title / splash screen shown before the game starts.
  *
- * Session persistence (Addition 1):
+ * Session persistence:
+ *   hasResumable = null  → checking backend for saved session (loading state)
  *   hasResumable = false → no saved session — show normal "Begin Tenure"
  *   hasResumable = true  → active session found — show "Resume Game" + "New Game"
  */
 export default function TitleScreen({ onStart, onResume, hasResumable, resumeData, loading }) {
   const gs = resumeData?.game_state
-  console.log('[TITLE] Begin Tenure button rendered, ready=true')
 
   return (
     <div className="title-screen">
@@ -31,8 +31,15 @@ export default function TitleScreen({ onStart, onResume, hasResumable, resumeDat
         <div>💀 Ji-won Ryang — DPRG</div>
       </div>
 
+      {/* ── Checking for saved session (hasResumable === null) ── */}
+      {hasResumable === null && (
+        <p style={{ fontSize: '0.82rem', color: 'var(--muted)', fontStyle: 'italic' }}>
+          Checking for saved game...
+        </p>
+      )}
+
       {/* ── Resume block — only when a valid active session was found ── */}
-      {hasResumable && gs && (
+      {hasResumable === true && gs && (
         <div className="resume-block">
           <div className="resume-summary">
             <span className="resume-label">Saved session found</span>
@@ -62,7 +69,7 @@ export default function TitleScreen({ onStart, onResume, hasResumable, resumeDat
       )}
 
       {/* ── Normal start — no saved session ── */}
-      {!hasResumable && (
+      {hasResumable === false && (
         <button
           className="btn-primary"
           onClick={onStart}
