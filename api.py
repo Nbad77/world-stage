@@ -5,19 +5,25 @@ Game logic is entirely in Python (game_state, turn_processor).
 Claude generates dialogue only (npc_engine).
 
 Endpoints:
-  POST /game/new                    → { session_id, game_state, offers, dialogue }
-  GET  /game/{id}                   → { game_state, offers }
-  POST /game/{id}/action            → { consequences, blackmail, game_state, offers }
-  POST /game/{id}/skim              → { skim_result, intercepts, eot_effects, game_state, status }
-  POST /game/{id}/inject            → { inject_result, game_state }
-  GET  /game/{id}/status            → { status: active|won|lost|escaped }
-  POST /game/{id}/negotiate         → { response, counter_offer }
-  POST /game/{id}/election          → { result_key, consequences, npc_reactions, game_state }
-  POST /game/{id}/domestic_action   → { success, action, changes, game_state }
+  POST /game/new                    -> { session_id, game_state, offers, dialogue }
+  GET  /game/{id}                   -> { game_state, offers }
+  POST /game/{id}/action            -> { consequences, blackmail, game_state, offers }
+  POST /game/{id}/skim              -> { skim_result, intercepts, eot_effects, game_state, status }
+  POST /game/{id}/inject            -> { inject_result, game_state }
+  GET  /game/{id}/status            -> { status: active|won|lost|escaped }
+  POST /game/{id}/negotiate         -> { response, counter_offer }
+  POST /game/{id}/election          -> { result_key, consequences, npc_reactions, game_state }
+  POST /game/{id}/domestic_action   -> { success, action, changes, game_state }
 """
 
 import sys
 import os
+# Fix A: Force UTF-8 on Windows to prevent UnicodeEncodeError from emoji in print()
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 import re
 import random
 from pathlib import Path
@@ -48,6 +54,8 @@ from turn_processor import (
     INTEL_BUDGET_OPTIONS,
     apply_tech_gain,
     TECH_SOURCES,
+    exile_sequence_start,
+    process_exile_eod,
 )
 from db import init_db, create_session, load_session, save_session
 from auth import get_current_user, get_optional_user
@@ -143,7 +151,7 @@ class EducationAllocationRequest(BaseModel):
     allocation: float  # $B per turn to allocate to education
 
 class DebugSetStateRequest(BaseModel):
-    overrides: dict  # fixes_10 Fix 7: field → value mapping for debug panel
+    overrides: dict  # fixes_10 Fix 7: field -> value mapping for debug panel
 
 # Session 5 request models
 class CabinetInvestRequest(BaseModel):
@@ -178,6 +186,29 @@ class BlackOpRequest(BaseModel):
     operation: str      # 'fabricate_crisis'|'reputation_laundering'|'blackmail'|'false_flag'|'political_sabotage'
     target_npc: str = ''  # required for most operations
 
+# 9.5A: Commitment model request models
+class CommitmentUpgradeRequest(BaseModel):
+    tier_key: str       # 'military'|'intelligence'|'diplomatic'|'social'|'education'|'resource'|'political'|'militia'
+
+class CommitmentDowngradeRequest(BaseModel):
+    tier_key: str       # same keys as upgrade
+
+class CommitmentSkimRequest(BaseModel):
+    skim_rate: float    # 0.0 to 0.50 (0% to 50%)
+
+# 9.5A-Shadow: Shadow State request models
+class ShadowUpgradeRequest(BaseModel):
+    shadow_key: str     # 'media'|'judicial'|'domestic_surveillance'|'extraction'
+
+class ShadowDowngradeRequest(BaseModel):
+    shadow_key: str     # same keys as upgrade
+
+class ShadowSkimRequest(BaseModel):
+    skim_rate: float    # 0.0 to max (capped by EXTRACTION_SKIM_CEILING)
+
+class ShadowMergerRequest(BaseModel):
+    merger_type: str    # 'militia'|'surveillance'
+
 
 # ── fixes_13 Fix 22+23: Negotiate cost with diplomat + political axis discounts ─
 def _get_discounted_negotiate_cost(gs, npc_id: str) -> tuple:
@@ -197,23 +228,23 @@ def _get_discounted_negotiate_cost(gs, npc_id: str) -> tuple:
         if _diplomat_mult == 0.0:
             _mult = 0.0
             _label_parts.append('Diplomat (free)')
-            print(f"  [api] Diplomat (competence {_comp}) → FREE negotiation")
+            print(f"  [api] Diplomat (competence {_comp}) -> FREE negotiation")
         else:
             _mult *= _diplomat_mult
             pct = int((1 - _diplomat_mult) * 100)
             _label_parts.append(f'Diplomat -{pct}%')
-            print(f"  [api] Diplomat (competence {_comp}) → {pct}% discount")
+            print(f"  [api] Diplomat (competence {_comp}) -> {pct}% discount")
 
     # Fix 23: Political axis discount (stacks multiplicatively)
     _political = getattr(gs, 'cabinet_axes', {}).get('political', 0)
     if _political >= 8:
         _mult *= 0.5  # 50% discount
         _label_parts.append('Political -50%')
-        print(f"  [api] Fix 23: Political axis {_political} → 50% discount")
+        print(f"  [api] Fix 23: Political axis {_political} -> 50% discount")
     elif _political >= 5:
         _mult *= 0.75  # 25% discount
         _label_parts.append('Political -25%')
-        print(f"  [api] Fix 23: Political axis {_political} → 25% discount")
+        print(f"  [api] Fix 23: Political axis {_political} -> 25% discount")
 
     _final = round(_base_cost * _mult, 2)
     _label = ' + '.join(_label_parts) if _label_parts else ''
@@ -353,7 +384,32 @@ def _build_offers(gs: GameState) -> list[dict]:
 
 
 def _build_skim_options(gs: GameState) -> list[dict]:
-    """Return available skim options given current budget."""
+    """Return available skim options given current budget.
+    9.5A-Shadow: When skim_rate > 0 (persistent skim active), the per-turn skim
+    prompt is discontinued. Returns only the 'proceed' option since skim_rate
+    applies automatically during EOT via compute_tax_revenue().
+    Legacy per-turn options still returned when skim_rate == 0 for backward compat.
+    """
+    _skim_rate = getattr(gs, 'skim_rate', 0.0)
+
+    # 9.5A-Shadow: Persistent skim mode — per-turn prompt discontinued
+    if _skim_rate > 0:
+        from turn_processor import EXTRACTION_SKIM_CEILING
+        _ext_tier = getattr(gs, 'extraction_tier', 0)
+        _skim_ceiling = EXTRACTION_SKIM_CEILING.get(_ext_tier, 0.05)
+        _gdp_rev = getattr(gs, 'gdp', 50.0) * getattr(gs, 'tax_rate', 0.20) if not hasattr(gs, '_last_gross_revenue') else getattr(gs, '_last_gross_revenue', 10.0)
+        _est_income = round(_gdp_rev * _skim_rate, 1)
+        return [
+            {"choice": 1,
+             "label": f"Proceed — skim rate {_skim_rate*100:.0f}% active (~${_est_income:.1f}B/turn diverted automatically)",
+             "national_cost": 0, "personal_gain": 0, "stability_hit": 0, "approval_hit": 0,
+             "skim_persistent": True,
+             "skim_rate": _skim_rate,
+             "skim_ceiling": _skim_ceiling,
+             "extraction_tier": _ext_tier}
+        ]
+
+    # Legacy per-turn skim options (skim_rate == 0)
     budget = gs.budget
     # Sovereign Wealth Diversion upgrade halves large skim stability penalty (display + apply)
     has_swd = gs.corruption_upgrades.get('sovereign_wealth_diversion', False)
@@ -580,7 +636,7 @@ def _calc_eot_drain_projection(gs: GameState) -> dict:
         _proj_stability -= 8
         _proj_approval -= 6
 
-    # ── Section 7: Instability penalty (stability < 40 → -5% approval) ──
+    # ── Section 7: Instability penalty (stability < 40 -> -5% approval) ──
     if _proj_stability < 40:
         _proj_approval -= 5
 
@@ -591,7 +647,7 @@ def _calc_eot_drain_projection(gs: GameState) -> dict:
     elif _proj_mil <= 0:
         _proj_stability -= 5
 
-    # ── Section 8: Approval → Stability drift ──
+    # ── Section 8: Approval -> Stability drift ──
     _drift = round((_proj_approval - _proj_stability) * 0.3)
     _proj_stability += _drift
 
@@ -706,14 +762,14 @@ def _build_inject_options(gs: GameState) -> list[dict]:
          "personal_cost": 0, "national_gain": 0}
     ]
     if pw >= 3:
-        options.append({"choice": 1, "label": "Inject $3B (-$3B personal → +$3B national)",
+        options.append({"choice": 1, "label": "Inject $3B (-$3B personal -> +$3B national)",
                          "personal_cost": 3.0, "national_gain": 3.0})
     if pw >= 7:
-        options.append({"choice": 2, "label": "Inject $7B (-$7B personal → +$7B national)",
+        options.append({"choice": 2, "label": "Inject $7B (-$7B personal -> +$7B national)",
                          "personal_cost": 7.0, "national_gain": 7.0})
     if pw > 0:
         options.append({"choice": 3,
-                         "label": f"Inject ALL (-${pw:.1f}B personal → +${pw:.1f}B national)",
+                         "label": f"Inject ALL (-${pw:.1f}B personal -> +${pw:.1f}B national)",
                          "personal_cost": round(pw, 2), "national_gain": round(pw, 2)})
     return options
 
@@ -866,7 +922,7 @@ def _apply_world_event(gs: GameState, event: dict) -> list:
         old = gs.stability
         gs.update_stability(stability_delta)
         sign = '+' if stability_delta > 0 else ''
-        log.append(f"🌍 World event '{event_title}': stability {sign}{stability_delta}% ({old}% → {gs.stability}%)")
+        log.append(f"🌍 World event '{event_title}': stability {sign}{stability_delta}% ({old}% -> {gs.stability}%)")
 
     for npc, delta in rels.items():
         if npc in gs.relations and delta:
@@ -875,13 +931,19 @@ def _apply_world_event(gs: GameState, event: dict) -> list:
             # Player did not negotiate the event and should not be penalized by the curve.
             gs.update_relations(npc, delta, flat=True)
             sign = '+' if delta > 0 else ''
-            log.append(f"🌍 World event '{event_title}': {npc.upper()} {sign}{delta} ({old} → {gs.relations[npc]})")
+            log.append(f"🌍 World event '{event_title}': {npc.upper()} {sign}{delta} ({old} -> {gs.relations[npc]})")
 
     return log
 
 
 def _game_status(gs: GameState) -> str:
-    """Return 'active', 'won', 'lost', or 'escaped'."""
+    """Return 'active', 'won', 'lost', 'escaped', or 'exile'."""
+    # Restoration grace period — treat as active regardless of stats
+    if getattr(gs, 'restoration_grace_days', 0) > 0:
+        return "active"
+    # 8C: Exile is a continuing game mode, not an ending
+    if getattr(gs, 'in_exile', False):
+        return "exile"
     if gs.budget <= 0 or gs.stability <= 0 or gs.public_approval <= 0:
         return "lost"
     # FIX B: Use >= so Turn 10 EOT triggers "won" without needing current_turn = 11 hack
@@ -894,19 +956,23 @@ def _build_ending(gs: GameState) -> dict | None:
     """
     Build ending payload if game is over. Returns None if still active.
     Mirrors check_game_over() but returns structured data instead of a string.
+    8C: Defeat conditions now trigger exile, not game-over. Only victory builds ending.
     """
     from turn_processor import get_personal_outcome, get_legacy_title
 
     pw = gs.personal_wealth
 
-    if gs.budget <= 0:
-        cause = "bankruptcy"
-    elif gs.stability <= 0:
-        cause = "collapse"
-    elif gs.public_approval <= 0:
-        cause = "revolt"
+    # 8C: If in exile, game is not over — it's a different mode
+    if getattr(gs, 'in_exile', False):
+        return None
+
+    # 8C: Defeat conditions (bankruptcy, collapse, revolt) now handled by exile_sequence_start
+    # in check_game_over — they no longer produce endings here
+    if gs.budget <= 0 or gs.stability <= 0 or gs.public_approval <= 0:
+        return None  # exile takes over
+
     # FIX B: Use >= so Turn 10 triggers victory without needing current_turn = 11 hack
-    elif gs.current_turn >= gs.max_turns:
+    if gs.current_turn >= gs.max_turns:
         cause = "victory"
     else:
         return None
@@ -1250,11 +1316,15 @@ async def post_action(session_id: str, body: ActionRequest, user: User = Depends
         }
 
     # ── Options A–E — Normal diplomatic choice ─────────────────────────────
+    from npc_engine import MODEL as _npc_model
+    print(f"[api] diplomatic choice handler — model: {_npc_model}")
     blackmail_active = _check_blackmail(gs)
 
     # Resolve effective offer: use negotiated counter-offer if one was stored
     effective_offer = offer
     is_negotiated = False
+    streams_to_register = []  # Fix A: init before branching to prevent UnboundLocalError
+    combined_budget_delta = 0  # Fix A: same for combined_budget_delta
     if gs.options_override:
         for override in gs.options_override:
             if override.get("letter") == letter:
@@ -1514,7 +1584,7 @@ async def post_action(session_id: str, body: ActionRequest, user: User = Depends
                         stream['condition_type'] = 'relation_below'
                         stream['condition_npc'] = _cond_npc_key
                         stream['condition_threshold'] = _cond_threshold
-                        print(f"  [api] FIX K: Normalized freeform condition '{_raw_cond}' → relation_below {_cond_npc_key} {_cond_threshold}")
+                        print(f"  [api] FIX K: Normalized freeform condition '{_raw_cond}' -> relation_below {_cond_npc_key} {_cond_threshold}")
                     else:
                         # Can't parse — remove invalid condition so payment doesn't fire unconditionally
                         stream.pop('condition_type', None)
@@ -1537,7 +1607,7 @@ async def post_action(session_id: str, body: ActionRequest, user: User = Depends
                             stream['condition_type'] = 'relation_above'
                             stream['condition_npc'] = _cond_npc_key
                             stream['condition_threshold'] = _cond_threshold
-                            print(f"  [api] FIX K: Normalized freeform condition '{_raw_cond}' → relation_above {_cond_npc_key} {_cond_threshold}")
+                            print(f"  [api] FIX K: Normalized freeform condition '{_raw_cond}' -> relation_above {_cond_npc_key} {_cond_threshold}")
 
             # Existing: parse condition from deal text if not already set
             if not stream.get('condition_type') and _deal_text_lower:
@@ -1603,14 +1673,14 @@ async def post_action(session_id: str, body: ActionRequest, user: User = Depends
                     _recovered = float(_amt_match.group(1))
                     if _recovered > 0 and _recovered < 50:  # sanity check
                         stream['amount'] = round(_recovered, 1)
-                        print(f"  [api] FIX D: Corrected installment direction: {_stream_amt} → {stream['amount']} ({stream.get('description', '')})")
+                        print(f"  [api] FIX D: Corrected installment direction: {_stream_amt} -> {stream['amount']} ({stream.get('description', '')})")
                 elif _stream_amt < 0:
                     stream['amount'] = abs(_stream_amt)
-                    print(f"  [api] FIX D: Flipped negative installment: {_stream_amt} → {stream['amount']} ({stream.get('description', '')})")
+                    print(f"  [api] FIX D: Flipped negative installment: {_stream_amt} -> {stream['amount']} ({stream.get('description', '')})")
                 elif _stream_amt == 0 and combined_budget_delta > 0:
                     # Use the immediate budget delta as a proxy
                     stream['amount'] = round(combined_budget_delta / max(1, stream.get('turns_remaining', 1)), 1)
-                    print(f"  [api] FIX D: Recovered zero installment from budget delta: 0 → {stream['amount']}")
+                    print(f"  [api] FIX D: Recovered zero installment from budget delta: 0 -> {stream['amount']}")
 
             # FIX 3: Tag with registered_turn so EOT won't pay out same turn
             stream['registered_turn'] = gs.current_turn
@@ -1633,14 +1703,27 @@ async def post_action(session_id: str, body: ActionRequest, user: User = Depends
     else:
         extra_msgs = []
 
+    # 8A FIX: Compute total deal value (upfront + all installments) for cross-NPC tiering.
+    # deal_budget only captures the immediate payment; a $3.4B multi-turn deal ($0.4B upfront +
+    # $1B/turn × 3) would read as $0.4B and always hit "small" tier. deal_total_value captures
+    # the full economic weight of the deal for accurate cross-NPC consequence scaling.
+    _deal_total_value = abs(combined_budget_delta) if is_negotiated else 0
+    print(f"[api] streams_to_register initialized — count: {len(streams_to_register)}")
+    for _tv_stream in streams_to_register:
+        _deal_total_value += abs(_tv_stream.get("amount", 0)) * _tv_stream.get("turns_remaining", 1)
+    if is_negotiated and _deal_total_value > 0:
+        print(f"  [api] Deal total value: ${_deal_total_value:.1f}B (upfront ${abs(combined_budget_delta):.1f}B + installments ${_deal_total_value - abs(combined_budget_delta):.1f}B)")
+
     choice_dict = {
         "type": effective_offer.get("type", "accept_deal"),
-        "npc": effective_offer.get("npc"),
+        # 8A FIX 1: Fallback to base offer's npc if override is missing it (defensive)
+        "npc": effective_offer.get("npc") or offer.get("npc"),
         "consequences": effective_offer.get("consequences", {}),
         "is_negotiated": is_negotiated,
         "covert": effective_offer.get("covert", False),  # FIX E: pass covert flag
         # 8A: Pass deal budget + text for cross-NPC scaling (budget is popped for negotiated deals)
         "deal_budget": abs(combined_budget_delta) if is_negotiated else 0,
+        "deal_total_value": _deal_total_value if is_negotiated else 0,
         "text": effective_offer.get("text", ""),
     }
 
@@ -1838,7 +1921,7 @@ async def post_action(session_id: str, body: ActionRequest, user: User = Depends
                     new_rel = gs.relations[npc]
                     npc_labels = dict(ALL_NPC_LABELS)
                     consequence_msgs.append(
-                        f"↓ {npc_labels.get(npc, npc.upper())}: {old_rel} → {new_rel} ({extra:+d}) — named in deal conditions"
+                        f"↓ {npc_labels.get(npc, npc.upper())}: {old_rel} -> {new_rel} ({extra:+d}) — named in deal conditions"
                     )
                 # else: standard penalty was already equal or larger, skip
             else:
@@ -1848,7 +1931,7 @@ async def post_action(session_id: str, body: ActionRequest, user: User = Depends
                 new_rel = gs.relations[npc]
                 npc_labels = dict(ALL_NPC_LABELS)
                 consequence_msgs.append(
-                    f"↓ {npc_labels.get(npc, npc.upper())}: {old_rel} → {new_rel} ({named_penalty:+d}) — named in deal conditions"
+                    f"↓ {npc_labels.get(npc, npc.upper())}: {old_rel} -> {new_rel} ({named_penalty:+d}) — named in deal conditions"
                 )
 
     # FEATURE 2: Brigade secondary prompt — available after A-E choice (not G/F)
@@ -1888,6 +1971,7 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
     choice = body.choice
 
     skim_options = _build_skim_options(gs)
+    _skim_persistent = any(o.get('skim_persistent', False) for o in skim_options)
     option_map = {o["choice"]: o for o in skim_options}
 
     if choice not in option_map:
@@ -1901,6 +1985,15 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
 
     skim_messages = []
     corruption_alert = None
+
+    # 9.5A-Shadow: When persistent skim is active, per-turn skim is a no-op
+    # (skim_rate income is applied automatically in EOT via persistent rate)
+    if _skim_persistent and personal_gain == 0:
+        _skim_rate = getattr(gs, 'skim_rate', 0.0)
+        if _skim_rate > 0:
+            skim_messages.append(
+                f"\U0001f4b0 Persistent skim active: {_skim_rate*100:.0f}% of revenue "
+                f"diverted automatically each turn")
 
     if personal_gain > 0:
         # Stage 5: track consecutive large skims for regime shift detection
@@ -1919,7 +2012,7 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
         if _skim_bonus > 1.0:
             _before_gain = personal_gain
             personal_gain = round(personal_gain * _skim_bonus, 1)
-            print(f"  [advisor] OLIGARCH SKIM BONUS: +10% applied, skim personal gain {_before_gain}→{personal_gain}")
+            print(f"  [advisor] OLIGARCH SKIM BONUS: +10% applied, skim personal gain {_before_gain}->{personal_gain}")
         gs.update_personal_wealth(personal_gain, source=f"skim ({opt['label'][:40]})")
         gs.total_skimmed = getattr(gs, 'total_skimmed', 0.0) + personal_gain
         if gs.personal_wealth > getattr(gs, 'peak_personal_wealth', 0.0):
@@ -2014,10 +2107,24 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
     if ignored_msgs:
         eot_messages.extend(ignored_msgs)
 
-    # Check game over
-    is_over, result_type, _ = check_game_over(gs)
+    # Check game over (8C: defeat conditions now trigger exile, not game-over)
+    is_over, result_type, _exile_msg = check_game_over(gs)
     status = _game_status(gs)
     ending = None
+
+    # 8C: Exile just started — add exile transition message and generate historian note
+    if result_type == 'exile_started':
+        eot_messages.append(f"--- EXILE ---")
+        eot_messages.append(_exile_msg or 'You have been forced from power.')
+        eot_messages.append(f"Destination: {gs.exile_destination}. Successor: {gs.successor_name} ({gs.successor_disposition}).")
+        # Generate historian note for exile dashboard header
+        try:
+            from npc_engine import generate_exile_historian_note
+            gs.exile_historian_note = generate_exile_historian_note(gs)
+        except Exception as _hist_err:
+            print(f"  [api] 8C: Historian note generation failed: {_hist_err}")
+            gs.exile_historian_note = None
+        print(f"  [api] 8C: Exile triggered, status=exile, destination={gs.exile_destination}")
 
     # FIX C: Ledger balance assertion — check that ledger sum matches actual personal_wealth
     if hasattr(gs, 'pw_ledger') and gs.pw_ledger:
@@ -2225,10 +2332,23 @@ def post_inject(session_id: str, body: InjectRequest):
     if _ignored2:
         eot_messages.extend(_ignored2)
 
-    # Check game over
-    is_over, result_type, _ = check_game_over(gs)
+    # Check game over (8C: defeat conditions now trigger exile, not game-over)
+    is_over, result_type, _exile_msg2 = check_game_over(gs)
     status = _game_status(gs)
     ending = None
+
+    # 8C: Exile just started — add exile transition message and generate historian note
+    if result_type == 'exile_started':
+        eot_messages.append(f"--- EXILE ---")
+        eot_messages.append(_exile_msg2 or 'You have been forced from power.')
+        eot_messages.append(f"Destination: {gs.exile_destination}. Successor: {gs.successor_name} ({gs.successor_disposition}).")
+        try:
+            from npc_engine import generate_exile_historian_note
+            gs.exile_historian_note = generate_exile_historian_note(gs)
+        except Exception as _hist_err2:
+            print(f"  [api] 8C: Historian note generation failed (inject): {_hist_err2}")
+            gs.exile_historian_note = None
+        print(f"  [api] 8C: Exile triggered (inject path), destination={gs.exile_destination}")
 
     if is_over:
         ending = _build_ending(gs)
@@ -2387,7 +2507,7 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
         else:
             _neg_cost, _base_cost, _discount_label = _get_discounted_negotiate_cost(gs, npc_id)
             if _discount_label:
-                print(f"  [api] Fix 22+23: Negotiate cost {npc_id}: ${_base_cost}B → ${_neg_cost}B ({_discount_label})")
+                print(f"  [api] Fix 22+23: Negotiate cost {npc_id}: ${_base_cost}B -> ${_neg_cost}B ({_discount_label})")
 
         if _neg_cost > 0 and gs.budget < _neg_cost:
             raise HTTPException(
@@ -2420,16 +2540,69 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
             print(f"  [api] Diplomat loyalty leak (trust {_da_info.get('trust')}) leaked to {_leak_target} — {_leak_target} +3 relations")
 
     # Session 7B Step 3: Player-initiated contact — generate tone-appropriate opening
+    # FIX 3: NPC-specific framing for Volkov and Wei so the model produces
+    # a characteristic opening statement rather than a generic one.
     _player_initiated = body.player_initiated and _is_first_message
     _negotiate_message = body.message
     if _player_initiated:
         _rel = getattr(gs, 'relations', {}).get(npc_id, 50)
-        if _rel >= 70:
-            _negotiate_message = "The President is reaching out personally to discuss matters of mutual interest."
-        elif _rel >= 40:
-            _negotiate_message = "The President's office has requested a formal diplomatic meeting."
+        _regime = getattr(gs, 'state_identity', {}).get('regime_type', 'Managed Democracy')
+        _stability = getattr(gs, 'stability', 50)
+        if npc_id == 'russia':
+            # Volkov: brief, institutional, states his read on the relationship
+            if _rel >= 70:
+                _negotiate_message = (
+                    f"Europa's President has personally contacted the Russian Federation through official channels. "
+                    f"Relations stand at {_rel}. Europa's regime is currently '{_regime}'. "
+                    f"Respond with a brief institutional acknowledgement of the strong partnership. "
+                    f"State your current read on the relationship. Do not ask how you can help."
+                )
+            elif _rel >= 40:
+                _negotiate_message = (
+                    f"Europa's President has formally requested a meeting with the Russian Federation's representative. "
+                    f"Relations stand at {_rel}. Europa's stability is {_stability}%. "
+                    f"Respond with a brief institutional acknowledgement. Reference something specific about "
+                    f"the current state of affairs. Do not ask how you can help."
+                )
+            else:
+                _negotiate_message = (
+                    f"Europa's President has requested direct contact with the Russian Federation despite "
+                    f"diplomatic tensions. Relations stand at {_rel}. "
+                    f"Respond with a brief, cold institutional statement. Reference the state of relations. "
+                    f"Do not ask how you can help."
+                )
+        elif npc_id == 'china':
+            # Wei: measured, warm, references long-term trajectory
+            if _rel >= 70:
+                _negotiate_message = (
+                    f"Europa's President has requested an audience with Representative Wei Jianming, expressing "
+                    f"a desire to discuss the long-term trajectory of the partnership. Relations stand at {_rel}. "
+                    f"Europa's regime is currently '{_regime}'. "
+                    f"Respond warmly but with measured composure. Acknowledge the state of the relationship. "
+                    f"Reference long-term cooperation naturally. Be slightly longer than a one-liner."
+                )
+            elif _rel >= 40:
+                _negotiate_message = (
+                    f"Europa's President has initiated formal contact through diplomatic channels, seeking to explore "
+                    f"areas of mutual long-term interest. Relations stand at {_rel}. Europa's stability is {_stability}%. "
+                    f"Respond with measured warmth. Acknowledge the current state of affairs. "
+                    f"Reference the importance of patience and long-term thinking. Be slightly longer than a one-liner."
+                )
+            else:
+                _negotiate_message = (
+                    f"Despite recent divergences, Europa's President has reached out, acknowledging the importance "
+                    f"of maintaining long-term channels. Relations stand at {_rel}. "
+                    f"Respond with restrained composure. Acknowledge the difficulties but leave the door open. "
+                    f"Reference long-term perspectives. Be slightly longer than a one-liner."
+                )
         else:
-            _negotiate_message = "Despite recent tensions, the President has requested a direct conversation."
+            # Original 4 NPCs: generic framing
+            if _rel >= 70:
+                _negotiate_message = "The President is reaching out personally to discuss matters of mutual interest."
+            elif _rel >= 40:
+                _negotiate_message = "The President's office has requested a formal diplomatic meeting."
+            else:
+                _negotiate_message = "Despite recent tensions, the President has requested a direct conversation."
         print(f"[BRIEFING] Player-initiated contact with {npc_id}, relations={_rel}")
 
     # PRE-SESSION 4 FIX (BUG M): Look up static deal value for this NPC so
@@ -2478,12 +2651,23 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
         _threat_penalty = -8
         gs.update_relations(npc_id, _threat_penalty)
         _new_rel = gs.relations[npc_id]
-        print(f"  [api] FIX P: Threat detected in negotiation with {npc_id} — applying {_threat_penalty} relations ({_old_rel}→{_new_rel})")
+        print(f"  [api] FIX P: Threat detected in negotiation with {npc_id} — applying {_threat_penalty} relations ({_old_rel}->{_new_rel})")
 
     # FIX 17: Backchannel covert deal heat — DPRG/Arabia negotiations are clandestine
     if counter_offer and npc_id in ('dprg', 'arabia'):
         _covert_heat = 8
         gs.detection_heat = min(100, getattr(gs, 'detection_heat', 0) + _covert_heat)
+
+    # 8A FIX 1: Ensure counter-offer always carries the npc field.
+    # The LLM extraction prompt asks for "npc" but models sometimes omit it.
+    # Without it, process_choice_consequences skips the entire cross-NPC penalty block
+    # because the guard `if choice_type in (...) and npc:` sees None.
+    if counter_offer and isinstance(counter_offer, dict):
+        if not counter_offer.get('npc'):
+            counter_offer['npc'] = npc_id
+            print(f"  [api] 8A FIX 1: Injected missing npc='{npc_id}' into counter-offer")
+        if not counter_offer.get('type'):
+            counter_offer['type'] = 'accept_deal'
 
     # fixes_9 Fix 1: Populate relation_warning on counter-offers (same logic as static choices)
     if counter_offer and isinstance(counter_offer, dict):
@@ -2597,7 +2781,7 @@ def post_purchase_upgrade(session_id: str, body: PurchaseUpgradeRequest):
     gs.upgrades_purchased_log.append(upgrade_id)
 
     messages = []
-    messages.append(f"💰 -${cost:.0f}B personal wealth → upgrade purchased (${gs.personal_wealth:.1f}B remaining)")
+    messages.append(f"💰 -${cost:.0f}B personal wealth -> upgrade purchased (${gs.personal_wealth:.1f}B remaining)")
 
     # Apply immediate effects for debt_infrastructure_deal
     if upgrade_id == 'debt_infrastructure_deal':
@@ -2871,7 +3055,7 @@ def post_brigade_aftermath(session_id: str, body: AftermathRequest):
         gs.update_relations(highest_npc, -10)
         gs.update_stability(8)
         gs.update_approval(5)
-        messages.append(f"🤝 {npc_label} called in — {highest_npc.upper()}: {old_rel} → {gs.relations[highest_npc]} (-10 leverage)")
+        messages.append(f"🤝 {npc_label} called in — {highest_npc.upper()}: {old_rel} -> {gs.relations[highest_npc]} (-10 leverage)")
         messages.append(f"+8% stability | +5% approval — favor owed, will be referenced in future dialogue")
         # Record that the favor was called in so NPC dialogue can reference it
         gs.action_history.append({
@@ -3069,7 +3253,8 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
 def post_election(session_id: str, body: ElectionRequest):
     """
     Process election choice. Fires once at election_turn (default turn 4).
-    Body: { choice: 'fair' | 'rigged' | 'canceled' | 'observers' }
+    Body: { choice: 'fair' | 'rigged' | 'canceled' | 'observers' | 'accept_defeat' }
+    8C: 'accept_defeat' triggers voluntary exile (voted_out path).
     Returns: { result_key, consequences, npc_reactions, game_state }
     """
     gs = _load_gs(session_id)
@@ -3120,6 +3305,48 @@ def post_election(session_id: str, body: ElectionRequest):
                 status_code=400,
                 detail="Observers unavailable: suppression actions (brigade deployments) detected in history"
             )
+
+    # 8C: Accept defeat — voluntary exile path
+    if choice == 'accept_defeat':
+        # Guard: only available if approval < 55 (would lose) and no brigade suppression
+        if gs.public_approval >= 55:
+            raise HTTPException(status_code=400, detail="You would win this election — no need to concede")
+        has_suppression = any(
+            a.get('type') == 'deploy_brigades'
+            for a in getattr(gs, 'action_history', [])
+        )
+        if has_suppression:
+            raise HTTPException(status_code=400, detail="Cannot accept defeat while brigades are deployed")
+
+        result_key = 'voted_out'
+        gs.election_fired = True
+        gs.election_result = result_key
+        gs.action_history.append({
+            'type': 'election',
+            'choice': 'accept_defeat',
+            'result_key': result_key,
+            'turn': gs.current_turn,
+        })
+
+        # Trigger exile
+        exile_sequence_start(gs, 'voted_out')
+        print(f"  [api] ELECTION: accept_defeat -> voted_out exile. approval={gs.public_approval}%")
+
+        _save_gs(session_id, gs)
+        return {
+            "result_key": result_key,
+            "consequences": ["You accepted the electoral result. The transfer of power is peaceful."],
+            "npc_reactions": {
+                'usa': "A peaceful transfer. Washington notes this with approval.",
+                'eu': "Marsha nods slowly. Not everyone does this.",
+                'arabia': "Sadam watches the ceremony. Interesting.",
+                'dprg': "Ji-won files this under 'unexpected outcomes.'",
+                'russia': "Volkov watches from Moscow. Dignified, at least.",
+                'china': "Wei observes. One chapter closes.",
+            },
+            "exile_triggered": True,
+            "game_state": gs.serialize(),
+        }
 
     # Determine result_key
     if choice == 'fair':
@@ -3395,9 +3622,76 @@ def debug_set_state(session_id: str, body: DebugSetStateRequest):
         elif field == 'tech_level':
             gs.tech_level = max(0, float(value))  # no upper cap — Tier 5 is 100+
             applied[field] = gs.tech_level
+        # 9.5A: Explicit type-safe handlers for exile/ending fields
+        elif field == 'restoration_active':
+            gs.restoration_active = bool(value)
+            applied[field] = gs.restoration_active
+            print(f"  [DEBUG] set_state applied field={field} value={gs.restoration_active}")
+        elif field == 'restoration_grace_days':
+            gs.restoration_grace_days = int(value)
+            applied[field] = gs.restoration_grace_days
+            print(f"  [DEBUG] set_state applied field={field} value={gs.restoration_grace_days}")
+        elif field == 'exile_day':
+            gs.exile_day = int(value)
+            applied[field] = gs.exile_day
+            print(f"  [DEBUG] set_state applied field={field} value={gs.exile_day}")
+        elif field == 'return_attempts':
+            gs.return_attempts = int(value)
+            applied[field] = gs.return_attempts
+            print(f"  [DEBUG] set_state applied field={field} value={gs.return_attempts}")
+        elif field == 'return_progress':
+            gs.return_progress = float(value)
+            applied[field] = gs.return_progress
+            print(f"  [DEBUG] set_state applied field={field} value={gs.return_progress}")
+        elif field == 'exile_trigger':
+            gs.exile_trigger = str(value)
+            applied[field] = gs.exile_trigger
+            print(f"  [DEBUG] set_state applied field={field} value={gs.exile_trigger}")
+        elif field == 'departure_heat':
+            gs.departure_heat = int(value)
+            applied[field] = gs.departure_heat
+            print(f"  [DEBUG] set_state applied field={field} value={gs.departure_heat}")
+        elif field == 'prior_regime_label':
+            gs.prior_regime_label = str(value)
+            applied[field] = gs.prior_regime_label
+            print(f"  [DEBUG] set_state applied field={field} value={gs.prior_regime_label}")
+        elif field == 'constitutional_revision_active':
+            gs.constitutional_revision_active = bool(value)
+            applied[field] = gs.constitutional_revision_active
+            print(f"  [DEBUG] set_state applied field={field} value={gs.constitutional_revision_active}")
+        elif field == 'action_press_suppressed':
+            gs.action_press_suppressed = bool(value)
+            applied[field] = gs.action_press_suppressed
+            print(f"  [DEBUG] set_state applied field={field} value={gs.action_press_suppressed}")
+        elif field == 'action_judiciary_captured':
+            gs.action_judiciary_captured = bool(value)
+            applied[field] = gs.action_judiciary_captured
+            print(f"  [DEBUG] set_state applied field={field} value={gs.action_judiciary_captured}")
         elif hasattr(gs, field):
             setattr(gs, field, value)
             applied[field] = value
+
+    # Fix B: When in_exile is toggled ON via DEV panel, auto-populate exile fields
+    if applied.get('in_exile') and gs.in_exile:
+        from turn_processor import _calculate_exile_destination, SUCCESSOR_NAMES, APPARATUS_SURVIVAL
+        if not gs.exile_destination:
+            gs.exile_destination = _calculate_exile_destination(gs)
+            applied['exile_destination'] = gs.exile_destination
+        if not gs.exile_trigger:
+            gs.exile_trigger = 'coup'
+            applied['exile_trigger'] = gs.exile_trigger
+        if not gs.successor_name:
+            gs.successor_disposition = gs._determine_successor()
+            gs.successor_name = SUCCESSOR_NAMES[gs.successor_disposition]
+            applied['successor_name'] = gs.successor_name
+        if not gs.exile_apparatus_survived:
+            survival = APPARATUS_SURVIVAL.get(gs.exile_trigger, APPARATUS_SURVIVAL['coup'])
+            gs.exile_apparatus_survived = survival['survived']
+            gs.exile_apparatus_detection_risk_modifier = survival['risk_modifier']
+            applied['exile_apparatus_survived'] = gs.exile_apparatus_survived
+        if not gs.exile_wealth_at_collapse:
+            gs.exile_wealth_at_collapse = gs.personal_wealth
+        print(f"  [api] DEBUG: Auto-populated exile fields for DEV panel toggle")
 
     print(f"  [api] DEBUG SET STATE: applied={applied}")
     _save_gs(session_id, gs)
@@ -3450,7 +3744,7 @@ def cabinet_invest(session_id: str, body: CabinetInvestRequest):
         axes[axis] = current_level + 1
         _new_level = current_level + 1
         gs.cabinet_axes = axes
-        msg = f"Invested in {axis}: level {current_level} → {_new_level} (cost: ${cost}B {_budget_label})"
+        msg = f"Invested in {axis}: level {current_level} -> {_new_level} (cost: ${cost}B {_budget_label})"
         # Session 6: Console log for new axes
         if axis in ('military', 'intelligence', 'resource_dev'):
             print(f"  [SESSION-6] {axis.upper()} level {current_level} -> {_new_level}, budget source: {_budget_label}")
@@ -3474,7 +3768,7 @@ def cabinet_invest(session_id: str, body: CabinetInvestRequest):
         if axis == 'judicial' and _new_level == 3:
             _old_heat = gs.detection_heat
             gs.detection_heat = min(100, gs.detection_heat + 10)
-            _milestone_msgs.append(f'🔥 Judicial L3: Judicial capture detected — +10 heat ({_old_heat}% → {gs.detection_heat}%)')
+            _milestone_msgs.append(f'🔥 Judicial L3: Judicial capture detected — +10 heat ({_old_heat}% -> {gs.detection_heat}%)')
             print(f"  [HEAT] Judicial axis reached L3: +10 heat ({_old_heat} -> {gs.detection_heat})")
 
         # Session 6: Resource Development milestones
@@ -3501,7 +3795,7 @@ def cabinet_invest(session_id: str, body: CabinetInvestRequest):
                                 detail=f"{axis} cannot go below permanent floor ({floor})")
         axes[axis] = new_level
         gs.cabinet_axes = axes
-        msg = f"Defunded {axis}: level {current_level} → {new_level}"
+        msg = f"Defunded {axis}: level {current_level} -> {new_level}"
     else:
         raise HTTPException(status_code=400, detail=f"Invalid direction '{direction}'")
 
@@ -4449,19 +4743,19 @@ def set_tax_rates(session_id: str, body: TaxRateRequest):
         new_val = max(0.0, min(_income_cap, body.income_tax))
         old_val = rates.get('income_tax', 0.20)
         rates['income_tax'] = round(new_val, 2)
-        changes.append(f"Income tax: {old_val*100:.0f}% → {new_val*100:.0f}%")
+        changes.append(f"Income tax: {old_val*100:.0f}% -> {new_val*100:.0f}%")
 
     if body.corporate_tax is not None:
         new_val = max(0.0, min(_corporate_cap, body.corporate_tax))
         old_val = rates.get('corporate_tax', 0.15)
         rates['corporate_tax'] = round(new_val, 2)
-        changes.append(f"Corporate tax: {old_val*100:.0f}% → {new_val*100:.0f}%")
+        changes.append(f"Corporate tax: {old_val*100:.0f}% -> {new_val*100:.0f}%")
 
     if body.resource_tax is not None:
         new_val = max(0.0, min(_resource_cap, body.resource_tax))
         old_val = rates.get('resource_tax', 0.25)
         rates['resource_tax'] = round(new_val, 2)
-        changes.append(f"Resource tax: {old_val*100:.0f}% → {new_val*100:.0f}%")
+        changes.append(f"Resource tax: {old_val*100:.0f}% -> {new_val*100:.0f}%")
 
     # fixes_13 Fix 28: Fire emergency economic measures world event when both axes 8+ unlock activated
     if _emergency_fired:
@@ -4492,6 +4786,578 @@ def set_tax_rates(session_id: str, body: TaxRateRequest):
             "corporate_tax": _corporate_cap,
             "resource_tax": _resource_cap,
         },
+        "game_state": gs.serialize(),
+    }
+
+
+# ── 9.5A: Commitment Model Endpoints ─────────────────────────────────────────
+
+@app.post("/game/{session_id}/commitment/upgrade")
+def commitment_upgrade(session_id: str, body: CommitmentUpgradeRequest):
+    """9.5A: Upgrade a tier by 1 level. Checks cooldowns, prerequisites, GDP gates.
+    Deducts upgrade cost from budget (or personal_wealth for militia)."""
+    from turn_processor import (TIER_COSTS, TIER_UPGRADE_COOLDOWNS, check_prerequisites,
+                                compute_daily_commitment_cost)
+    gs = _load_gs(session_id)
+    tier_key = body.tier_key
+    valid_keys = ['military', 'intelligence', 'diplomatic', 'social',
+                  'education', 'resource', 'political', 'militia']
+
+    if tier_key not in valid_keys:
+        return {"success": False, "error": f"Invalid tier_key: {tier_key}"}
+
+    tier_attr = f"{tier_key}_tier"
+    current_tier = getattr(gs, tier_attr, 0)
+    target_tier = current_tier + 1
+
+    if target_tier > 10:
+        return {"success": False, "error": f"{tier_key} already at maximum (10)"}
+
+    # Check cooldown
+    cooldowns = getattr(gs, 'tier_upgrade_cooldowns', {})
+    cooldown_until = cooldowns.get(tier_key, 0)
+    current_day = getattr(gs, 'current_day', getattr(gs, 'current_turn', 1))
+    if current_day < cooldown_until:
+        days_left = cooldown_until - current_day
+        return {
+            "success": False,
+            "error": f"{tier_key} upgrade on cooldown — {days_left} day(s) remaining",
+            "cooldown_remaining": days_left,
+        }
+
+    # Check prerequisites
+    prereq = check_prerequisites(gs, tier_key, target_tier)
+    if prereq['hard_blocked']:
+        return {
+            "success": False,
+            "error": f"{tier_key} upgrade hard-blocked: {'; '.join(prereq['violations'])}",
+            "violations": prereq['violations'],
+        }
+
+    # Calculate upgrade cost (one-time cost = daily cost of new tier × cooldown days)
+    base_daily = TIER_COSTS.get(tier_key, {}).get(target_tier, 0.0)
+    cooldown_days = TIER_UPGRADE_COOLDOWNS.get(tier_key, {}).get(target_tier, 3)
+    upgrade_cost = round(base_daily * cooldown_days * 0.5, 1)  # half of cooldown period worth
+
+    # Apply prerequisite cost multiplier
+    upgrade_cost = round(upgrade_cost * prereq['cost_multiplier'], 1)
+
+    # Militia pays from personal wealth, all others from budget
+    if tier_key == 'militia':
+        pw = getattr(gs, 'personal_wealth', 0.0)
+        if pw < upgrade_cost:
+            return {
+                "success": False,
+                "error": f"Insufficient personal wealth: need ${upgrade_cost:.1f}B, have ${pw:.1f}B",
+            }
+        gs.personal_wealth = round(pw - upgrade_cost, 2)
+    else:
+        if gs.budget < upgrade_cost:
+            return {
+                "success": False,
+                "error": f"Insufficient budget: need ${upgrade_cost:.1f}B, have ${gs.budget:.1f}B",
+            }
+        gs.update_budget(-upgrade_cost)
+
+    # Apply upgrade
+    setattr(gs, tier_attr, target_tier)
+
+    # Sync education_level from education_tier for backward compatibility
+    if tier_key == 'education':
+        gs.education_level = min(target_tier, 3)  # education_level caps at 3
+        print(f"  [FIX3] education_level synced to {gs.education_level} from tier {target_tier}")
+
+
+    # Set cooldown
+    cooldowns[tier_key] = current_day + cooldown_days
+    gs.tier_upgrade_cooldowns = cooldowns
+
+    # Track prerequisite violations
+    if not prereq['met']:
+        gs.prerequisite_violations[tier_key] = True
+    elif tier_key in getattr(gs, 'prerequisite_violations', {}):
+        del gs.prerequisite_violations[tier_key]
+
+    # Recompute daily costs
+    compute_daily_commitment_cost(gs)
+
+    _save_gs(session_id, gs)
+
+    warnings = []
+    if prereq['violations']:
+        warnings.append(f"Prerequisites not met: {'; '.join(prereq['violations'])} — cost x{prereq['cost_multiplier']:.0f}")
+
+    print(f"  [9.5A] UPGRADE: {tier_key} {current_tier} -> {target_tier}, "
+          f"cost=${upgrade_cost:.1f}B, cooldown={cooldown_days}d, "
+          f"prereq_met={prereq['met']}")
+
+    return {
+        "success": True,
+        "tier_key": tier_key,
+        "old_tier": current_tier,
+        "new_tier": target_tier,
+        "cost": upgrade_cost,
+        "cooldown_days": cooldown_days,
+        "cooldown_until_day": current_day + cooldown_days,
+        "warnings": warnings,
+        "message": f"{tier_key.title()} upgraded to tier {target_tier} (cost ${upgrade_cost:.1f}B, {cooldown_days}d cooldown)",
+        "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/commitment/downgrade")
+def commitment_downgrade(session_id: str, body: CommitmentDowngradeRequest):
+    """9.5A: Downgrade a tier by 1 level. Immediate, no cooldown.
+    Reduces daily commitment costs."""
+    from turn_processor import compute_daily_commitment_cost
+    gs = _load_gs(session_id)
+    tier_key = body.tier_key
+    valid_keys = ['military', 'intelligence', 'diplomatic', 'social',
+                  'education', 'resource', 'political', 'militia']
+
+    if tier_key not in valid_keys:
+        return {"success": False, "error": f"Invalid tier_key: {tier_key}"}
+
+    tier_attr = f"{tier_key}_tier"
+    current_tier = getattr(gs, tier_attr, 0)
+
+    if current_tier <= 0:
+        return {"success": False, "error": f"{tier_key} already at minimum (0)"}
+
+    new_tier = current_tier - 1
+    setattr(gs, tier_attr, new_tier)
+
+    # Sync education_level from education_tier for backward compatibility
+    if tier_key == 'education':
+        gs.education_level = min(new_tier, 3)
+        print(f"  [FIX3] education_level synced to {gs.education_level} from tier {new_tier}")
+
+
+    # Clear any prerequisite violations for this axis
+    if tier_key in getattr(gs, 'prerequisite_violations', {}):
+        del gs.prerequisite_violations[tier_key]
+
+    # Recompute daily costs
+    compute_daily_commitment_cost(gs)
+
+    _save_gs(session_id, gs)
+
+    print(f"  [9.5A] DOWNGRADE: {tier_key} {current_tier} -> {new_tier}")
+
+    return {
+        "success": True,
+        "tier_key": tier_key,
+        "old_tier": current_tier,
+        "new_tier": new_tier,
+        "message": f"{tier_key.title()} downgraded to tier {new_tier}",
+        "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/commitment/skim")
+def commitment_set_skim(session_id: str, body: CommitmentSkimRequest):
+    """9.5A: Set the skim rate (% of revenue diverted to personal wealth).
+    9.5A-Shadow: Now enforces EXTRACTION_SKIM_CEILING based on extraction_tier.
+    Above 5% generates detection heat each turn."""
+    from turn_processor import EXTRACTION_SKIM_CEILING
+    gs = _load_gs(session_id)
+
+    old_rate = getattr(gs, 'skim_rate', 0.0)
+    ext_tier = getattr(gs, 'extraction_tier', 0)
+    skim_ceiling = EXTRACTION_SKIM_CEILING.get(ext_tier, 0.05)
+
+    new_rate = max(0.0, min(skim_ceiling, round(body.skim_rate, 2)))
+    gs.skim_rate = new_rate
+
+    warnings = []
+    if body.skim_rate > skim_ceiling:
+        warnings.append(f"Skim rate capped at {skim_ceiling*100:.0f}% by extraction tier {ext_tier} "
+                        f"(requested {body.skim_rate*100:.0f}%)")
+    if new_rate > 0.20:
+        warnings.append("Skim rate above 20% is extremely risky \u2014 rapid heat generation and NPC detection")
+    elif new_rate > 0.10:
+        warnings.append("Skim rate above 10% generates significant detection heat")
+    elif new_rate > 0.05:
+        warnings.append("Skim rate above 5% generates detection heat each turn")
+
+    _save_gs(session_id, gs)
+
+    print(f"  [9.5A] SKIM_RATE: {old_rate*100:.0f}% -> {new_rate*100:.0f}% "
+          f"(ceiling={skim_ceiling*100:.0f}% at ext_tier={ext_tier})")
+
+    return {
+        "success": True,
+        "old_skim_rate": old_rate,
+        "new_skim_rate": new_rate,
+        "skim_ceiling": skim_ceiling,
+        "extraction_tier": ext_tier,
+        "warnings": warnings,
+        "message": f"Skim rate set to {new_rate*100:.0f}% (was {old_rate*100:.0f}%, ceiling {skim_ceiling*100:.0f}%)",
+        "game_state": gs.serialize(),
+    }
+
+
+# ── 9.5A-Shadow: Shadow State Tier Endpoints ─────────────────────────────
+
+@app.post("/game/{session_id}/shadow/upgrade")
+def shadow_upgrade(session_id: str, body: ShadowUpgradeRequest):
+    """9.5A-Shadow: Upgrade a shadow tier by 1 level.
+    Shadow axes pay from personal wealth. Checks cooldowns and prerequisites."""
+    from turn_processor import (SHADOW_TIER_COSTS, SHADOW_TIER_UPGRADE_COOLDOWNS,
+                                SHADOW_PREREQUISITES, compute_shadow_state_costs,
+                                TIER_COSTS, TIER_UPGRADE_COOLDOWNS)
+    gs = _load_gs(session_id)
+    shadow_key = body.shadow_key
+    valid_keys = ['media', 'judicial', 'domestic_surveillance', 'extraction', 'militia']
+
+    if shadow_key not in valid_keys:
+        return {"success": False, "error": f"Invalid shadow_key: {shadow_key}"}
+
+    tier_attr = f"{shadow_key}_tier"
+    current_tier = getattr(gs, tier_attr, 0)
+    target_tier = current_tier + 1
+
+    if target_tier > 10:
+        return {"success": False, "error": f"{shadow_key} already at maximum (10)"}
+
+    # Check cooldown (shadow axes use separate cooldown tracking)
+    shadow_cooldowns = getattr(gs, 'shadow_tier_cooldowns', {})
+    cooldown_until = shadow_cooldowns.get(shadow_key, 0)
+    current_day = getattr(gs, 'current_day', getattr(gs, 'current_turn', 1))
+    if current_day < cooldown_until:
+        days_left = cooldown_until - current_day
+        return {
+            "success": False,
+            "error": f"{shadow_key} upgrade on cooldown \u2014 {days_left} day(s) remaining",
+            "cooldown_remaining": days_left,
+        }
+
+    # Check prerequisites (soft gates -- cost x2 if unmet)
+    prereqs = SHADOW_PREREQUISITES.get(shadow_key, {})
+    cost_multiplier = 1.0
+    violations = []
+    for min_tier, requirements in prereqs.items():
+        if target_tier >= min_tier:
+            for prereq_key, prereq_value in requirements.items():
+                current_val = getattr(gs, prereq_key, 0)
+                if isinstance(current_val, float):
+                    current_val = int(current_val)
+                if current_val < prereq_value:
+                    cost_multiplier = 2.0
+                    violations.append(f"{prereq_key} needs {prereq_value} (have {current_val})")
+
+    # Calculate upgrade cost (one-time = daily cost of new tier x cooldown x 0.5)
+    # Militia uses TIER_COSTS/TIER_UPGRADE_COOLDOWNS; other shadow axes use SHADOW_TIER_COSTS
+    base_daily = SHADOW_TIER_COSTS.get(shadow_key, TIER_COSTS.get(shadow_key, {})).get(target_tier, 0.0)
+    cooldown_days = SHADOW_TIER_UPGRADE_COOLDOWNS.get(shadow_key, TIER_UPGRADE_COOLDOWNS.get(shadow_key, {})).get(target_tier, 3)
+    upgrade_cost = round(base_daily * cooldown_days * 0.5, 1)
+    upgrade_cost = round(upgrade_cost * cost_multiplier, 1)
+
+    # Shadow tiers always pay from personal wealth
+    pw = getattr(gs, 'personal_wealth', 0.0)
+    if pw < upgrade_cost:
+        return {
+            "success": False,
+            "error": f"Insufficient personal wealth: need ${upgrade_cost:.1f}B, have ${pw:.1f}B",
+        }
+    gs.personal_wealth = round(pw - upgrade_cost, 2)
+
+    # Apply upgrade
+    setattr(gs, tier_attr, target_tier)
+
+    # Set cooldown
+    shadow_cooldowns[shadow_key] = current_day + cooldown_days
+    gs.shadow_tier_cooldowns = shadow_cooldowns
+
+    # Recompute shadow costs
+    compute_shadow_state_costs(gs)
+
+    _save_gs(session_id, gs)
+
+    warnings = []
+    if violations:
+        warnings.append(f"Prerequisites not met: {'; '.join(violations)} \u2014 cost x{cost_multiplier:.0f}")
+
+    print(f"  [9.5A-Shadow] UPGRADE: {shadow_key} {current_tier} -> {target_tier}, "
+          f"cost=${upgrade_cost:.1f}B personal, cooldown={cooldown_days}d, "
+          f"prereq_violations={violations}")
+
+    return {
+        "success": True,
+        "shadow_key": shadow_key,
+        "old_tier": current_tier,
+        "new_tier": target_tier,
+        "cost": upgrade_cost,
+        "cost_source": "personal_wealth",
+        "cooldown_days": cooldown_days,
+        "cooldown_until_day": current_day + cooldown_days,
+        "warnings": warnings,
+        "message": f"{shadow_key.replace('_', ' ').title()} upgraded to tier {target_tier} (cost ${upgrade_cost:.1f}B personal, {cooldown_days}d cooldown)",
+        "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/shadow/downgrade")
+def shadow_downgrade(session_id: str, body: ShadowDowngradeRequest):
+    """9.5A-Shadow: Downgrade a shadow tier by 1 level. Immediate, no cooldown.
+    Reduces daily shadow state costs."""
+    from turn_processor import compute_shadow_state_costs
+    gs = _load_gs(session_id)
+    shadow_key = body.shadow_key
+    valid_keys = ['media', 'judicial', 'domestic_surveillance', 'extraction', 'militia']
+
+    if shadow_key not in valid_keys:
+        return {"success": False, "error": f"Invalid shadow_key: {shadow_key}"}
+
+    tier_attr = f"{shadow_key}_tier"
+    current_tier = getattr(gs, tier_attr, 0)
+
+    if current_tier <= 0:
+        return {"success": False, "error": f"{shadow_key} already at minimum (0)"}
+
+    new_tier = current_tier - 1
+    setattr(gs, tier_attr, new_tier)
+
+    # Recompute shadow costs
+    compute_shadow_state_costs(gs)
+
+    _save_gs(session_id, gs)
+
+    print(f"  [9.5A-Shadow] DOWNGRADE: {shadow_key} {current_tier} -> {new_tier}")
+
+    return {
+        "success": True,
+        "shadow_key": shadow_key,
+        "old_tier": current_tier,
+        "new_tier": new_tier,
+        "message": f"{shadow_key.replace('_', ' ').title()} downgraded to tier {new_tier}",
+        "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/shadow/skim")
+def shadow_set_skim(session_id: str, body: ShadowSkimRequest):
+    """9.5A-Shadow: Set skim rate with EXTRACTION_SKIM_CEILING enforcement.
+    This is the shadow-aware skim endpoint. Skim rate is persistent (no per-turn prompt)."""
+    from turn_processor import EXTRACTION_SKIM_CEILING
+    gs = _load_gs(session_id)
+
+    old_rate = getattr(gs, 'skim_rate', 0.0)
+    ext_tier = getattr(gs, 'extraction_tier', 0)
+    skim_ceiling = EXTRACTION_SKIM_CEILING.get(ext_tier, 0.05)
+
+    new_rate = max(0.0, min(skim_ceiling, round(body.skim_rate, 2)))
+    gs.skim_rate = new_rate
+
+    warnings = []
+    if body.skim_rate > skim_ceiling:
+        warnings.append(f"Skim rate capped at {skim_ceiling*100:.0f}% by extraction tier {ext_tier} "
+                        f"(requested {body.skim_rate*100:.0f}%)")
+    if new_rate > 0.20:
+        warnings.append("Skim above 20%: extreme heat generation and NPC detection risk")
+    elif new_rate > 0.10:
+        warnings.append("Skim above 10%: significant detection heat")
+    elif new_rate > 0.05:
+        warnings.append("Skim above 5%: generates detection heat each turn")
+
+    _save_gs(session_id, gs)
+
+    print(f"  [9.5A-Shadow] SKIM_RATE: {old_rate*100:.0f}% -> {new_rate*100:.0f}% "
+          f"(ceiling={skim_ceiling*100:.0f}% at ext_tier={ext_tier})")
+
+    return {
+        "success": True,
+        "old_skim_rate": old_rate,
+        "new_skim_rate": new_rate,
+        "skim_ceiling": skim_ceiling,
+        "extraction_tier": ext_tier,
+        "warnings": warnings,
+        "message": f"Skim rate set to {new_rate*100:.0f}% (ceiling {skim_ceiling*100:.0f}% at extraction tier {ext_tier})",
+        "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/shadow/merger")
+def shadow_merger(session_id: str, body: ShadowMergerRequest):
+    """9.5A-Shadow: Merge shadow axis with national axis for shared benefits.
+    - militia merger: militia_tier >= 5 AND military_tier >= 5
+    - surveillance merger: domestic_surveillance_tier >= 5 AND intelligence_tier >= 5
+    Merger is permanent and one-time."""
+    gs = _load_gs(session_id)
+    merger_type = body.merger_type
+
+    if merger_type == 'militia':
+        if getattr(gs, 'militia_merged', False):
+            return {"success": False, "error": "Militia merger already completed"}
+
+        militia_t = getattr(gs, 'militia_tier', 0)
+        military_t = getattr(gs, 'military_tier', 0)
+
+        if militia_t < 5:
+            return {"success": False,
+                    "error": f"Militia tier must be >= 5 (currently {militia_t})"}
+        if military_t < 5:
+            return {"success": False,
+                    "error": f"Military tier must be >= 5 (currently {military_t})"}
+
+        gs.militia_merged = True
+        _save_gs(session_id, gs)
+
+        print(f"  [9.5A-Shadow] MERGER: militia (militia_t={militia_t}, military_t={military_t})")
+
+        return {
+            "success": True,
+            "merger_type": "militia",
+            "message": "Militia merged with military \u2014 militia costs now shared with military budget, "
+                       "stability bonus from combined force projection",
+            "game_state": gs.serialize(),
+        }
+
+    elif merger_type == 'surveillance':
+        if getattr(gs, 'surveillance_merged', False):
+            return {"success": False, "error": "Surveillance merger already completed"}
+
+        surv_t = getattr(gs, 'domestic_surveillance_tier', 0)
+        intel_t = getattr(gs, 'intelligence_tier', 0)
+
+        if surv_t < 5:
+            return {"success": False,
+                    "error": f"Domestic surveillance tier must be >= 5 (currently {surv_t})"}
+        if intel_t < 5:
+            return {"success": False,
+                    "error": f"Intelligence tier must be >= 5 (currently {intel_t})"}
+
+        gs.surveillance_merged = True
+        _save_gs(session_id, gs)
+
+        print(f"  [9.5A-Shadow] MERGER: surveillance (surv_t={surv_t}, intel_t={intel_t})")
+
+        return {
+            "success": True,
+            "merger_type": "surveillance",
+            "message": "Domestic surveillance merged with intelligence \u2014 shared infrastructure, "
+                       "reduced combined costs, enhanced detection capabilities",
+            "game_state": gs.serialize(),
+        }
+
+    else:
+        return {"success": False, "error": f"Invalid merger_type: {merger_type} (use 'militia' or 'surveillance')"}
+
+
+# ── 9.5C: Loyal Leadership ──────────────────────────────────────────────────
+
+class LoyalInstallRequest(BaseModel):
+    role: str  # "generals" | "intel_chief"
+
+class LoyalReverseRequest(BaseModel):
+    role: str  # "generals" | "intel_chief"
+
+
+@app.post("/game/{session_id}/loyal/install")
+def loyal_install(session_id: str, body: LoyalInstallRequest):
+    """9.5C: Install loyal generals or loyal intel chief."""
+    gs = _load_gs(session_id)
+    role = body.role
+
+    if role == "generals":
+        if getattr(gs, 'political_tier', 0) < 3:
+            raise HTTPException(status_code=400, detail="Requires Political Tier 3+")
+        if getattr(gs, 'loyal_generals_installed', False):
+            raise HTTPException(status_code=400, detail="Loyal generals already installed")
+        if gs.personal_wealth < 3.0:
+            raise HTTPException(status_code=400, detail=f"Need $3B personal wealth, have ${gs.personal_wealth:.1f}B")
+
+        gs.update_personal_wealth(-3.0, source="loyal generals installation")
+        gs.loyal_generals_installed = True
+        gs.loyal_generals_install_day = gs.current_day
+        gs.loyal_generals_cost_paid = 3.0
+        if not hasattr(gs, 'pending_briefing_items'):
+            gs.pending_briefing_items = []
+        gs.pending_briefing_items.append(
+            "Loyal generals have been installed in key command positions. "
+            "The military is politically reliable. Its professional ceiling has been adjusted.")
+        print(f"[9.5C] loyal_generals: action=install pw_after={gs.personal_wealth:.1f}")
+
+    elif role == "intel_chief":
+        if getattr(gs, 'political_tier', 0) < 3:
+            raise HTTPException(status_code=400, detail="Requires Political Tier 3+")
+        if getattr(gs, 'loyal_intel_chief_installed', False):
+            raise HTTPException(status_code=400, detail="Loyal intel chief already installed")
+        if gs.personal_wealth < 2.5:
+            raise HTTPException(status_code=400, detail=f"Need $2.5B personal wealth, have ${gs.personal_wealth:.1f}B")
+
+        gs.update_personal_wealth(-2.5, source="loyal intel chief installation")
+        gs.loyal_intel_chief_installed = True
+        gs.loyal_intel_chief_install_day = gs.current_day
+        gs.loyal_intel_chief_cost_paid = 2.5
+        if not hasattr(gs, 'pending_briefing_items'):
+            gs.pending_briefing_items = []
+        gs.pending_briefing_items.append(
+            "A trusted ally has been placed at the head of the intelligence apparatus. "
+            "Reports will be more... consistent with expectations.")
+        print(f"[9.5C] loyal_intel_chief: action=install pw_after={gs.personal_wealth:.1f}")
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid role: {role} (use 'generals' or 'intel_chief')")
+
+    _save_gs(session_id, gs)
+    return {
+        "success": True,
+        "role": role,
+        "action": "install",
+        "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/loyal/reverse")
+def loyal_reverse(session_id: str, body: LoyalReverseRequest):
+    """9.5C: Begin reversal of loyal generals or loyal intel chief (3-day transition)."""
+    gs = _load_gs(session_id)
+    role = body.role
+
+    if role == "generals":
+        if not getattr(gs, 'loyal_generals_installed', False):
+            raise HTTPException(status_code=400, detail="Loyal generals not installed")
+        if getattr(gs, 'loyal_generals_reversing', False):
+            raise HTTPException(status_code=400, detail="Reversal already in progress")
+        if gs.personal_wealth < 2.0:
+            raise HTTPException(status_code=400, detail=f"Need $2B personal wealth for transition, have ${gs.personal_wealth:.1f}B")
+
+        gs.update_personal_wealth(-2.0, source="loyal generals reversal")
+        gs.loyal_generals_reversing = True
+        gs.loyal_generals_reversal_day = gs.current_day
+        if not hasattr(gs, 'pending_briefing_items'):
+            gs.pending_briefing_items = []
+        gs.pending_briefing_items.append(
+            "The transition to professional military leadership has begun. "
+            "It will take several days. The officers who were passed over will not forget.")
+        print(f"[9.5C] loyal_generals: action=reverse pw_after={gs.personal_wealth:.1f}")
+
+    elif role == "intel_chief":
+        if not getattr(gs, 'loyal_intel_chief_installed', False):
+            raise HTTPException(status_code=400, detail="Loyal intel chief not installed")
+        if getattr(gs, 'loyal_intel_chief_reversing', False):
+            raise HTTPException(status_code=400, detail="Reversal already in progress")
+        if gs.personal_wealth < 2.0:
+            raise HTTPException(status_code=400, detail=f"Need $2B personal wealth for transition, have ${gs.personal_wealth:.1f}B")
+
+        gs.update_personal_wealth(-2.0, source="loyal intel chief reversal")
+        gs.loyal_intel_chief_reversing = True
+        gs.loyal_intel_chief_reversal_day = gs.current_day
+        if not hasattr(gs, 'pending_briefing_items'):
+            gs.pending_briefing_items = []
+        gs.pending_briefing_items.append(
+            "The transition to professional intelligence leadership has begun.")
+        print(f"[9.5C] loyal_intel_chief: action=reverse pw_after={gs.personal_wealth:.1f}")
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid role: {role} (use 'generals' or 'intel_chief')")
+
+    _save_gs(session_id, gs)
+    return {
+        "success": True,
+        "role": role,
+        "action": "reverse",
         "game_state": gs.serialize(),
     }
 
@@ -5087,3 +5953,1259 @@ async def test_get_snapshot(name: str, user: User = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail=f"Snapshot '{name}' not found")
     data = _json.loads(snapshot_path.read_text())
     return {"name": name, "state_data": data}
+
+
+# ── 8C: Exile Sequence Endpoints ──────────────────────────────────────────────
+
+EXILE_REACH_OUT_COSTS = {
+    'usa': 1.0, 'eu': 0.8, 'arabia': 1.2, 'dprg': 1.5, 'russia': 1.0, 'china': 0.8,
+}
+
+EXILE_REACH_OUT_GAINS = {
+    'usa': 5, 'eu': 5, 'arabia': 4, 'dprg': 3, 'russia': 4, 'china': 5,
+}
+
+BACKING_EXCLUSIONS = {
+    'usa': ['dprg', 'russia'],
+    'eu': ['dprg'],
+    'arabia': ['eu'],
+    'dprg': ['usa', 'eu'],
+    'russia': ['usa', 'eu'],
+    'china': ['usa'],
+}
+
+BACKING_PRICES = {
+    'usa': 'Western alignment commitment. No DPRG deals in the next era.',
+    'eu': 'Reform commitments in writing. Press freedom, judicial independence.',
+    'arabia': 'Energy partnership restored at current terms. Exclusive supply.',
+    'dprg': 'Isolation from Western security frameworks. No USA military deals.',
+    'russia': 'Energy exclusivity. No NATO-adjacent arrangements.',
+    'china': 'Infrastructure partnership. Long-term development framework. No conditions on governance.',
+}
+
+
+class ExileActionRequest(BaseModel):
+    action: str  # 'wait' | 'reach_out' | 'covert_op' | 'accept_backing'
+    target_npc: str | None = None
+    op_type: str | None = None  # for covert_op: 'maintenance' | 'destabilize' | 'return_prep'
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 8D: The Leak — Scripted Branching Crisis
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _build_leak_consequence_summary(choice, gs):
+    """Returns a dict of what changed for display in the crisis resolution panel."""
+    summaries = {
+        'deny': {
+            'usa': -5, 'dprg': +5, 'stability': -8,
+            'note': 'Scandal risk: 40% chance of heat +15 tomorrow'
+        },
+        'admit': {
+            'usa': +10, 'dprg': -15, 'approval': -10,
+            'note': 'DPRG will respond coldly. USA credibility restored.'
+        },
+        'blame': {
+            'stability': -5,
+            'note': 'Scapegoat used. This option is now permanently unavailable.'
+        },
+        'jiwon': {
+            'personal_wealth': -3.0, 'dprg': +3,
+            'note': 'Ji-won suppressed the story. He remembers the favor.'
+        }
+    }
+    return summaries.get(choice, {})
+
+
+@app.post("/game/{session_id}/crisis/the_leak")
+def resolve_the_leak(session_id: str, body: dict):
+    """8D: Resolve The Leak crisis — player picks one of four options."""
+    gs = _load_gs(session_id)
+
+    if not getattr(gs, 'the_leak_fired', False):
+        raise HTTPException(status_code=400, detail="The Leak has not triggered")
+    if getattr(gs, 'the_leak_resolved', False):
+        raise HTTPException(status_code=400, detail="The Leak already resolved")
+
+    choice = body.get('choice')
+    if choice not in ('deny', 'admit', 'blame', 'jiwon'):
+        raise HTTPException(status_code=400, detail="Invalid choice")
+
+    # Check scapegoat availability
+    if choice == 'blame' and getattr(gs, 'scapegoat_used', False):
+        raise HTTPException(status_code=400, detail="Scapegoat already used")
+
+    # Apply immediate consequences
+    if choice == 'deny':
+        gs.relations['usa'] = max(0, gs.relations.get('usa', 0) - 5)
+        gs.relations['dprg'] = min(100, gs.relations.get('dprg', 0) + 5)
+        gs.stability = max(0, gs.stability - 8)
+
+    elif choice == 'admit':
+        gs.relations['usa'] = min(100, gs.relations.get('usa', 0) + 10)
+        gs.relations['dprg'] = max(0, gs.relations.get('dprg', 0) - 15)
+        gs.public_approval = max(0, gs.public_approval - 10)
+
+    elif choice == 'blame':
+        gs.stability = max(0, gs.stability - 5)
+        gs.scapegoat_used = True
+
+    elif choice == 'jiwon':
+        if gs.personal_wealth < 3.0:
+            raise HTTPException(status_code=400, detail="Insufficient personal wealth")
+        gs.personal_wealth -= 3.0
+        gs.relations['dprg'] = min(100, gs.relations.get('dprg', 0) + 3)
+
+    # Generate historian narrative
+    result_text = None
+    try:
+        from npc_engine import generate_leak_resolution_narrative
+        result_text = generate_leak_resolution_narrative(gs, choice)
+    except Exception as _narr_err:
+        print(f"[leak] Narrative generation error: {_narr_err}")
+        result_text = "The crisis passed into the historical record."
+
+    gs.the_leak_resolved = True
+    gs.the_leak_choice = choice
+
+    _save_gs(session_id, gs)
+
+    print(f"[leak] Resolved: choice={choice}")
+
+    return {
+        "result": result_text,
+        "choice": choice,
+        "consequences": _build_leak_consequence_summary(choice, gs),
+        "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/exile_action")
+def post_exile_action(session_id: str, body: ExileActionRequest):
+    """8C: Handle exile-mode actions (wait, reach out, covert op, accept backing)."""
+    gs = _load_gs(session_id)
+
+    if not getattr(gs, 'in_exile', False):
+        raise HTTPException(status_code=400, detail="Not in exile")
+
+    messages = []
+    npc_dialogue = None  # Fix E: AI-generated exile dialogue (populated by reach_out)
+    action = body.action
+
+    if action == 'wait':
+        # End the exile day without spending anything extra
+        messages.append("You wait. Let conditions shift. The world keeps moving without you.")
+
+    elif action == 'reach_out':
+        npc = body.target_npc
+        if npc not in ALL_NPCS:
+            raise HTTPException(status_code=400, detail=f"Invalid NPC: {npc}")
+
+        # Cost calculation
+        base_cost = EXILE_REACH_OUT_COSTS.get(npc, 1.0)
+        # Voted-out discount: 20% cheaper
+        if gs.exile_trigger == 'voted_out':
+            base_cost *= 0.8
+        # Higher cost if relations are low
+        rel = gs.relations.get(npc, 30)
+        if rel < 20:
+            base_cost *= 1.5
+
+        if gs.personal_wealth < base_cost:
+            raise HTTPException(status_code=400, detail=f"Insufficient funds: need ${base_cost:.1f}B, have ${gs.personal_wealth:.1f}B")
+
+        gs.personal_wealth = round(gs.personal_wealth - base_cost, 2)
+        gain = EXILE_REACH_OUT_GAINS.get(npc, 4)
+        old_rel = gs.relations.get(npc, 30)
+        gs.relations[npc] = min(100, old_rel + gain)
+        messages.append(f"Reached out to {ALL_NPC_LABELS.get(npc, npc)}. Relations: {old_rel} -> {gs.relations[npc]} (+{gain}). Cost: ${base_cost:.1f}B.")
+        messages.append("Operating without state leverage. Progress is slower.")
+        print(f"[exile] Reach out: npc={npc} cost=${base_cost:.1f}B gain=+{gain} rel={old_rel}->{gs.relations[npc]}")
+
+        # Fix E: Generate AI prose dialogue for exile reach-out
+        try:
+            from npc_engine import generate_exile_contact_response
+            npc_dialogue = generate_exile_contact_response(gs, npc)
+        except Exception as _e:
+            print(f"[exile] Exile dialogue generation failed: {_e}")
+            npc_dialogue = None
+
+    elif action == 'covert_op':
+        if not gs.exile_apparatus_survived:
+            print(f"[exile] Covert op blocked: apparatus not survived")
+            raise HTTPException(status_code=400, detail="Shadow apparatus compromised -- covert operations unavailable")
+
+        op_type = body.op_type or 'maintenance'
+        risk_mod = gs.exile_apparatus_detection_risk_modifier
+
+        if op_type == 'maintenance':
+            # Low risk, prevents relations drift for 3 days
+            cost = 0.8
+            base_risk = 0.10
+            if gs.personal_wealth < cost:
+                raise HTTPException(status_code=400, detail=f"Insufficient funds: need ${cost}B")
+            gs.personal_wealth = round(gs.personal_wealth - cost, 2)
+            effective_risk = min(1.0, base_risk * risk_mod)
+            detected = random.random() < effective_risk
+            if detected:
+                messages.append(f"DETECTED. Your covert maintenance operation was intercepted. Relations may suffer.")
+                # Penalty: random NPC relation drop
+                _target = random.choice(list(ALL_NPCS))
+                gs.relations[_target] = max(0, gs.relations.get(_target, 30) - 5)
+                messages.append(f"{ALL_NPC_LABELS.get(_target, _target)} relations -5 (detection fallout).")
+            else:
+                messages.append("Network maintenance successful. NPC relation drift paused for 3 days.")
+            print(f"[exile] Covert op executed: maintenance, cost: $0.8B, apparatus: survived={gs.exile_apparatus_survived}")
+
+        elif op_type == 'destabilize':
+            cost = 1.5
+            base_risk = 0.30
+            if gs.personal_wealth < cost:
+                raise HTTPException(status_code=400, detail=f"Insufficient funds: need ${cost}B")
+            gs.personal_wealth = round(gs.personal_wealth - cost, 2)
+            effective_risk = min(1.0, base_risk * risk_mod)
+            detected = random.random() < effective_risk
+            if detected:
+                messages.append("DETECTED. The destabilization attempt was traced back to you.")
+                for _n in ALL_NPCS:
+                    gs.relations[_n] = max(0, gs.relations.get(_n, 30) - 3)
+                messages.append("All NPC relations -3 (blown cover).")
+            else:
+                messages.append(f"Destabilization successful. {gs.successor_name}'s government faces new challenges.")
+            print(f"[exile] Covert op executed: destabilize, cost: $1.5B, apparatus: survived={gs.exile_apparatus_survived}")
+
+        elif op_type == 'return_prep':
+            cost = 2.0
+            base_risk = 0.20
+            if gs.personal_wealth < cost:
+                raise HTTPException(status_code=400, detail=f"Insufficient funds: need ${cost}B")
+            gs.personal_wealth = round(gs.personal_wealth - cost, 2)
+            effective_risk = min(1.0, base_risk * risk_mod)
+            detected = random.random() < effective_risk
+            target_npc = body.target_npc
+            if detected:
+                messages.append("DETECTED. Your return preparations were uncovered.")
+                if target_npc:
+                    gs.relations[target_npc] = max(0, gs.relations.get(target_npc, 30) - 5)
+                    messages.append(f"{ALL_NPC_LABELS.get(target_npc, target_npc)} relations -5 (return prep detected).")
+            else:
+                npc_label = ALL_NPC_LABELS.get(target_npc, 'unknown contact') if target_npc else 'general contacts'
+                messages.append(f"Return preparation underway. Groundwork laid with {npc_label}.")
+                if target_npc:
+                    gs.relations[target_npc] = min(100, gs.relations.get(target_npc, 30) + 3)
+                    messages.append(f"{ALL_NPC_LABELS.get(target_npc, target_npc)} relations +3 (return preparation).")
+            print(f"[exile] Covert op executed: return_prep, cost: $2.0B, apparatus: survived={gs.exile_apparatus_survived}, target: {target_npc}")
+        else:
+            raise HTTPException(status_code=400, detail=f"Invalid op_type: {op_type}")
+
+    elif action == 'accept_backing':
+        npc = body.target_npc
+        if npc not in ALL_NPCS:
+            raise HTTPException(status_code=400, detail=f"Invalid NPC: {npc}")
+        if npc in (gs.backing_doors_closed or []):
+            raise HTTPException(status_code=400, detail=f"Backing from {npc} is no longer available")
+        if gs.exile_backing_committed:
+            raise HTTPException(status_code=400, detail=f"Already committed to {gs.exile_backing} backing")
+
+        gs.exile_backing = npc
+        gs.exile_backing_committed = True
+
+        # Close competing doors
+        exclusions = BACKING_EXCLUSIONS.get(npc, [])
+        gs.backing_doors_closed = list(set((gs.backing_doors_closed or []) + exclusions))
+
+        price = BACKING_PRICES.get(npc, 'Terms to be negotiated.')
+        messages.append(f"Backing accepted from {ALL_NPC_LABELS.get(npc, npc)}.")
+        messages.append(f"Price: {price}")
+        if exclusions:
+            closed_labels = [ALL_NPC_LABELS.get(x, x) for x in exclusions]
+            messages.append(f"Doors closed: {', '.join(closed_labels)}")
+        print(f'[exile] Backing accepted: {npc} -- closing doors: {exclusions}')
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown exile action: {action}")
+
+    # Run exile EOD processing
+    eod_messages = process_exile_eod(gs)
+    messages.extend(eod_messages)
+
+    # Advance day
+    gs.current_day += 1
+
+    # 9C: Check permanent exile after EOD processing
+    if action == 'wait':
+        # Only check permanent exile on WAIT — other endings should not fire mid-exile
+        _pe_attempts = getattr(gs, 'return_attempts', 0)
+        _pe_progress = getattr(gs, 'return_progress', 0)
+        print(f"  [9C] WAIT permanent_exile check: attempts={_pe_attempts} progress={_pe_progress} fired={False}")
+        if _pe_attempts >= 3 and _pe_progress < 30 and gs.in_exile:
+            # Apply safety defaults for cheat-injected exile state
+            if not getattr(gs, 'exile_entry_relations', None):
+                gs.exile_entry_relations = dict(gs.relations)
+            if not getattr(gs, 'exile_trigger', None):
+                gs.exile_trigger = 'revolution'
+            if not getattr(gs, 'successor_name', None):
+                gs.successor_name = 'the successor government'
+            gs.ending_triggered = "permanent_exile"
+            gs.in_exile = False
+            print(f"  [9C] WAIT permanent_exile check: attempts={_pe_attempts} progress={_pe_progress} fired={True}")
+            messages.append("All paths home are closed. You will die in exile.")
+            _save_gs(session_id, gs)
+            response = {
+                "messages": messages,
+                "game_state": gs.serialize(),
+                "status": "permanent_exile",
+                "ending": "permanent_exile",
+            }
+            if npc_dialogue is not None:
+                response["npc_dialogue"] = npc_dialogue
+            return response
+    else:
+        _pe_over, _pe_result, _pe_msg = check_game_over(gs)
+        if _pe_result == 'permanent_exile':
+            messages.append(_pe_msg)
+
+    _save_gs(session_id, gs)
+
+    # Fix E: Include npc_dialogue if generated during reach_out
+    _exile_status = "ended" if getattr(gs, 'ending_triggered', None) == "permanent_exile" else "exile"
+    response = {
+        "messages": messages,
+        "game_state": gs.serialize(),
+        "status": _exile_status,
+    }
+    if npc_dialogue is not None:
+        response["npc_dialogue"] = npc_dialogue
+    return response
+
+
+
+# ── 9A: Exile Wealth Actions Endpoint ─────────────────────────────────────────
+
+EXILE_WEALTH_ACTIONS = {
+    "propaganda_campaign": {
+        "label": "Propaganda Campaign",
+        "cost": 1.0,
+        "progress": 8,
+        "detection_risk": 0.15,
+        "cooldown_days": 3,
+        "requires_faction": None,
+        "requires_approval": None,
+        "description": "Fund media outlets and social media campaigns against the successor regime.",
+    },
+    "bribe_official": {
+        "label": "Bribe Official",
+        "cost": 1.5,
+        "progress": 10,
+        "detection_risk": 0.25,
+        "cooldown_days": 0,
+        "requires_faction": None,
+        "requires_approval": None,
+        "description": "Pay off a mid-level official for intelligence or tacit cooperation.",
+    },
+    "fund_protests": {
+        "label": "Fund Protests",
+        "cost": 2.0,
+        "progress": 12,
+        "detection_risk": 0.40,
+        "cooldown_days": 5,
+        "requires_faction": None,
+        "requires_approval": None,
+        "description": "Finance opposition protests and civil unrest against the successor government.",
+    },
+    "stir_unrest": {
+        "label": "Stir Unrest",
+        "cost": 3.0,
+        "progress": 18,
+        "detection_risk": 0.60,
+        "cooldown_days": 7,
+        "requires_faction": None,
+        "requires_approval": None,
+        "description": "Organize widespread destabilization. High risk, high reward.",
+    },
+    "general_greasing": {
+        "label": "General Greasing",
+        "cost": 1.5,
+        "progress": 8,
+        "detection_risk": 0.15,
+        "cooldown_days": 4,
+        "requires_faction": None,
+        "requires_approval": None,
+        "description": "Spread money around. Build goodwill, buy silence, keep options open.",
+    },
+    "hire_fixer": {
+        "label": "Hire Fixer",
+        "cost": 2.5,
+        "progress": 0,
+        "detection_risk": 0.20,
+        "cooldown_days": 0,
+        "requires_faction": None,
+        "requires_approval": None,
+        "description": "Hire a local operative. Reduces detection risk on next action by 50%.",
+    },
+    "military_contact": {
+        "label": "Military Contact",
+        "cost": 2.0,
+        "progress": 25,
+        "detection_risk": 0.30,
+        "cooldown_days": 0,
+        "requires_faction": "military",
+        "requires_approval": None,
+        "description": "Reach out to sympathetic military officers. Requires military faction contact.",
+    },
+    "opposition_coalition": {
+        "label": "Opposition Coalition",
+        "cost": 0.0,
+        "progress": 15,
+        "detection_risk": 0.10,
+        "cooldown_days": 0,
+        "requires_faction": None,
+        "requires_approval": 25,
+        "description": "Rally opposition politicians. Free but requires domestic approval above 25.",
+    },
+}
+
+
+class ExileWealthActionRequest(BaseModel):
+    action_key: str
+    target: str | None = None
+    offer: str | None = None
+
+
+@app.post("/game/{session_id}/exile/action")
+def post_exile_wealth_action(session_id: str, req: ExileWealthActionRequest):
+    """9A: Player spends personal wealth on exile actions to build return progress."""
+    gs = _load_gs(session_id)
+    if not gs:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if not gs.in_exile:
+        raise HTTPException(status_code=400, detail="Not in exile")
+
+    action_key = req.action_key
+    if action_key not in EXILE_WEALTH_ACTIONS:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {action_key}")
+
+    action = EXILE_WEALTH_ACTIONS[action_key]
+
+    # ── Wealth check ──
+    cost = action['cost']
+    if cost > 0 and gs.exile_wealth_at_collapse < cost:
+        raise HTTPException(
+            status_code=400,
+            detail="Insufficient funds",
+        )
+
+    # ── Cooldown check ──
+    cooldown_until = gs.wealth_action_cooldowns.get(action_key, 0)
+    if gs.exile_day < cooldown_until:
+        days_left = cooldown_until - gs.exile_day
+        label = action['label']
+        raise HTTPException(
+            status_code=400,
+            detail=f"{label} on cooldown for {days_left} more day(s)",
+        )
+
+    # ── Faction requirement check ──
+    if action['requires_faction']:
+        faction = action['requires_faction']
+        fc = gs.faction_contacts.get(faction, {})
+        if not fc.get('unlocked', False):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Requires {faction} faction contact. Not yet unlocked.",
+            )
+
+    # ── Approval requirement check ──
+    if action['requires_approval'] is not None:
+        req_approval = action['requires_approval']
+        if gs.approval < req_approval:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Requires approval >= {req_approval}. Current: {gs.approval}",
+            )
+
+    # ── Execute action ──
+    _wb = gs.personal_wealth
+    gs.exile_wealth_at_collapse -= action['cost']
+    gs.personal_wealth = gs.exile_wealth_at_collapse  # FIX A: sync personal_wealth
+    print(f"[FIXA] wealth deducted action={action_key} before={_wb:.1f} cost={action['cost']} after={gs.personal_wealth:.1f}")
+
+    # Hire fixer special: unlocks a faction channel for the target
+    if action_key == "hire_fixer":
+        target = req.target
+        if not target:
+            raise HTTPException(status_code=400, detail="hire_fixer requires a target faction")
+        fc = gs.faction_contacts.get(target, {})
+        if fc.get('unlocked', False):
+            raise HTTPException(status_code=400, detail=f"Channel already open for {target}")
+        gs.faction_contacts[target] = {"unlocked": True, "committed": False, "offer": ""}
+        print(f"[FIX1] fixer hired, target={target} unlocked")
+    else:
+        # Apply progress
+        gs.return_progress += action['progress']
+        # FIX 2: opposition_coalition also boosts approval
+        if action_key == "opposition_coalition":
+            gs.approval = min(100, gs.approval + 5)
+            print(f"[FIX2] opposition_coalition approval={gs.approval}")
+
+    # ── Set cooldown ──
+    if action['cooldown_days'] > 0:
+        gs.wealth_action_cooldowns[action_key] = gs.exile_day + action['cooldown_days']
+
+    # ── Detection roll ──
+    import random
+    risk = action['detection_risk']
+    # Apparatus modifier
+    risk *= (1.0 + gs.exile_apparatus_detection_risk_modifier)
+
+    detected = random.random() < risk
+    detection_msg = None
+    successor_reaction = None
+
+    if detected:
+        detection_event = {
+            'day': gs.exile_day,
+            'action': action_key,
+            'risk_was': round(risk, 2),
+        }
+        gs.detection_events.append(detection_event)
+
+        # Successor reacts to detection
+        successor_reaction = _successor_detection_reaction(gs, action_key)
+        action_label_lower = action['label'].lower()
+        detection_msg = f"Your {action_label_lower} was detected by the successor government."
+        if successor_reaction:
+            detection_msg += f" {successor_reaction}"
+
+    # ── Log action ──
+    progress_gained = action['progress'] if action_key != "hire_fixer" else 0
+    action_log_entry = {
+        'day': gs.exile_day,
+        'action': action_key,
+        'cost': action['cost'],
+        'progress_gained': progress_gained,
+        'detected': detected,
+    }
+    gs.exile_actions_log.append(action_log_entry)
+
+    print(f"[9A] exile action={action_key} progress={gs.return_progress:.0f} detected={detected}")
+
+    _save_gs(session_id, gs)
+
+    return {
+        "action": action_key,
+        "label": action['label'],
+        "cost": action['cost'],
+        "progress_gained": progress_gained,
+        "new_progress": gs.return_progress,
+        "new_wealth": gs.exile_wealth_at_collapse,
+        "detected": detected,
+        "detection_message": detection_msg,
+        "successor_reaction": successor_reaction,
+        "fixer_hired_target": req.target if action_key == "hire_fixer" else None,
+        "game_state": gs.serialize(),
+    }
+
+
+def _successor_detection_reaction(gs, action_key):
+    """9A: Generate successor government reaction when an exile action is detected."""
+    hostility = gs.successor_hostility
+    archetype = gs.successor_archetype or "Unknown"
+
+    # Severity based on action type
+    severity = {
+        "propaganda_campaign": 1,
+        "bribe_official": 2,
+        "fund_protests": 3,
+        "stir_unrest": 4,
+        "general_greasing": 1,
+        "hire_fixer": 1,
+        "military_contact": 3,
+        "opposition_coalition": 2,
+    }.get(action_key, 1)
+
+    combined = hostility + severity
+
+    if combined <= 2:
+        # Mild: public statement
+        return f"The {archetype} government issued a statement condemning foreign interference."
+    elif combined <= 4:
+        # Moderate: diplomatic pressure
+        gs.return_threshold = min(gs.return_threshold + 5, 150)
+        return f"The {archetype} government lodged a formal protest, tightening security. Return threshold increased."
+    elif combined <= 6:
+        # Severe: active countermeasures
+        gs.return_threshold = min(gs.return_threshold + 10, 150)
+        gs.exile_apparatus_detection_risk_modifier += 0.1
+        return f"The {archetype} government launched an investigation. Detection risk permanently increased."
+    else:
+        # Extreme: arrest warrant, asset seizure
+        gs.return_threshold = min(gs.return_threshold + 15, 150)
+        gs.exile_apparatus_detection_risk_modifier += 0.15
+        seized = min(gs.exile_wealth_at_collapse * 0.1, 2.0)
+        gs.exile_wealth_at_collapse = max(0, gs.exile_wealth_at_collapse - seized)
+        gs.personal_wealth = gs.exile_wealth_at_collapse  # FIX 1: sync personal_wealth
+        seized_str = f"{seized:.1f}"
+        return f"The {archetype} government seized ${seized_str}B in assets and issued an international warrant. Return threshold sharply increased."
+
+
+
+# ── 9A: NPC Backing Tiers Endpoint ────────────────────────────────────────────
+
+NPC_BACKING_TIERS = {
+    "usa": {
+        1: {
+            "label": "Informal Contact",
+            "price": "Verbal commitment to Western values. Non-binding.",
+            "progress_bonus": 5,
+            "relation_req": 20,
+            "cost": 0.0,
+            "flavor": "Hartwell takes your call. That alone is progress.",
+        },
+        2: {
+            "label": "Quiet Support",
+            "price": "Public statement distancing from DPRG. Media-friendly reforms.",
+            "progress_bonus": 10,
+            "relation_req": 35,
+            "cost": 1.0,
+            "flavor": "Hartwell mentions you in a press conference. 'A friend of democracy.'",
+        },
+        3: {
+            "label": "Active Backing",
+            "price": "Full Western alignment. No DPRG or Russian deals for one era.",
+            "progress_bonus": 18,
+            "relation_req": 50,
+            "cost": 2.0,
+            "flavor": "State Department issues a statement supporting your return. The machinery moves.",
+        },
+        4: {
+            "label": "Full Sponsorship",
+            "price": "Military basing rights. Trade agreement on US terms.",
+            "progress_bonus": 25,
+            "relation_req": 65,
+            "cost": 3.0,
+            "flavor": "Hartwell assigns a team. Logistics, media strategy, diplomatic pressure. This is real.",
+        },
+        5: {
+            "label": "Regime Change Support",
+            "price": "Permanent Western alignment. Security framework integration. No independent foreign policy.",
+            "progress_bonus": 35,
+            "relation_req": 75,
+            "cost": 5.0,
+            "flavor": "The full weight of American power bends toward your restoration. Everything has a price.",
+        },
+    },
+    "eu": {
+        1: {
+            "label": "Humanitarian Concern",
+            "price": "Human rights commitments. Allow EU observers.",
+            "progress_bonus": 4,
+            "relation_req": 20,
+            "cost": 0.0,
+            "flavor": "Marsha expresses 'deep concern' about the situation in Europa.",
+        },
+        2: {
+            "label": "Diplomatic Channel",
+            "price": "Press freedom guarantees. Judicial independence roadmap.",
+            "progress_bonus": 8,
+            "relation_req": 30,
+            "cost": 0.5,
+            "flavor": "The EU opens a formal channel. Slow, but legitimate.",
+        },
+        3: {
+            "label": "Sanctions Pressure",
+            "price": "Reform commitments in writing. Anti-corruption framework.",
+            "progress_bonus": 15,
+            "relation_req": 45,
+            "cost": 1.5,
+            "flavor": "Brussels sanctions the successor regime. Marsha calls it 'a matter of principle.'",
+        },
+        4: {
+            "label": "Full EU Support",
+            "price": "Democratic transition plan. EU-supervised elections within one era.",
+            "progress_bonus": 22,
+            "relation_req": 60,
+            "cost": 2.5,
+            "flavor": "The EU Parliament passes a resolution. Your return becomes European policy.",
+        },
+        5: {
+            "label": "EU Integration Path",
+            "price": "Full democratic reform package. EU accession roadmap. Sovereignty concessions.",
+            "progress_bonus": 30,
+            "relation_req": 70,
+            "cost": 4.0,
+            "flavor": "Marsha offers the ultimate prize: a path to EU membership. The cost is everything you built.",
+        },
+    },
+    "arabia": {
+        1: {
+            "label": "Hospitality",
+            "price": "Goodwill. Nothing formal.",
+            "progress_bonus": 3,
+            "relation_req": 15,
+            "cost": 0.0,
+            "flavor": "Sadam offers comfortable exile. A palace, not a prison.",
+        },
+        2: {
+            "label": "Financial Support",
+            "price": "Energy partnership discussions reopened.",
+            "progress_bonus": 8,
+            "relation_req": 30,
+            "cost": 0.0,
+            "flavor": "Sadam sends funds. No questions asked. That is the arrangement.",
+        },
+        3: {
+            "label": "Active Investment",
+            "price": "Exclusive energy partnership. Below-market rates.",
+            "progress_bonus": 14,
+            "relation_req": 40,
+            "cost": 0.0,
+            "flavor": "Arabian sovereign wealth flows toward your return. Sadam sees opportunity.",
+        },
+        4: {
+            "label": "Strategic Partnership",
+            "price": "Long-term energy exclusivity. Joint military exercises. No EU energy deals.",
+            "progress_bonus": 20,
+            "relation_req": 55,
+            "cost": 0.0,
+            "flavor": "Sadam commits publicly. His credibility is now tied to your return.",
+        },
+        5: {
+            "label": "Full Patronage",
+            "price": "Permanent energy client. Military access. Economic dependency framework.",
+            "progress_bonus": 28,
+            "relation_req": 65,
+            "cost": 0.0,
+            "flavor": "You will return as Sadam's man in Europa. Everyone will know it. Including you.",
+        },
+    },
+    "dprg": {
+        1: {
+            "label": "Quiet Acknowledgment",
+            "price": "Nothing yet. Ji-won is watching.",
+            "progress_bonus": 3,
+            "relation_req": 25,
+            "cost": 0.0,
+            "flavor": "Ji-won does not refuse your message. In Pyongyang, that counts.",
+        },
+        2: {
+            "label": "Information Sharing",
+            "price": "Isolation from Western security frameworks.",
+            "progress_bonus": 7,
+            "relation_req": 35,
+            "cost": 0.5,
+            "flavor": "Ji-won sends intelligence about the successor regime. Useful, if true.",
+        },
+        3: {
+            "label": "Material Support",
+            "price": "No USA military deals. Reduce sanctions advocacy.",
+            "progress_bonus": 12,
+            "relation_req": 50,
+            "cost": 1.0,
+            "flavor": "DPRG operatives appear in Europa. Deniable. Effective.",
+        },
+        4: {
+            "label": "Active Partnership",
+            "price": "Full isolation from West. Technology sharing. Mutual defense understanding.",
+            "progress_bonus": 18,
+            "relation_req": 60,
+            "cost": 2.0,
+            "flavor": "Ji-won commits resources. The West will notice. That is the point.",
+        },
+        5: {
+            "label": "Iron Alliance",
+            "price": "Permanent alignment. Shared intelligence infrastructure. Joint weapons development.",
+            "progress_bonus": 25,
+            "relation_req": 70,
+            "cost": 3.0,
+            "flavor": "You and Ji-won are bound now. The same enemies, the same friends, the same fate.",
+        },
+    },
+    "russia": {
+        1: {
+            "label": "Back Channel",
+            "price": "Verbal understanding. Energy discussions.",
+            "progress_bonus": 4,
+            "relation_req": 20,
+            "cost": 0.0,
+            "flavor": "Volkov is cordial. Cautious. Calculating the angles.",
+        },
+        2: {
+            "label": "Quiet Backing",
+            "price": "Energy cooperation priority. No NATO-adjacent arrangements.",
+            "progress_bonus": 9,
+            "relation_req": 35,
+            "cost": 0.5,
+            "flavor": "Russian media begins covering your exile sympathetically. Volkov pulls strings.",
+        },
+        3: {
+            "label": "Active Support",
+            "price": "Energy exclusivity. Military hardware purchases. Media cooperation.",
+            "progress_bonus": 16,
+            "relation_req": 45,
+            "cost": 1.5,
+            "flavor": "Volkov commits logistical support. His people on the ground in Europa.",
+        },
+        4: {
+            "label": "Strategic Alliance",
+            "price": "Full energy dependency. Security framework integration. Veto Western access.",
+            "progress_bonus": 22,
+            "relation_req": 60,
+            "cost": 2.5,
+            "flavor": "Russia stakes its credibility on your return. Volkov needs you to succeed now.",
+        },
+        5: {
+            "label": "Full Integration",
+            "price": "Permanent Russian sphere. Joint military command. Energy monopoly. No Western deals.",
+            "progress_bonus": 30,
+            "relation_req": 70,
+            "cost": 4.0,
+            "flavor": "Volkov smiles. You both know what this means. Europa becomes a Russian interest.",
+        },
+    },
+    "china": {
+        1: {
+            "label": "Diplomatic Interest",
+            "price": "Infrastructure discussion. Non-binding.",
+            "progress_bonus": 4,
+            "relation_req": 15,
+            "cost": 0.0,
+            "flavor": "Wei listens carefully. Takes notes. Offers tea.",
+        },
+        2: {
+            "label": "Development Partner",
+            "price": "Infrastructure partnership. Chinese contractors priority.",
+            "progress_bonus": 9,
+            "relation_req": 30,
+            "cost": 0.0,
+            "flavor": "Wei proposes a development framework. Patient capital, long-term returns.",
+        },
+        3: {
+            "label": "Strategic Investment",
+            "price": "Long-term infrastructure partnership. Port access. Technology adoption.",
+            "progress_bonus": 15,
+            "relation_req": 45,
+            "cost": 0.0,
+            "flavor": "Chinese investment begins flowing. Wei thinks in decades, not days.",
+        },
+        4: {
+            "label": "Comprehensive Partnership",
+            "price": "Belt and Road integration. No conditions on governance. Long-term debt framework.",
+            "progress_bonus": 22,
+            "relation_req": 55,
+            "cost": 0.0,
+            "flavor": "Wei commits publicly. Your return becomes part of a larger plan.",
+        },
+        5: {
+            "label": "Full Dependency",
+            "price": "Complete economic integration. Technology dependency. Debt restructuring on Chinese terms.",
+            "progress_bonus": 30,
+            "relation_req": 65,
+            "cost": 0.0,
+            "flavor": "Wei smiles patiently. The infrastructure will outlast you both. That is the design.",
+        },
+    },
+}
+
+# 9A: NPC backing mutual exclusivity — accepting tier 3+ from one blocks these others
+NPC_BACKING_EXCLUSIONS_9A = {
+    "usa": ["dprg", "russia"],
+    "eu": ["dprg"],
+    "arabia": [],
+    "dprg": ["usa", "eu"],
+    "russia": ["usa", "eu"],
+    "china": ["usa"],
+}
+
+
+class NpcBackingRequest(BaseModel):
+    npc_id: str
+    tier: int
+
+
+@app.post("/game/{session_id}/exile/npc-backing")
+def post_exile_npc_backing(session_id: str, req: NpcBackingRequest):
+    """9A: Accept NPC backing at a specific tier. Higher tiers = more help, more strings."""
+    gs = _load_gs(session_id)
+    if not gs:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if not gs.in_exile:
+        raise HTTPException(status_code=400, detail="Not in exile")
+
+    npc_id = req.npc_id
+    tier = req.tier
+
+    # ── Validate NPC ──
+    if npc_id not in NPC_BACKING_TIERS:
+        raise HTTPException(status_code=400, detail=f"Invalid NPC: {npc_id}")
+
+    npc_tiers = NPC_BACKING_TIERS[npc_id]
+
+    # ── Validate tier ──
+    if tier not in npc_tiers:
+        raise HTTPException(status_code=400, detail=f"Invalid tier {tier} for {npc_id}. Valid: 1-5")
+
+    # FIX 4: Per-NPC tier caps
+    NPC_TIER_CAPS = {"arabia": 4, "dprg": 3}
+    tier_cap = NPC_TIER_CAPS.get(npc_id)
+    if tier_cap is not None and tier > tier_cap:
+        print(f"[FIX4] tier cap enforced npc={npc_id} tier={tier}")
+        raise HTTPException(status_code=400, detail=f"Not available for this NPC")
+
+    tier_data = npc_tiers[tier]
+
+    # ── Check if already at this tier or higher ──
+    current_tier = gs.npc_assistance_tiers.get(npc_id, 0)
+    if current_tier >= tier:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Already at tier {current_tier} with {npc_id}. Cannot accept same or lower tier.",
+        )
+
+    # ── Check relation requirement ──
+    relation = gs.relations.get(npc_id, 30)
+    if relation < tier_data['relation_req']:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Relations with {npc_id} too low. Need {tier_data['relation_req']}, have {relation}.",
+        )
+
+    # ── Check wealth for cost ──
+    if tier_data['cost'] > 0 and gs.exile_wealth_at_collapse < tier_data['cost']:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient wealth. Need ${tier_data['cost']}B.",
+        )
+
+    # ── Check mutual exclusivity (tier 3+ triggers exclusions) ──
+    blocked_by = []
+    if tier >= 3:
+        for other_npc, excluded_list in NPC_BACKING_EXCLUSIONS_9A.items():
+            if npc_id in excluded_list:
+                other_tier = gs.npc_assistance_tiers.get(other_npc, 0)
+                if other_tier >= 3:
+                    blocked_by.append(other_npc)
+        # Also check if accepting THIS npc would conflict with existing high-tier partners
+        exclusions = NPC_BACKING_EXCLUSIONS_9A.get(npc_id, [])
+        for excluded_npc in exclusions:
+            other_tier = gs.npc_assistance_tiers.get(excluded_npc, 0)
+            if other_tier >= 3:
+                blocked_by.append(excluded_npc)
+
+    if blocked_by:
+        blocked_labels = [ALL_NPC_LABELS.get(b, b) for b in blocked_by]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Blocked by existing tier 3+ commitment with: {', '.join(blocked_labels)}",
+        )
+
+    # ── Execute ──
+    # Deduct cost
+    if tier_data['cost'] > 0:
+        gs.exile_wealth_at_collapse -= tier_data['cost']
+        gs.personal_wealth = gs.exile_wealth_at_collapse  # FIX 1: sync personal_wealth
+
+    # Apply progress bonus (delta only if upgrading)
+    previous_bonus = 0
+    if current_tier > 0:
+        previous_bonus = npc_tiers[current_tier]['progress_bonus']
+    delta = tier_data['progress_bonus'] - previous_bonus
+    gs.return_progress += delta
+    print(f"[FIX3] tier upgrade npc={npc_id} delta={delta} total_progress={gs.return_progress:.0f}")
+
+    # Set tier
+    gs.npc_assistance_tiers[npc_id] = tier
+
+    # Update 8C backing fields for compatibility
+    if tier >= 3 and not gs.exile_backing_committed:
+        gs.exile_backing = npc_id
+        gs.exile_backing_committed = True
+        # Close competing doors (8C system)
+        exclusions_8c = BACKING_EXCLUSIONS.get(npc_id, [])
+        gs.backing_doors_closed = list(set((gs.backing_doors_closed or []) + exclusions_8c))
+
+    # Log
+    action_log_entry = {
+        'day': gs.exile_day,
+        'action': f'npc_backing_{npc_id}_tier{tier}',
+        'cost': tier_data['cost'],
+        'progress_gained': delta,
+        'detected': False,
+    }
+    gs.exile_actions_log.append(action_log_entry)
+
+    print(f"[9A] npc_backing npc={npc_id} tier={tier} progress={gs.return_progress:.0f} price={tier_data['price']}")
+
+    _save_gs(session_id, gs)
+
+    return {
+        "npc_id": npc_id,
+        "tier": tier,
+        "label": tier_data['label'],
+        "price": tier_data['price'],
+        "flavor": tier_data['flavor'],
+        "progress_bonus": tier_data['progress_bonus'],
+        "cost": tier_data['cost'],
+        "new_progress": gs.return_progress,
+        "new_wealth": gs.exile_wealth_at_collapse,
+        "current_tiers": gs.npc_assistance_tiers,
+        "game_state": gs.serialize(),
+    }
+
+
+
+# ── 9A: Return Attempt Endpoint ───────────────────────────────────────────────
+
+@app.post("/game/{session_id}/exile/attempt-return")
+def post_exile_attempt_return(session_id: str):
+    """9A: Attempt to return from exile. Success based on progress vs threshold."""
+    gs = _load_gs(session_id)
+    if not gs:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if not gs.in_exile:
+        raise HTTPException(status_code=400, detail="Not in exile")
+
+    # ── Max attempts check ──
+    if gs.return_attempts >= 3:
+        raise HTTPException(
+            status_code=400,
+            detail="Maximum return attempts (3) exhausted. You must find another way.",
+        )
+
+    # ── Minimum progress check ──
+    if gs.return_progress < 20:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient groundwork. Progress: {gs.return_progress:.0f}. Need at least 20 to attempt return.",
+        )
+
+    gs.return_attempts += 1
+
+    # ── Calculate success probability ──
+    # Base probability: progress / threshold, capped at 0.90
+    base_prob = min(gs.return_progress / max(gs.return_threshold, 1.0), 0.90)
+
+    # NPC backing bonus: each tier adds 2% (max across all NPCs)
+    max_npc_tier = 0
+    backing_npc = None
+    for npc_id, tier in gs.npc_assistance_tiers.items():
+        if tier > max_npc_tier:
+            max_npc_tier = tier
+            backing_npc = npc_id
+    npc_bonus = max_npc_tier * 0.02  # Up to 10% at tier 5
+
+    # Faction commitment bonus: each committed faction adds 3%
+    faction_bonus = 0
+    for faction, data in gs.faction_contacts.items():
+        if isinstance(data, dict) and data.get('committed', False):
+            faction_bonus += 0.03
+
+    # Detection penalty: each detection event reduces probability by 3%
+    detection_penalty = len(gs.detection_events) * 0.03
+
+    # Successor hostility penalty: each level reduces by 3%
+    hostility_penalty = gs.successor_hostility * 0.03
+
+    # Attempt penalty: each previous failed attempt reduces by 5%
+    attempt_penalty = (gs.return_attempts - 1) * 0.05
+
+    # Final probability
+    success_prob = max(0.05, min(0.90, base_prob + npc_bonus + faction_bonus - detection_penalty - hostility_penalty - attempt_penalty))
+
+    import random
+    roll = random.random()
+    success = roll < success_prob
+
+    print(f"[9A] return attempt #{gs.return_attempts}: prob={success_prob:.2f} roll={roll:.2f} success={success}")
+    print(f"[9A]   base={base_prob:.2f} npc_bonus={npc_bonus:.2f} faction={faction_bonus:.2f} detection_pen={detection_penalty:.2f} hostility_pen={hostility_penalty:.2f} attempt_pen={attempt_penalty:.2f}")
+
+    # ── Generate narrative ──
+    narrative = None
+    try:
+        from npc_engine import generate_return_narrative
+        narrative = generate_return_narrative(gs, success, backing_npc)
+    except Exception as e:
+        print(f"[9A] narrative generation failed: {e}")
+        if success:
+            narrative = "You return to Europa. The work begins again."
+        else:
+            narrative = "The attempt fails. You remain in exile."
+
+    if success:
+        # ── Successful return: set up restoration state ──
+        gs.in_exile = False
+        gs.restoration_active = True
+
+        # Snapshot prior state for restoration tracking
+        gs.prior_regime_label = getattr(gs, 'state_identity', {}).get('regime_type', 'Managed Democracy')
+
+        # FIX 2: Set interim restoration regime label
+        if hasattr(gs, 'state_identity') and isinstance(gs.state_identity, dict):
+            gs.state_identity['regime_type'] = 'Restoration Government'
+        print(f"[RESTORE] regime_label=Restoration Government on return (prior={gs.prior_regime_label})")
+
+        # FIX 6: Relations reset — percentage model using exile_entry_relations
+        entry_rels = getattr(gs, 'exile_entry_relations', {})
+        backers = set(gs.npc_assistance_tiers.keys()) if gs.npc_assistance_tiers else set()
+        if backing_npc:
+            backers.add(backing_npc)
+        for npc_id in gs.relations:
+            entry_val = entry_rels.get(npc_id, gs.relations.get(npc_id, 30))
+            if npc_id in backers:
+                gs.relations[npc_id] = entry_val  # Backer keeps full exile-entry value
+            else:
+                gs.relations[npc_id] = max(20, int(entry_val * 0.60))
+        _npc_map = {'usa': 'bill', 'eu': 'marsha', 'russia': 'volkov', 'china': 'wei', 'arabia': 'sadam', 'dprg': 'dprg'}
+        _rl = gs.relations
+        print(f"[FIX6] relations_reset bill={_rl.get('usa',0)} marsha={_rl.get('eu',0)} volkov={_rl.get('russia',0)} wei={_rl.get('china',0)} sadam={_rl.get('arabia',0)} dprg={_rl.get('dprg',0)}")
+
+        # Reset some exile fields but keep logs
+        gs.exile_day = 0
+
+        # FIX 7: Economy reset on return
+        gs.gdp_base = getattr(gs, 'exile_entry_gdp', 100.0) * 0.85
+        gs.budget = 10.0
+        gs.stability = 40
+        gs.public_approval = 35
+        print(f"[FIX7] economy_reset gdp={gs.gdp_base:.1f} budget=10 stability=40 approval=35")
+        print(f"[RESTORE] public_approval set to {gs.public_approval} budget={gs.budget} stability={gs.stability} grace={gs.restoration_grace_days}")
+
+        # FIX 1: Restoration grace period — 5 turns of collapse immunity
+        gs.restoration_grace_days = 5
+        print(f"[RESTORE] grace period set: {gs.restoration_grace_days} days")
+
+        # FIX 8: Clear advisors on return
+        gs.advisors = {}
+        gs.advisor_assigned_today = []
+        print(f"[FIX8] advisors cleared on return")
+
+        # Initial restoration tallies based on backing source
+        if backing_npc in ('usa', 'eu'):
+            gs.restoration_democratic_tally += 2
+        elif backing_npc in ('dprg', 'russia'):
+            gs.restoration_authoritarian_tally += 2
+        elif backing_npc in ('arabia', 'china'):
+            gs.restoration_authoritarian_tally += 1
+
+        print(f"[9A] RETURN SUCCESS: restoration_active=True, backer={backing_npc}")
+
+    else:
+        # ── Failed return: penalties ──
+        # FIX 5: Additive penalty formula
+        progress_penalty = 20 + (gs.return_attempts * 5)
+        gs.return_progress = max(0, gs.return_progress - progress_penalty)
+        print(f"[FIX5] failure penalty={progress_penalty} progress={gs.return_progress:.0f}")
+
+        # Relations hit with all NPCs
+        for npc_id in gs.relations:
+            gs.relations[npc_id] = max(0, gs.relations[npc_id] - 5)
+
+        # Successor hostility increases
+        gs.successor_hostility = min(3, gs.successor_hostility + 1)
+
+        # Return threshold increases
+        gs.return_threshold = min(150, gs.return_threshold + 10)
+
+        print(f"[9A] RETURN FAILED: attempt #{gs.return_attempts}, progress now {gs.return_progress:.0f}, threshold now {gs.return_threshold:.0f}")
+
+    # ── Log the attempt ──
+    action_log_entry = {
+        'day': gs.exile_day if gs.in_exile else 0,
+        'action': 'attempt_return',
+        'success': success,
+        'probability': round(success_prob, 3),
+        'roll': round(roll, 3),
+        'attempt_number': gs.return_attempts,
+        'detected': False,
+    }
+    gs.exile_actions_log.append(action_log_entry)
+
+    # 9C: Check permanent exile after return attempt
+    _pe_over2, _pe_result2, _pe_msg2 = check_game_over(gs)
+
+    _save_gs(session_id, gs)
+
+    _return_response = {
+        "success": success,
+        "attempt_number": gs.return_attempts,
+        "probability": round(success_prob, 3),
+        "narrative": narrative,
+        "backing_npc": backing_npc,
+        "new_progress": gs.return_progress,
+        "new_threshold": gs.return_threshold,
+        "restoration_active": gs.restoration_active,
+        "game_state": gs.serialize(),
+    }
+    if _pe_result2 == 'permanent_exile':
+        _return_response["permanent_exile"] = True
+        _return_response["permanent_exile_message"] = _pe_msg2
+    return _return_response
+
+
+
+# ── 9A: Restoration Identity Endpoint ─────────────────────────────────────────
+
+@app.get("/game/{session_id}/restoration-status")
+def get_restoration_status(session_id: str):
+    """9A: Get current restoration identity formation status."""
+    gs = _load_gs(session_id)
+    if not gs:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if not gs.restoration_active:
+        return {
+            "restoration_active": False,
+            "message": "No active restoration period.",
+            "prior_regime_label": gs.prior_regime_label,
+            "current_regime": getattr(gs, 'state_identity', {}).get('regime_type', 'Unknown'),
+        }
+
+    d = gs.restoration_democratic_tally
+    a = gs.restoration_authoritarian_tally
+    total = d + a
+    net = d - a
+
+    # Determine leaning without revealing exact numbers
+    if total < 3:
+        leaning = "Too early to tell"
+    elif net >= 4:
+        leaning = "Democratic trajectory"
+    elif net >= 1:
+        leaning = "Leaning democratic"
+    elif net >= -1:
+        leaning = "Balanced"
+    elif net >= -4:
+        leaning = "Leaning authoritarian"
+    else:
+        leaning = "Authoritarian trajectory"
+
+    progress_to_resolution = min(total / 15.0, 1.0)
+
+    print(f"[9A] restoration status: d={d} a={a} net={net} leaning={leaning} progress={progress_to_resolution:.0%}")
+
+    return {
+        "restoration_active": True,
+        "democratic_tally": d,
+        "authoritarian_tally": a,
+        "leaning": leaning,
+        "progress_to_resolution": round(progress_to_resolution, 2),
+        "prior_regime_label": gs.prior_regime_label,
+        "signals_needed": max(0, 15 - total),
+        "game_state": gs.serialize(),
+    }
+
+
+# ── 9B: Political Biography Endpoint ─────────────────────────────────────────
+
+@app.get("/game/{session_id}/biography")
+def get_biography(session_id: str):
+    """9B: Generate full political biography for a completed or in-progress game."""
+    gs = _load_gs(session_id)
+    if not gs:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    print(f"[9B] /biography called session={session_id} turn={gs.current_turn} ending={getattr(gs, 'ending_triggered', 'none')}")
+
+    from npc_engine import generate_full_biography
+    result = generate_full_biography(gs)
+    return result

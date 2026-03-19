@@ -28,6 +28,21 @@ export default function StatusBar({ gs, onShadowCabinet }) {
     gs.public_approval >= 50 ? '🟡' :
     gs.public_approval >= 30 ? '🔴' : '💀'
 
+  // 9.5B: Stability composition diamonds
+  const leg = gs?.legitimacy_stability || 0
+  const coe = gs?.coercion_stability || 0
+  const stabTotal = gs?.stability || 1
+  const legPct = stabTotal > 0 ? leg / stabTotal : 0.5
+  const filledDiamonds = Math.round(legPct * 5)
+  const diamonds = Array.from({length: 5}, (_, i) => i < filledDiamonds ? '◆' : '◇').join('')
+  let diamondClass = 'stability-mixed'
+  if (legPct >= 0.7) diamondClass = 'stability-legitimate'
+  if (legPct <= 0.3) diamondClass = 'stability-coercive'
+  const showDiamonds = (leg > 0 || coe > 0)
+  if (showDiamonds) {
+    console.log('[9.5B] stability display:', {leg, coe, legPct, filledDiamonds, diamonds, diamondClass})
+  }
+
   // Stage 5: state identity
   const regimeType = gs.state_identity?.regime_type || 'Managed Democracy'
   const powerBase  = gs.state_identity?.power_base  || 'Mass-Dependent'
@@ -65,6 +80,15 @@ export default function StatusBar({ gs, onShadowCabinet }) {
       <div className="stat">
         <span className="stat-label">Stability</span>
         <span className={`stat-value mono ${stabilityClass}`}>{gs.stability}%</span>
+        {showDiamonds && (
+          <div
+            className={`stability-composition ${diamondClass}`}
+            title={`Legitimacy: ${leg.toFixed(0)}% | Coercion: ${coe.toFixed(0)}%`}
+            style={{fontSize: '0.7em', letterSpacing: '2px'}}
+          >
+            {diamonds}
+          </div>
+        )}
       </div>
       <div className="stat">
         <span className="stat-label">Approval</span>

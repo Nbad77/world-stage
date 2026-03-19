@@ -55,11 +55,13 @@ export default function App() {
     api.getGame(saved)
       .then(data => {
         console.log('[RESUME] Backend returned status:', data.status)
-        if (data.status === 'active') {
+        if (data.status === 'active' || data.status === 'exile') {
           setResumeData(data)
           setHasResumable(true)
+          console.log('[RESUME] Fix C: accepted status:', data.status)
         } else {
-          // Game ended — clear stale entry
+          // Game ended — clear stale entry (won/lost only)
+          console.log('[RESUME] Fix C: clearing session for terminal status:', data.status)
           localStorage.removeItem(SESSION_KEY)
           setHasResumable(false)
         }

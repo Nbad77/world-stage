@@ -54,11 +54,12 @@ const RESULT_LABELS = {
   observers: { title: 'Transparent Election', subtitle: 'The world witnessed a credible democratic process.', icon: '🏛️' },
 }
 
-export default function ElectionPanel({ gameState, sessionId, onElectionDone, disabled }) {
-  const [phase, setPhase] = useState('choose')  // 'choose' | 'confirm' | 'loading' | 'result'
+export default function ElectionPanel({ gameState, sessionId, onElectionDone, disabled, onGsUpdate }) {
+  const [phase, setPhase] = useState('choose')  // 'choose' | 'confirm' | 'loading' | 'result' | 'accept_defeat'
   const [selected, setSelected] = useState(null)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
+  const [acceptingDefeat, setAcceptingDefeat] = useState(false)
 
   const approval = gameState?.public_approval ?? 50
   const hasBrigades = (gameState?.action_history || []).some(a => a.type === 'deploy_brigades')
@@ -218,11 +219,66 @@ export default function ElectionPanel({ gameState, sessionId, onElectionDone, di
           ))}
         </div>
 
+        {/* 8C: Accept Defeat — voluntary exile path */}
+        {result.result_key === 'fair_fail' && !acceptingDefeat && (
+          <div className="election-accept-defeat">
+            <button
+              className="election-btn-accept-defeat"
+              onClick={() => setAcceptingDefeat(true)}
+            >
+              🕊️ Accept the Result
+            </button>
+            <span className="election-accept-hint">
+              Step aside with dignity. Exile awaits.
+            </span>
+          </div>
+        )}
+
+        {/* 8C: Accept defeat confirmation */}
+        {acceptingDefeat && (
+          <div className="election-accept-confirm">
+            <p>Accept defeat and go into voluntary exile? This cannot be undone.</p>
+            <div className="election-confirm-btns">
+              <button
+                className="election-btn-yes election-btn-accept-confirm"
+                disabled={disabled}
+                onClick={async () => {
+                  try {
+                    const res = await fetch(`${API}/game/${sessionId}/election`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ choice: 'accept_defeat' }),
+                    })
+                    if (!res.ok) {
+                      const data = await res.json().catch(() => ({}))
+                      throw new Error(data.detail || `HTTP ${res.status}`)
+                    }
+                    const data = await res.json()
+                    // Update game state — in_exile will now be true
+                    if (data.game_state && onGsUpdate) onGsUpdate(data.game_state)
+                  } catch (e) {
+                    setError(e.message)
+                    setAcceptingDefeat(false)
+                  }
+                }}
+              >
+                Accept Exile
+              </button>
+              <button
+                className="election-btn-no"
+                onClick={() => setAcceptingDefeat(false)}
+              >
+                Go Back
+              </button>
+            </div>
+          </div>
+        )}
+
         <button
           className="election-btn-continue"
           onClick={() => onElectionDone(result)}
         >
-          Continue
+          {result.result_key === 'fair_fail' ? 'Resist' : 'Continue'}
         </button>
       </div>
     )

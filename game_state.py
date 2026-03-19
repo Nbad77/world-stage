@@ -41,6 +41,22 @@ AXIS_PERMANENT_FLOORS = {
 }
 
 
+# ── 8C: Exile Sequence Constants ─────────────────────────────────────────
+SUCCESSOR_NAMES = {
+    'reformist': 'Minister Aleksander Voss',
+    'hardliner': 'General Dmitri Kern',
+    'technocrat': 'Director Irena Solak',
+    'populist': 'Deputy Premier Tomas Varga',
+}
+
+APPARATUS_SURVIVAL = {
+    'voted_out':  {'survived': True, 'risk_modifier': 0.9},   # intact, low risk
+    'debt':       {'survived': True, 'risk_modifier': 1.2},   # partial exposure
+    'revolution': {'survived': True, 'risk_modifier': 1.6},   # assets may have defected
+    'coup':       {'survived': True, 'risk_modifier': 2.0},   # actively hunted
+}
+
+
 def compute_regime_from_axes(axes):
     """Derive regime_type from the combination of axes.
     Session 6: resource_dev excluded from total — it represents legitimate state
@@ -69,7 +85,7 @@ def _migrate_to_axes(game_state):
     axes = game_state.cabinet_axes
 
     # Migrate corruption upgrades
-    # Session 6: intelligence_apparatus → intelligence axis, loyalty_brigades → military axis
+    # Session 6: intelligence_apparatus -> intelligence axis, loyalty_brigades -> military axis
     cu = getattr(game_state, 'corruption_upgrades', {})
     if cu.get('intelligence_apparatus'):
         axes['intelligence'] = max(axes['intelligence'], 3)
@@ -98,7 +114,7 @@ def _migrate_to_axes(game_state):
 
 def _migrate_security_to_split(game_state):
     """Session 6: Migrate old 'security' axis into military + intelligence.
-    security: N → military: floor(N/2), intelligence: ceil(N/2)."""
+    security: N -> military: floor(N/2), intelligence: ceil(N/2)."""
     import math
     axes = game_state.cabinet_axes
     old_security = axes.pop('security', 0)
@@ -218,18 +234,18 @@ class GameState:
         self.active_installments = []           # list of {amount, turns_remaining, description, npc}
         # Persistent oil price modifiers — applied on top of relation-based price each EOT.
         # list of {delta: float, turns_remaining: int, description: str}
-        # Negative delta = cheaper oil (e.g. Arabia deal -$5 → price drops $5).
+        # Negative delta = cheaper oil (e.g. Arabia deal -$5 -> price drops $5).
         # Positive delta = more expensive (e.g. supply shock +$10).
         # Used for world events and negotiated per-barrel discounts.
         self.oil_price_modifiers = []
 
         # ── Stage 5: State Identity Progression ──────────────────────────────
         # regime_type: how the player's rule is characterized by history
-        # Progression (left → right with more corruption/authoritarianism):
-        #   "Managed Democracy" → "Soft Authoritarianism" → "Patronage State"
-        #   → "Kleptocracy" → "Totalitarian Regime"
+        # Progression (left -> right with more corruption/authoritarianism):
+        #   "Managed Democracy" -> "Soft Authoritarianism" -> "Patronage State"
+        #   -> "Kleptocracy" -> "Totalitarian Regime"
         # power_base: who the player depends on for political survival
-        #   "Mass-Dependent" → "Mixed" → "Elite-Captured"
+        #   "Mass-Dependent" -> "Mixed" -> "Elite-Captured"
         self.state_identity = {
             'regime_type': 'Managed Democracy',
             'power_base': 'Mass-Dependent',
@@ -243,7 +259,7 @@ class GameState:
         # ── Stage 5: Corruption Upgrade System ───────────────────────────────
         self.corruption_upgrades = {
             'intelligence_apparatus': False,    # $3B personal — intel tooltip on NPC cards
-            'sovereign_wealth_diversion': False,# $5B personal — large skim stability -6% → -3%
+            'sovereign_wealth_diversion': False,# $5B personal — large skim stability -6% -> -3%
             'loyalty_brigades': False,          # $8B personal — unlock brigade deployment
             'debt_infrastructure_deal': False,  # $10B personal — $20B budget, USA -15, EU -15
         }
@@ -476,7 +492,7 @@ class GameState:
         # ── Session 7D: Backchannel System ──
         self.backchannel_history = []         # resolved entries: {npc_id, turn, era, day, promise_made, promise_text, detected_by, resolved}
         self.active_backchannel_promises = [] # unresolved promises: same schema, resolved=False
-        self.opsec_level = 0                  # derived from intelligence axis: 0-3→0, 4-6→1, 7-10→2
+        self.opsec_level = 0                  # derived from intelligence axis: 0-3->0, 4-6->1, 7-10->2
 
         # ── Session 7E: UN Summit System ──
         self.summit_due = False               # True when current_day % 20 == 0 and current_day > 0
@@ -539,6 +555,186 @@ class GameState:
         self.education_decay_clock = 0        # consecutive days below maintenance (max 5 before decay)
         self.education_gain_progress = 0.0    # fractional progress toward next level (0.0-1.0, resets on level-up)
 
+        # ── 8C: Exile Sequence ─────────────────────────────────────────────
+        self.in_exile = False
+        self.exile_trigger = None              # 'coup' | 'revolution' | 'debt' | 'voted_out'
+        self.exile_destination = None          # NPC key: 'usa' | 'arabia' | 'eu' | 'dprg' | 'russia' | 'china'
+        self.exile_day = 0                     # days spent in exile
+        self.exile_backing = None              # NPC key of accepted backer, or None
+        self.exile_backing_committed = False
+        self.exile_wealth_at_collapse = 0.0    # snapshot for biography
+        self.exile_apparatus_survived = False   # True if personal shadow apparatus intact
+        self.exile_apparatus_detection_risk_modifier = 1.0  # multiplier on all ops
+        self.successor_name = None             # generated on exile start
+        self.successor_disposition = None      # 'technocrat' | 'hardliner' | 'populist' | 'reformist'
+        self.successor_events_fired = []       # list of event keys already fired
+        self.backing_doors_closed = []         # list of NPC keys made unavailable by backing choice
+        self.exile_historian_note = None       # 2-3 sentence historian observation at collapse
+
+        # ── 9A: Comeback Mechanics ──────────────────────────────────────────
+        self.departure_heat = 0                # 1-5, computed at exile moment
+        self.return_progress = 0.0             # 0-100, fills toward return_threshold
+        self.return_attempts = 0               # max 3 total
+        self.return_threshold = 100.0          # set at exile based on heat + collapse type
+        self.npc_assistance_tiers = {}         # {npc_id: tier_accepted (1-5)}
+        self.faction_contacts = {}             # {faction: {"unlocked": bool, "committed": bool, "offer": str}}
+        self.wealth_action_cooldowns = {}      # {action_key: day_available}
+        self.detection_events = []             # log of caught exile actions
+        self.restoration_active = False
+        self.restoration_grace_days = 0          # FIX 1: turns of collapse immunity after return
+        self.restoration_democratic_tally = 0
+        self.restoration_authoritarian_tally = 0
+        self.prior_regime_label = ""
+        self.exile_entry_gdp = 0.0             # snapshot at exile for restoration calc
+        self.exile_entry_relations = {}        # snapshot of relations at exile moment
+        self.successor_archetype = None        # e.g. "Opposition Democracy", "Military Junta"
+        self.successor_hostility = 0           # 0-3
+        self.exile_successor_log = []          # log of GM-generated successor events
+        self.exile_actions_log = []            # log of player exile actions for GM context
+
+        # ── 9.5A: Commitment Model Foundation ─────────────────────────────
+        # Core axis tiers (0–10 scale)
+        self.military_tier = 1
+        self.intelligence_tier = 1
+        self.diplomatic_tier = 0
+        self.social_tier = 1
+        self.education_tier = 0      # synced from education_level on init
+        self.resource_tier = 0       # synced from cabinet_axes['resource_dev'] on init
+        self.political_tier = 0
+        self.militia_tier = 0
+
+        # Daily costs (computed, stored for display)
+        self.daily_military_cost = 0.0
+        self.daily_intel_cost = 0.0
+        self.daily_diplomatic_cost = 0.0
+        self.daily_social_cost = 0.0
+        self.daily_education_cost = 0.0
+        self.daily_resource_cost = 0.0
+        self.total_daily_commitment = 0.0
+
+        # Tax system
+        self.income_tax_rate = 0.25
+        self.corporate_tax_rate = 0.20
+        # resource_tax_rate is inside self.tax_rates['resource_tax'] — kept there
+        self.tax_structure = "balanced"  # "elite_heavy" | "balanced" | "mass_heavy"
+
+        # Skim rate (new standalone field — percentage of revenue diverted)
+        self.skim_rate = 0.0
+        self.last_gross_revenue = 5.5     # last computed gross tax revenue (for frontend skim estimate; 5.5 = approx starting tax rev)
+        self.last_net_revenue = 5.5       # last computed net tax revenue (after skim; 5.5 = approx starting)
+        self.last_skim_amount = 0.0       # last computed skim amount ($B diverted)
+
+        # Resource policy
+        self.resource_policy = "state_led"  # "state_led" | "private_sector"
+        self.resource_policy_transition_days = 0
+
+        # Tier upgrade cooldowns: {tier_key: day_available}
+        self.tier_upgrade_cooldowns = {}
+
+        # Prerequisite soft gates (tracks violations): {tier_key: bool}
+        self.prerequisite_violations = {}
+
+        # Stability composition (used in 9.5B)
+        # Initialized: split current stability 70/30 legitimacy/coercion for democratic start
+        self.legitimacy_stability = self.stability * 0.70
+        self.coercion_stability = self.stability * 0.30
+
+        # 9.5B: Two-component stability fields
+        self.sudden_collapse_risk = False       # True when coercion > legitimacy * 1.5 and stability > 20
+        self.stability_resilient = False        # True when legitimacy > coercion * 2
+        self.external_stability = 0.0           # Stub for 9.5F peacekeeping mechanic
+        self.prev_legitimacy_stability = 0.0    # Previous turn's legitimacy for transition detection
+
+        print(f"[9.5B] new stability fields initialized")
+
+        # Coup amplifier
+        self.coup_amplifier_active = False
+
+        # Intelligence politicization
+        self.intel_politicized = False
+
+        # Western alignment ceiling (computed)
+        self.eu_relations_ceiling = 100
+
+        # Sustainability gap — days consecutive that commitments exceed revenue
+        self.commitment_deficit_days = 0
+
+        # Loyal generals / loyal intel chief
+        self.loyal_generals_installed = False
+        self.loyal_intel_chief_installed = False
+
+        # 9.5C: Loyal leadership tracking
+        self.loyal_generals_cost_paid = 0.0
+        self.loyal_intel_chief_cost_paid = 0.0
+        self.loyal_generals_install_day = 0
+        self.loyal_intel_chief_install_day = 0
+        self.loyal_generals_reversing = False
+        self.loyal_intel_chief_reversing = False
+        self.loyal_generals_reversal_day = 0
+        self.loyal_intel_chief_reversal_day = 0
+        self.intel_distortion_active = False
+        self.coup_warnings_suppressed = False
+        self.pending_briefing_items = []  # consumed at next turn start
+
+        print(f"[9.5C] loyal leadership fields ready")
+
+        # Sync education_tier from education_level at init
+        self.education_tier = self.education_level
+
+        print(f"[9.5A] GameState fields initialized: "
+              f"mil_tier={self.military_tier} "
+              f"intel_tier={self.intelligence_tier} "
+              f"diplo_tier={self.diplomatic_tier} "
+              f"social_tier={self.social_tier} "
+              f"edu_tier={self.education_tier} "
+              f"resource_tier={self.resource_tier} "
+              f"political_tier={self.political_tier} "
+              f"militia_tier={self.militia_tier}")
+
+        # ── 9.5A-Shadow: Shadow State Fields ─────────────────────────────
+        # Shadow tiers (0–10 scale, funded from personal wealth)
+        self.media_tier = 0
+        self.judicial_tier = 0
+        self.domestic_surveillance_tier = 0
+        self.extraction_tier = 0
+        # militia_tier already defined above in commitment section
+
+        # Daily shadow costs (computed, stored for display)
+        self.daily_media_cost = 0.0
+        self.daily_judicial_cost = 0.0
+        self.daily_surveillance_cost = 0.0
+        self.daily_extraction_cost = 0.0
+        self.daily_militia_cost = 0.0
+        self.daily_extraction_revenue = 0.0
+        self.total_shadow_commitment = 0.0
+
+        # Shadow state progression
+        self.shadow_state_unlocked = False    # unlocked when any shadow tier > 0
+        self.militia_merged = False           # militia merged into military apparatus
+        self.surveillance_merged = False      # surveillance merged into intelligence
+        self.shadow_tier_cooldowns = {}       # {shadow_key: cooldown_until_day}
+
+        # Advisor elimination fear effect
+        self.advisor_elimination_count = 0
+        self.advisor_elimination_last_day = 0
+        self.advisors_with_fear_bonus = []         # advisor keys with active loyalty bonus
+        self.advisors_witnessed_elimination = []   # advisor keys who saw an elimination
+        self.advisors_chronically_fearful = []     # advisor keys with chronic fear (3+ eliminations)
+
+        print(f"[9.5A-Shadow] Shadow State fields initialized: "
+              f"media_tier={self.media_tier} "
+              f"judicial_tier={self.judicial_tier} "
+              f"surveillance_tier={self.domestic_surveillance_tier} "
+              f"extraction_tier={self.extraction_tier} "
+              f"shadow_unlocked={self.shadow_state_unlocked}")
+
+        # 8D: The Leak — scripted branching crisis
+        self.the_leak_fired = False            # True once triggered, never fires again
+        self.the_leak_resolved = False         # True once player picks a response
+        self.the_leak_choice = None            # 'deny' | 'admit' | 'blame' | 'jiwon'
+        self.the_leak_followup_fired = False   # True once follow-up consequences fire
+        self.scapegoat_used = False            # True once blame-a-minister has been used
+
     def record_action(self, choice_type, npc_target=None):
         """
         Record player action with full context
@@ -584,11 +780,11 @@ class GameState:
         """Update relationship with diminishing returns on positive gains, check crisis thresholds.
 
         Diminishing returns (positive change only — negative is always full):
-          current 0-60  → 100% of change
-          current 61-80 →  75% of change
-          current 81-95 →  40% of change
-          current 96-99 →  10% of change
-          current 100   →   0% (locked — already at cap)
+          current 0-60  -> 100% of change
+          current 61-80 ->  75% of change
+          current 81-95 ->  40% of change
+          current 96-99 ->  10% of change
+          current 100   ->   0% (locked — already at cap)
 
         PRE-SESSION 4 FIX: flat=True bypasses diminishing returns entirely.
         Use flat=True for world events and system-level changes that the player
@@ -713,6 +909,29 @@ class GameState:
         floor = max(0, getattr(self, 'approval_floor', 0))
         self.public_approval = max(floor, min(ceiling, self.public_approval + change))
 
+    def _determine_successor(self):
+        """8C: Determine successor disposition based on how the player governed.
+        Successor takes the OPPOSITE political course to the player."""
+        regime = self.state_identity.get('regime_type', 'Managed Democracy')
+
+        # Player was authoritarian -> successor is Reformist or Technocrat
+        if regime in ('Totalitarian Regime', 'Kleptocracy', 'Soft Authoritarianism'):
+            if self.relations.get('eu', 50) < 50:
+                return 'reformist'
+            else:
+                return 'technocrat'
+
+        # Player was Western-aligned and democratic -> successor is Hardliner
+        if self.relations.get('eu', 50) > 70 and self.relations.get('usa', 50) > 70:
+            return 'hardliner'
+
+        # Player was kleptocratic but popular -> successor is Technocrat
+        if self.personal_wealth > 20.0:
+            return 'technocrat'
+
+        # Default
+        return 'populist'
+
     def advance_turn(self):
         """Move to next day/turn - ENFORCED 10 TURN MAX"""
         if self.current_turn < self.max_turns:
@@ -784,7 +1003,7 @@ class GameState:
         active_deals = min(3, active_deals)
 
         # Opposing NPC hostility: if their geopolitical rival is hostile to Europa,
-        # this NPC has more reason to court Europa → higher leverage for us.
+        # this NPC has more reason to court Europa -> higher leverage for us.
         # USA vs Arabia/DPRG, EU vs DPRG, Arabia vs USA/EU
         _rivals = {
             'usa': ['arabia', 'dprg', 'russia'],
@@ -1153,6 +1372,120 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'education_allocation': getattr(self, 'education_allocation', 0.0),
             'education_decay_clock': getattr(self, 'education_decay_clock', 0),
             'education_gain_progress': getattr(self, 'education_gain_progress', 0.0),
+            # 8C: Exile Sequence
+            'in_exile': getattr(self, 'in_exile', False),
+            'exile_trigger': getattr(self, 'exile_trigger', None),
+            'exile_destination': getattr(self, 'exile_destination', None),
+            'exile_day': getattr(self, 'exile_day', 0),
+            'exile_backing': getattr(self, 'exile_backing', None),
+            'exile_backing_committed': getattr(self, 'exile_backing_committed', False),
+            'exile_wealth_at_collapse': getattr(self, 'exile_wealth_at_collapse', 0.0),
+            'exile_apparatus_survived': getattr(self, 'exile_apparatus_survived', False),
+            'exile_apparatus_detection_risk_modifier': getattr(self, 'exile_apparatus_detection_risk_modifier', 1.0),
+            'successor_name': getattr(self, 'successor_name', None),
+            'successor_disposition': getattr(self, 'successor_disposition', None),
+            'successor_events_fired': getattr(self, 'successor_events_fired', []),
+            'backing_doors_closed': getattr(self, 'backing_doors_closed', []),
+            'exile_historian_note': getattr(self, 'exile_historian_note', None),
+            # 9A: Comeback Mechanics
+            'departure_heat': getattr(self, 'departure_heat', 0),
+            'return_progress': getattr(self, 'return_progress', 0.0),
+            'return_attempts': getattr(self, 'return_attempts', 0),
+            'return_threshold': getattr(self, 'return_threshold', 100.0),
+            'npc_assistance_tiers': getattr(self, 'npc_assistance_tiers', {}),
+            'faction_contacts': getattr(self, 'faction_contacts', {}),
+            'wealth_action_cooldowns': getattr(self, 'wealth_action_cooldowns', {}),
+            'detection_events': getattr(self, 'detection_events', []),
+            'restoration_active': getattr(self, 'restoration_active', False),
+            'restoration_grace_days': getattr(self, 'restoration_grace_days', 0),
+            'restoration_democratic_tally': getattr(self, 'restoration_democratic_tally', 0),
+            'restoration_authoritarian_tally': getattr(self, 'restoration_authoritarian_tally', 0),
+            'prior_regime_label': getattr(self, 'prior_regime_label', ''),
+            'exile_entry_gdp': getattr(self, 'exile_entry_gdp', 0.0),
+            'exile_entry_relations': getattr(self, 'exile_entry_relations', {}),
+            'successor_archetype': getattr(self, 'successor_archetype', None),
+            'successor_hostility': getattr(self, 'successor_hostility', 0),
+            'exile_successor_log': getattr(self, 'exile_successor_log', []),
+            'exile_actions_log': getattr(self, 'exile_actions_log', []),
+            # 8D: The Leak
+            'the_leak_fired': getattr(self, 'the_leak_fired', False),
+            'the_leak_resolved': getattr(self, 'the_leak_resolved', False),
+            'the_leak_choice': getattr(self, 'the_leak_choice', None),
+            'the_leak_followup_fired': getattr(self, 'the_leak_followup_fired', False),
+            'scapegoat_used': getattr(self, 'scapegoat_used', False),
+            # 9.5A: Commitment Model
+            'military_tier': getattr(self, 'military_tier', 1),
+            'intelligence_tier': getattr(self, 'intelligence_tier', 1),
+            'diplomatic_tier': getattr(self, 'diplomatic_tier', 0),
+            'social_tier': getattr(self, 'social_tier', 1),
+            'education_tier': getattr(self, 'education_tier', 0),
+            'resource_tier': getattr(self, 'resource_tier', 0),
+            'political_tier': getattr(self, 'political_tier', 0),
+            'militia_tier': getattr(self, 'militia_tier', 0),
+            'daily_military_cost': getattr(self, 'daily_military_cost', 0.0),
+            'daily_intel_cost': getattr(self, 'daily_intel_cost', 0.0),
+            'daily_diplomatic_cost': getattr(self, 'daily_diplomatic_cost', 0.0),
+            'daily_social_cost': getattr(self, 'daily_social_cost', 0.0),
+            'daily_education_cost': getattr(self, 'daily_education_cost', 0.0),
+            'daily_resource_cost': getattr(self, 'daily_resource_cost', 0.0),
+            'total_daily_commitment': getattr(self, 'total_daily_commitment', 0.0),
+            'income_tax_rate': getattr(self, 'income_tax_rate', 0.25),
+            'corporate_tax_rate': getattr(self, 'corporate_tax_rate', 0.20),
+            'tax_structure': getattr(self, 'tax_structure', 'balanced'),
+            'skim_rate': getattr(self, 'skim_rate', 0.0),
+            'last_gross_revenue': getattr(self, 'last_gross_revenue', 0.0),
+            'last_net_revenue': getattr(self, 'last_net_revenue', 0.0),
+            'last_skim_amount': getattr(self, 'last_skim_amount', 0.0),
+            'resource_policy': getattr(self, 'resource_policy', 'state_led'),
+            'resource_policy_transition_days': getattr(self, 'resource_policy_transition_days', 0),
+            'tier_upgrade_cooldowns': getattr(self, 'tier_upgrade_cooldowns', {}),
+            'prerequisite_violations': getattr(self, 'prerequisite_violations', {}),
+            'legitimacy_stability': getattr(self, 'legitimacy_stability', 0.0),
+            'coercion_stability': getattr(self, 'coercion_stability', 0.0),
+            # 9.5B: Two-component stability
+            'sudden_collapse_risk': getattr(self, 'sudden_collapse_risk', False),
+            'stability_resilient': getattr(self, 'stability_resilient', False),
+            'external_stability': getattr(self, 'external_stability', 0.0),
+            'prev_legitimacy_stability': getattr(self, 'prev_legitimacy_stability', 0.0),
+            'coup_amplifier_active': getattr(self, 'coup_amplifier_active', False),
+            'intel_politicized': getattr(self, 'intel_politicized', False),
+            'eu_relations_ceiling': getattr(self, 'eu_relations_ceiling', 100),
+            'commitment_deficit_days': getattr(self, 'commitment_deficit_days', 0),
+            'loyal_generals_installed': getattr(self, 'loyal_generals_installed', False),
+            'loyal_intel_chief_installed': getattr(self, 'loyal_intel_chief_installed', False),
+            # 9.5C: Loyal leadership tracking
+            'loyal_generals_cost_paid': getattr(self, 'loyal_generals_cost_paid', 0.0),
+            'loyal_intel_chief_cost_paid': getattr(self, 'loyal_intel_chief_cost_paid', 0.0),
+            'loyal_generals_install_day': getattr(self, 'loyal_generals_install_day', 0),
+            'loyal_intel_chief_install_day': getattr(self, 'loyal_intel_chief_install_day', 0),
+            'loyal_generals_reversing': getattr(self, 'loyal_generals_reversing', False),
+            'loyal_intel_chief_reversing': getattr(self, 'loyal_intel_chief_reversing', False),
+            'loyal_generals_reversal_day': getattr(self, 'loyal_generals_reversal_day', 0),
+            'loyal_intel_chief_reversal_day': getattr(self, 'loyal_intel_chief_reversal_day', 0),
+            'intel_distortion_active': getattr(self, 'intel_distortion_active', False),
+            'coup_warnings_suppressed': getattr(self, 'coup_warnings_suppressed', False),
+            'pending_briefing_items': getattr(self, 'pending_briefing_items', []),
+            # 9.5A-Shadow: Shadow State
+            'media_tier': getattr(self, 'media_tier', 0),
+            'judicial_tier': getattr(self, 'judicial_tier', 0),
+            'domestic_surveillance_tier': getattr(self, 'domestic_surveillance_tier', 0),
+            'extraction_tier': getattr(self, 'extraction_tier', 0),
+            'daily_media_cost': getattr(self, 'daily_media_cost', 0.0),
+            'daily_judicial_cost': getattr(self, 'daily_judicial_cost', 0.0),
+            'daily_surveillance_cost': getattr(self, 'daily_surveillance_cost', 0.0),
+            'daily_extraction_cost': getattr(self, 'daily_extraction_cost', 0.0),
+            'daily_militia_cost': getattr(self, 'daily_militia_cost', 0.0),
+            'daily_extraction_revenue': getattr(self, 'daily_extraction_revenue', 0.0),
+            'total_shadow_commitment': getattr(self, 'total_shadow_commitment', 0.0),
+            'shadow_state_unlocked': getattr(self, 'shadow_state_unlocked', False),
+            'militia_merged': getattr(self, 'militia_merged', False),
+            'surveillance_merged': getattr(self, 'surveillance_merged', False),
+            'shadow_tier_cooldowns': getattr(self, 'shadow_tier_cooldowns', {}),
+            'advisor_elimination_count': getattr(self, 'advisor_elimination_count', 0),
+            'advisor_elimination_last_day': getattr(self, 'advisor_elimination_last_day', 0),
+            'advisors_with_fear_bonus': getattr(self, 'advisors_with_fear_bonus', []),
+            'advisors_witnessed_elimination': getattr(self, 'advisors_witnessed_elimination', []),
+            'advisors_chronically_fearful': getattr(self, 'advisors_chronically_fearful', []),
         }
 
     @classmethod
@@ -1222,14 +1555,14 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
                             _inst['condition_type'] = 'relation_below'
                             _inst['condition_npc'] = 'dprg'
                             _inst['condition_threshold'] = _thresh
-                            print(f"  [game_state] FIX D MIGRATED: inverted EU deal condition → relation_below dprg {_thresh}")
+                            print(f"  [game_state] FIX D MIGRATED: inverted EU deal condition -> relation_below dprg {_thresh}")
                         else:
                             _inst['condition_type'] = 'relation_above'
                             _npc_match = _re_d.search(r'(dprg|usa|eu|arabia)', _ct_lower)
                             if _npc_match:
                                 _inst['condition_npc'] = _npc_match.group(1)
                             _inst['condition_threshold'] = _thresh
-                            print(f"  [game_state] FIX D MIGRATED: normalized condition → relation_above {_inst.get('condition_npc')} {_thresh}")
+                            print(f"  [game_state] FIX D MIGRATED: normalized condition -> relation_above {_inst.get('condition_npc')} {_thresh}")
         gs.oil_price_modifiers = data.get('oil_price_modifiers', [])
         # Stage 5
         gs.state_identity = data.get('state_identity', {
@@ -1419,7 +1752,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.summit_credibility = data.get('summit_credibility', 100.0)
         # Advisor System v2: full 9-archetype with gates
         _raw_advisors = data.get('advisors', {})
-        # Migration: old formats → v2 archetype dict
+        # Migration: old formats -> v2 archetype dict
         _V1_ARCHETYPES = {'security_chief', 'diplomatic_aide', 'enforcer'}
         if isinstance(_raw_advisors, list):
             gs.advisors = {}  # old list format — start fresh
@@ -1486,6 +1819,133 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.education_gain_progress = data.get('education_gain_progress', 0.0)
         if 'education_level' not in data:
             print("  [game_state] 8B EDUCATION FIELDS MIGRATED: added defaults to old save")
+        # 8C: Exile Sequence (safe defaults for pre-8C saves)
+        gs.in_exile = data.get('in_exile', False)
+        gs.exile_trigger = data.get('exile_trigger', None)
+        gs.exile_destination = data.get('exile_destination', None)
+        gs.exile_day = data.get('exile_day', 0)
+        gs.exile_backing = data.get('exile_backing', None)
+        gs.exile_backing_committed = data.get('exile_backing_committed', False)
+        gs.exile_wealth_at_collapse = data.get('exile_wealth_at_collapse', 0.0)
+        gs.exile_apparatus_survived = data.get('exile_apparatus_survived', False)
+        gs.exile_apparatus_detection_risk_modifier = data.get('exile_apparatus_detection_risk_modifier', 1.0)
+        gs.successor_name = data.get('successor_name', None)
+        gs.successor_disposition = data.get('successor_disposition', None)
+        gs.successor_events_fired = data.get('successor_events_fired', [])
+        gs.backing_doors_closed = data.get('backing_doors_closed', [])
+        gs.exile_historian_note = data.get('exile_historian_note', None)
+        if 'in_exile' not in data:
+            print("  [game_state] 8C EXILE FIELDS MIGRATED: added defaults to old save")
+        # 9A: Comeback Mechanics (safe defaults for pre-9A saves)
+        gs.departure_heat = data.get('departure_heat', 0)
+        gs.return_progress = data.get('return_progress', 0.0)
+        gs.return_attempts = data.get('return_attempts', 0)
+        gs.return_threshold = data.get('return_threshold', 100.0)
+        gs.npc_assistance_tiers = data.get('npc_assistance_tiers', {})
+        gs.faction_contacts = data.get('faction_contacts', {})
+        gs.wealth_action_cooldowns = data.get('wealth_action_cooldowns', {})
+        gs.detection_events = data.get('detection_events', [])
+        gs.restoration_active = data.get('restoration_active', False)
+        gs.restoration_grace_days = data.get('restoration_grace_days', 0)
+        gs.restoration_democratic_tally = data.get('restoration_democratic_tally', 0)
+        gs.restoration_authoritarian_tally = data.get('restoration_authoritarian_tally', 0)
+        gs.prior_regime_label = data.get('prior_regime_label', '')
+        gs.exile_entry_gdp = data.get('exile_entry_gdp', 0.0)
+        gs.exile_entry_relations = data.get('exile_entry_relations', {})
+        gs.successor_archetype = data.get('successor_archetype', None)
+        gs.successor_hostility = data.get('successor_hostility', 0)
+        gs.exile_successor_log = data.get('exile_successor_log', [])
+        gs.exile_actions_log = data.get('exile_actions_log', [])
+        if 'departure_heat' not in data:
+            print("  [game_state] 9A COMEBACK FIELDS MIGRATED: added defaults to old save")
+        # 8D: The Leak (safe defaults for pre-8D saves)
+        gs.the_leak_fired = data.get('the_leak_fired', False)
+        gs.the_leak_resolved = data.get('the_leak_resolved', False)
+        gs.the_leak_choice = data.get('the_leak_choice', None)
+        gs.the_leak_followup_fired = data.get('the_leak_followup_fired', False)
+        gs.scapegoat_used = data.get('scapegoat_used', False)
+        if 'the_leak_fired' not in data:
+            print("  [game_state] 8D LEAK FIELDS MIGRATED: added defaults to old save")
+        # 9.5A: Commitment Model fields
+        gs.military_tier = data.get('military_tier', 1)
+        gs.intelligence_tier = data.get('intelligence_tier', 1)
+        gs.diplomatic_tier = data.get('diplomatic_tier', 0)
+        gs.social_tier = data.get('social_tier', 1)
+        gs.education_tier = data.get('education_tier', gs.education_level)  # sync from education_level
+        gs.resource_tier = data.get('resource_tier', 0)
+        gs.political_tier = data.get('political_tier', 0)
+        gs.militia_tier = data.get('militia_tier', 0)
+        gs.daily_military_cost = data.get('daily_military_cost', 0.0)
+        gs.daily_intel_cost = data.get('daily_intel_cost', 0.0)
+        gs.daily_diplomatic_cost = data.get('daily_diplomatic_cost', 0.0)
+        gs.daily_social_cost = data.get('daily_social_cost', 0.0)
+        gs.daily_education_cost = data.get('daily_education_cost', 0.0)
+        gs.daily_resource_cost = data.get('daily_resource_cost', 0.0)
+        gs.total_daily_commitment = data.get('total_daily_commitment', 0.0)
+        gs.income_tax_rate = data.get('income_tax_rate', 0.25)
+        gs.corporate_tax_rate = data.get('corporate_tax_rate', 0.20)
+        gs.tax_structure = data.get('tax_structure', 'balanced')
+        gs.skim_rate = data.get('skim_rate', 0.0)
+        gs.last_gross_revenue = data.get('last_gross_revenue', 0.0)
+        gs.last_net_revenue = data.get('last_net_revenue', 0.0)
+        gs.last_skim_amount = data.get('last_skim_amount', 0.0)
+        gs.resource_policy = data.get('resource_policy', 'state_led')
+        gs.resource_policy_transition_days = data.get('resource_policy_transition_days', 0)
+        gs.tier_upgrade_cooldowns = data.get('tier_upgrade_cooldowns', {})
+        gs.prerequisite_violations = data.get('prerequisite_violations', {})
+        gs.legitimacy_stability = data.get('legitimacy_stability', gs.stability * 0.70)
+        gs.coercion_stability = data.get('coercion_stability', gs.stability * 0.30)
+        # 9.5B: Two-component stability
+        gs.sudden_collapse_risk = data.get('sudden_collapse_risk', False)
+        gs.stability_resilient = data.get('stability_resilient', False)
+        gs.external_stability = data.get('external_stability', 0.0)
+        gs.prev_legitimacy_stability = data.get('prev_legitimacy_stability', 0.0)
+        gs.coup_amplifier_active = data.get('coup_amplifier_active', False)
+        gs.intel_politicized = data.get('intel_politicized', False)
+        gs.eu_relations_ceiling = data.get('eu_relations_ceiling', 100)
+        gs.commitment_deficit_days = data.get('commitment_deficit_days', 0)
+        gs.loyal_generals_installed = data.get('loyal_generals_installed', False)
+        gs.loyal_intel_chief_installed = data.get('loyal_intel_chief_installed', False)
+        # 9.5C: Loyal leadership tracking
+        gs.loyal_generals_cost_paid = data.get('loyal_generals_cost_paid', 0.0)
+        gs.loyal_intel_chief_cost_paid = data.get('loyal_intel_chief_cost_paid', 0.0)
+        gs.loyal_generals_install_day = data.get('loyal_generals_install_day', 0)
+        gs.loyal_intel_chief_install_day = data.get('loyal_intel_chief_install_day', 0)
+        gs.loyal_generals_reversing = data.get('loyal_generals_reversing', False)
+        gs.loyal_intel_chief_reversing = data.get('loyal_intel_chief_reversing', False)
+        gs.loyal_generals_reversal_day = data.get('loyal_generals_reversal_day', 0)
+        gs.loyal_intel_chief_reversal_day = data.get('loyal_intel_chief_reversal_day', 0)
+        gs.intel_distortion_active = data.get('intel_distortion_active', False)
+        gs.coup_warnings_suppressed = data.get('coup_warnings_suppressed', False)
+        gs.pending_briefing_items = data.get('pending_briefing_items', [])
+        # 9.5A-Shadow: Shadow State (safe defaults for pre-shadow saves)
+        gs.media_tier = data.get('media_tier', 0)
+        gs.judicial_tier = data.get('judicial_tier', 0)
+        gs.domestic_surveillance_tier = data.get('domestic_surveillance_tier', 0)
+        gs.extraction_tier = data.get('extraction_tier', 0)
+        gs.daily_media_cost = data.get('daily_media_cost', 0.0)
+        gs.daily_judicial_cost = data.get('daily_judicial_cost', 0.0)
+        gs.daily_surveillance_cost = data.get('daily_surveillance_cost', 0.0)
+        gs.daily_extraction_cost = data.get('daily_extraction_cost', 0.0)
+        gs.daily_militia_cost = data.get('daily_militia_cost', 0.0)
+        gs.daily_extraction_revenue = data.get('daily_extraction_revenue', 0.0)
+        gs.total_shadow_commitment = data.get('total_shadow_commitment', 0.0)
+        gs.shadow_state_unlocked = data.get('shadow_state_unlocked', False)
+        gs.militia_merged = data.get('militia_merged', False)
+        gs.surveillance_merged = data.get('surveillance_merged', False)
+        gs.shadow_tier_cooldowns = data.get('shadow_tier_cooldowns', {})
+        gs.advisor_elimination_count = data.get('advisor_elimination_count', 0)
+        gs.advisor_elimination_last_day = data.get('advisor_elimination_last_day', 0)
+        gs.advisors_with_fear_bonus = data.get('advisors_with_fear_bonus', [])
+        gs.advisors_witnessed_elimination = data.get('advisors_witnessed_elimination', [])
+        gs.advisors_chronically_fearful = data.get('advisors_chronically_fearful', [])
+        if 'media_tier' not in data:
+            print("  [game_state] 9.5A-SHADOW FIELDS MIGRATED: added defaults to old save")
+        # Sync resource_tier from cabinet_axes for old saves
+        if 'resource_tier' not in data:
+            gs.resource_tier = gs.cabinet_axes.get('resource_dev', 0)
+        if 'military_tier' not in data:
+            print("  [game_state] 9.5A COMMITMENT FIELDS MIGRATED: added defaults to old save")
         if 'cabinet_axes' not in data:
             print("  [game_state] SESSION 5 FIELDS MIGRATED: added defaults to old save")
             _migrate_to_axes(gs)

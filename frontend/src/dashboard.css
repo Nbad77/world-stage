@@ -676,6 +676,10 @@
 .mobile-npc-circle.health-warn { border-color: var(--warning); }
 .mobile-npc-circle.health-bad  { border-color: var(--danger);  }
 
+/* 8A: NPC-specific identity border colors for Russia & China */
+.mobile-npc-circle.npc-russia { border-color: var(--russia); }
+.mobile-npc-circle.npc-china  { border-color: var(--china);  }
+
 .mobile-npc-name {
   font-family: var(--mono);
   font-size: 0.5rem;
@@ -1020,6 +1024,101 @@
 .domestic-effect.effect-warn { color: var(--warning); }
 .domestic-effect.effect-bad  { color: var(--danger); }
 
+/* Fix 3 (8E): Slider + text input row layout */
+.domestic-slider-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.domestic-slider-input-row input[type="range"] {
+  flex: 1;
+}
+.domestic-text-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+}
+.domestic-text-input {
+  width: 52px;
+  padding: 0.2rem 0.3rem;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  text-align: right;
+  -moz-appearance: textfield;
+}
+.domestic-text-input::-webkit-outer-spin-button,
+.domestic-text-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.domestic-text-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.domestic-input-prefix,
+.domestic-input-suffix {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  padding: 0 0.15rem;
+}
+
+/* Fix 4 (8E): Budget Breakdown table in Domestic tab */
+.domestic-budget-total {
+  font-family: var(--mono);
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+.budget-breakdown {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem;
+  margin-bottom: 0.5rem;
+}
+.budget-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+}
+.budget-table td {
+  padding: 0.2rem 0;
+}
+.budget-label {
+  color: var(--text);
+}
+.budget-amount {
+  text-align: right;
+  white-space: nowrap;
+}
+.budget-amount.expense {
+  color: var(--danger);
+}
+.budget-sanctions .budget-label {
+  color: var(--danger);
+}
+.budget-total-row {
+  border-top: 1px solid var(--border);
+}
+.budget-total-row td {
+  padding-top: 0.35rem;
+}
+.budget-personal-note {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 0.4rem;
+  font-style: italic;
+  border-top: 1px solid var(--border);
+  padding-top: 0.3rem;
+}
+
 /* ── Actions bar ──────────────────────────────────────────────────────── */
 .domestic-actions {
   display: flex;
@@ -1156,7 +1255,7 @@
 .edu-decay-warning {
   font-family: var(--mono);
   font-size: 0.68rem;
-  color: var(--danger);
+  color: var(--warning);
   font-weight: 600;
 }
 
@@ -1181,7 +1280,7 @@
 .edu-brain-drain {
   font-family: var(--mono);
   font-size: 0.68rem;
-  color: var(--warning);
+  color: var(--danger);
   font-weight: 600;
 }
 
@@ -2829,4 +2928,614 @@
   border: 1px solid rgba(201, 168, 76, 0.2);
   border-radius: 5px;
   text-align: center;
+}
+
+/* ── Finance sections in Domestic Tab (moved from Shadow Cabinet) ──────── */
+.domestic-finance-section {
+  padding: 0.4rem 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.domestic-tax-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+
+.domestic-tax-row .domestic-range {
+  flex: 1;
+}
+
+.domestic-tax-label {
+  font-size: 0.78rem;
+  min-width: 110px;
+  color: #ccc;
+}
+
+.domestic-tax-cap {
+  font-size: 0.65rem;
+  color: #888;
+  margin-left: 0.25rem;
+}
+
+.domestic-tax-value {
+  font-size: 0.78rem;
+  font-weight: 600;
+  min-width: 36px;
+  text-align: right;
+  color: var(--accent, #ffd700);
+}
+
+.domestic-tax-note {
+  font-size: 0.68rem;
+  color: #888;
+  font-style: italic;
+  margin-top: 0.3rem;
+}
+
+.domestic-revenue-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.3rem;
+}
+
+.domestic-revenue-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  padding: 0.15rem 0;
+}
+
+.domestic-revenue-label {
+  color: #aaa;
+  text-transform: capitalize;
+}
+
+.domestic-revenue-val {
+  color: var(--accent, #ffd700);
+  font-weight: 600;
+}
+
+.domestic-gdp-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  color: #ccc;
+}
+
+.domestic-gdp-growth {
+  color: #50c878;
+  font-size: 0.72rem;
+}
+
+.domestic-bond-btn {
+  width: 100%;
+  font-size: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--card-bg, #1a1a2e);
+  border: 1px solid #444;
+  color: #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.domestic-bond-btn:hover:not(:disabled) {
+  background: #2a2a4e;
+  border-color: var(--accent, #ffd700);
+}
+
+.domestic-bond-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.domestic-bond-disabled {
+  opacity: 0.4;
+}
+
+/* ── 9.5A: Commitment Panel ────────────────────────────────────────────── */
+.commit-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.commit-row {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem;
+}
+
+.commit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+
+.commit-label {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.commit-tier-badge {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--accent);
+  background: rgba(100, 100, 255, 0.08);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+}
+
+.commit-details {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin-bottom: 0.3rem;
+}
+
+.commit-cost {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--warning);
+}
+
+.commit-cost-pw {
+  color: var(--accent);
+}
+
+.commit-cooldown {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: var(--muted);
+  background: rgba(255, 200, 50, 0.12);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+}
+
+.commit-violation {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: var(--danger);
+  font-style: italic;
+}
+
+.commit-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.commit-btn {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  width: 28px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.commit-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(100, 100, 255, 0.1);
+}
+
+.commit-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.commit-btn-up {
+  color: var(--success);
+}
+
+.commit-btn-down {
+  color: var(--danger);
+}
+
+.commit-tier-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.commit-tier-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.commit-tier-num {
+  position: absolute;
+  right: 4px;
+  top: -1px;
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  font-weight: 600;
+  color: var(--muted);
+  line-height: 8px;
+}
+
+.commit-edu-note {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.commit-divider {
+  margin: 0.5rem 0 0.2rem;
+  padding: 0.3rem 0;
+  border-top: 1px dashed var(--border);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+
+
+/* ── 8D: The Leak — Crisis Card (in EOT feed) ────────────────────────────── */
+.leak-crisis-card {
+  border: 2px solid #cc3333;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  background: rgba(204, 51, 51, 0.08);
+}
+
+.leak-crisis-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.leak-crisis-card-badge {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #ff4444;
+  text-transform: uppercase;
+}
+
+.leak-crisis-card-title {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #fff;
+}
+
+.leak-crisis-card-body {
+  font-size: 0.75rem;
+  color: #ccc;
+  margin-bottom: 0.6rem;
+  line-height: 1.4;
+}
+
+.leak-crisis-card-btn {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #fff;
+  background: #cc3333;
+  border: none;
+  border-radius: 4px;
+  padding: 0.4rem 1rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.leak-crisis-card-btn:hover {
+  background: #ee4444;
+}
+
+/* ── 8D: The Leak — Full-screen Crisis Modal ──────────────────────── */
+.leak-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.leak-modal {
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--ws-bg, #0f1923);
+  border: 2px solid #cc3333;
+  border-radius: 8px;
+  box-shadow: 0 0 40px rgba(204, 51, 51, 0.3);
+}
+
+.leak-header {
+  padding: 1rem 1.2rem 0.75rem;
+  border-bottom: 2px solid #cc3333;
+  background: rgba(204, 51, 51, 0.06);
+}
+
+.leak-title {
+  margin-bottom: 0.3rem;
+}
+
+.leak-crisis-badge {
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #ff4444;
+  text-transform: uppercase;
+}
+
+.leak-subtitle {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.leak-body {
+  padding: 1rem 1.2rem;
+}
+
+.leak-situation {
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: #ccc;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.leak-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.leak-choice-card {
+  border: 1px solid #333;
+  border-radius: 5px;
+  padding: 0.6rem 0.8rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.leak-choice-card:hover:not(.leak-choice-disabled) {
+  border-color: #cc3333;
+  background: rgba(204, 51, 51, 0.05);
+}
+
+.leak-choice-selected {
+  border-color: #cc3333;
+  background: rgba(204, 51, 51, 0.1);
+}
+
+.leak-choice-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.leak-choice-label {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #fff;
+  margin-bottom: 0.2rem;
+}
+
+.leak-choice-desc {
+  font-size: 0.72rem;
+  color: #aaa;
+  margin-bottom: 0.25rem;
+}
+
+.leak-choice-consequences {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: #888;
+  letter-spacing: 0.04em;
+}
+
+.leak-choice-warning {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  color: #ff8800;
+  margin-top: 0.25rem;
+  font-weight: 600;
+}
+
+.leak-choice-unavailable {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  color: #ff4444;
+  margin-top: 0.25rem;
+  font-weight: 600;
+}
+
+.leak-confirm-step-btn {
+  margin-top: 0.4rem;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #ff4444;
+  background: transparent;
+  border: 1px solid #cc3333;
+  border-radius: 3px;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.leak-confirm-step-btn:hover {
+  background: rgba(204, 51, 51, 0.15);
+}
+
+.leak-confirm-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.leak-confirm-btn {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #fff;
+  background: #cc3333;
+  border: none;
+  border-radius: 3px;
+  padding: 0.3rem 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.leak-confirm-btn:hover:not(:disabled) {
+  background: #ee4444;
+}
+
+.leak-confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.leak-back-btn {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: #aaa;
+  background: transparent;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+}
+
+.leak-back-btn:hover {
+  border-color: #888;
+}
+
+.leak-error {
+  margin-top: 0.5rem;
+  font-size: 0.7rem;
+  color: #ff4444;
+  font-family: var(--mono);
+}
+
+.leak-footer {
+  margin-top: 0.75rem;
+  font-size: 0.6rem;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.3);
+  text-align: center;
+}
+
+/* Resolution screen */
+.leak-result-body {
+  text-align: center;
+}
+
+.leak-narrative {
+  font-size: 0.8rem;
+  line-height: 1.7;
+  color: #ccc;
+  margin-bottom: 1rem;
+  font-style: italic;
+  padding: 0 0.5rem;
+}
+
+.leak-consequence-summary {
+  border: 1px solid #333;
+  border-radius: 5px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 1rem;
+  text-align: left;
+}
+
+.leak-summary-header {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #888;
+  text-transform: uppercase;
+  margin-bottom: 0.4rem;
+}
+
+.leak-summary-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  padding: 0.15rem 0;
+}
+
+.leak-summary-label {
+  color: #aaa;
+}
+
+.leak-val-pos {
+  color: #50c878;
+  font-weight: 600;
+}
+
+.leak-val-neg {
+  color: #ff4444;
+  font-weight: 600;
+}
+
+.leak-summary-note {
+  font-size: 0.65rem;
+  color: #888;
+  font-style: italic;
+  margin-top: 0.4rem;
+  padding-top: 0.3rem;
+  border-top: 1px solid #333;
+}
+
+.leak-continue-btn {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #fff;
+  background: #cc3333;
+  border: none;
+  border-radius: 4px;
+  padding: 0.5rem 2rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.leak-continue-btn:hover {
+  background: #ee4444;
 }

@@ -59,9 +59,9 @@ EDUCATION_LEVEL_NAMES = ['Underdeveloped', 'Basic', 'Developed', 'Advanced']
 
 # Spending thresholds ($B/turn) to make progress toward next level
 EDUCATION_GAIN_THRESHOLDS = {
-    0: 2.0,   # $2B/turn to progress from L0 → L1
-    1: 4.0,   # $4B/turn to progress from L1 → L2
-    2: 7.0,   # $7B/turn to progress from L2 → L3
+    0: 2.0,   # $2B/turn to progress from L0 -> L1
+    1: 4.0,   # $4B/turn to progress from L1 -> L2
+    2: 7.0,   # $7B/turn to progress from L2 -> L3
 }
 # Base rate of progress per turn when allocation meets threshold (0.0-1.0)
 BASE_EDUCATION_RATE = 0.20   # ~5 turns to level up at threshold spending
@@ -90,6 +90,976 @@ EDUCATION_COUP_RESISTANCE = {0: 0.0, 1: 0.0, 2: 0.05, 3: 0.15}  # subtracted fro
 # Brain drain: if education_level >= 2 AND stability < 30, risk losing progress
 BRAIN_DRAIN_STABILITY_THRESHOLD = 30
 BRAIN_DRAIN_PROGRESS_LOSS = 0.10  # lose 10% progress per turn when triggered
+
+
+# ── 9.5A: Commitment Model — Tier Cost Tables ────────────────────────────────
+
+TIER_COSTS = {
+    "military": {
+        0: 0.0, 1: 0.5, 2: 0.9, 3: 1.4, 4: 2.0,
+        5: 2.7, 6: 3.5, 7: 4.4, 8: 5.5, 9: 7.0,
+        10: 9.0
+    },
+    "intelligence": {
+        0: 0.0, 1: 0.3, 2: 0.6, 3: 1.0, 4: 1.5,
+        5: 2.1, 6: 2.8, 7: 3.6, 8: 4.5, 9: 5.5,
+        10: 7.0
+    },
+    "diplomatic": {
+        0: 0.0, 1: 0.3, 2: 0.6, 3: 1.0, 4: 1.5,
+        5: 2.0, 6: 2.6, 7: 3.3, 8: 4.1, 9: 5.0,
+        10: 6.5
+    },
+    "social": {
+        0: 0.0, 1: 0.4, 2: 0.8, 3: 1.4, 4: 2.0,
+        5: 2.7, 6: 3.5, 7: 4.4, 8: 5.5, 9: 6.5,
+        10: 8.0
+    },
+    "education": {
+        0: 0.0, 1: 0.3, 2: 0.7, 3: 1.2, 4: 1.8,
+        5: 2.5, 6: 3.2, 7: 4.0, 8: 5.0, 9: 6.0,
+        10: 7.5
+    },
+    "resource": {
+        0: 0.0, 1: 0.5, 2: 0.9, 3: 1.4, 4: 2.0,
+        5: 2.7, 6: 3.5, 7: 4.3, 8: 5.2, 9: 6.2,
+        10: 7.5
+    },
+    "political": {
+        # Political axis advances through actions, not spending.
+        # Cost here = patronage/maintenance cost of political control.
+        0: 0.0, 1: 0.2, 2: 0.4, 3: 0.7, 4: 1.1,
+        5: 1.6, 6: 2.2, 7: 2.9, 8: 3.7, 9: 4.6,
+        10: 6.0
+    },
+    "militia": {
+        # Militia funded from personal wealth, not national budget.
+        # Costs here are personal wealth per day, not budget drain.
+        0: 0.0, 1: 0.3, 2: 0.7, 3: 1.2, 4: 1.8,
+        5: 2.5, 6: 3.3, 7: 4.2, 8: 5.2, 9: 6.3,
+        10: 7.5
+    },
+}
+
+TIER_UPGRADE_COOLDOWNS = {
+    "military":     {1:2, 2:3, 3:5, 4:7, 5:9, 6:12, 7:14, 8:18, 9:22, 10:28},
+    "intelligence": {1:2, 2:3, 3:5, 4:7, 5:9, 6:12, 7:15, 8:18, 9:22, 10:28},
+    "diplomatic":   {1:2, 2:3, 3:4, 4:6, 5:8, 6:10, 7:13, 8:16, 9:20, 10:25},
+    "social":       {1:2, 2:3, 3:5, 4:7, 5:9, 6:12, 7:15, 8:18, 9:22, 10:28},
+    "education":    {1:3, 2:4, 3:6, 4:8, 5:10, 6:13, 7:16, 8:20, 9:25, 10:30},
+    "resource":     {1:2, 2:3, 3:5, 4:7, 5:9, 6:11, 7:14, 8:17, 9:21, 10:26},
+    "political":    {1:2, 2:3, 3:4, 4:6, 5:8, 6:10, 7:13, 8:16, 9:20, 10:25},
+    "militia":      {1:2, 2:3, 3:5, 4:7, 5:9, 6:12, 7:15, 8:19, 9:23, 10:28},
+}
+
+GDP_GATES = {
+    # Minimum GDP required to upgrade to this tier
+    # Below gate: cost x3, capability 50%
+    # Above gate: normal cost and capability
+    7: 80.0,    # $80B GDP
+    8: 120.0,   # $120B GDP
+    9: 180.0,   # $180B GDP
+    10: 250.0,  # $250B GDP
+}
+
+PREREQUISITES = {
+    # {tier_key: {min_tier: {prereq_key: min_level}}}
+    # All are SOFT — without prereq, cost x2 and capability reduced, not hard blocked
+    "military": {
+        5: {"tech_level": 2},
+        7: {"education_tier": 1},
+        8: {"intelligence_tier": 4},
+    },
+    "intelligence": {
+        4: {"tech_level": 1},
+        6: {"tech_level": 3},
+    },
+    "diplomatic": {
+        5: {"education_tier": 1},
+        7: {"action_judiciary_captured": False},
+        # Diplomatic 7+ is incompatible with judicial capture —
+        # not a cost penalty, a hard incompatibility
+    },
+    "militia": {
+        # Militia upgrades require personal wealth, no axis prerequisites
+    },
+}
+
+COMMITMENT_EDUCATION_DISCOUNTS = {
+    # {tier_key: {min_tier: {edu_min: discount}}}
+    "military":     {3: {2: 0.3}},
+    "intelligence": {2: {2: 0.2}, 3: {2: 0.2}},
+    "diplomatic":   {3: {2: 0.3}},
+}
+
+COMMITMENT_TECH_DISCOUNTS = {
+    "intelligence": {2: {3: 0.2}},
+    # Intel Tier 2+ gets -$0.2B/day at Tech Tier 3+
+}
+
+
+# ── 9.5A-Shadow: Shadow State Cost Tables ─────────────────────────────────────
+# Shadow axes are funded from PERSONAL WEALTH, not national budget.
+# These are separate from TIER_COSTS which covers national commitment axes.
+
+SHADOW_TIER_COSTS = {
+    "media": {
+        # Media control: propaganda, censorship, state broadcasting
+        0: 0.0, 1: 0.2, 2: 0.4, 3: 0.7, 4: 1.1,
+        5: 1.6, 6: 2.2, 7: 2.9, 8: 3.7, 9: 4.6,
+        10: 6.0
+    },
+    "judicial": {
+        # Judicial capture: judges, prosecutors, legal manipulation
+        0: 0.0, 1: 0.2, 2: 0.5, 3: 0.9, 4: 1.4,
+        5: 2.0, 6: 2.7, 7: 3.5, 8: 4.4, 9: 5.4,
+        10: 7.0
+    },
+    "domestic_surveillance": {
+        # Surveillance network: informants, wiretaps, digital monitoring
+        0: 0.0, 1: 0.3, 2: 0.6, 3: 1.0, 4: 1.5,
+        5: 2.1, 6: 2.8, 7: 3.6, 8: 4.5, 9: 5.5,
+        10: 7.0
+    },
+    "extraction": {
+        # Resource extraction/diversion apparatus (partially offset by revenue)
+        0: 0.0, 1: 0.2, 2: 0.4, 3: 0.7, 4: 1.0,
+        5: 1.4, 6: 1.9, 7: 2.5, 8: 3.2, 9: 4.0,
+        10: 5.0
+    },
+    # militia costs already in TIER_COSTS — militia is shared between systems
+}
+
+EXTRACTION_REVENUE = {
+    # Revenue generated per day by extraction tier.
+    # Offsets extraction costs and feeds personal wealth.
+    # Higher tiers make extraction profitable.
+    0: 0.0, 1: 0.1, 2: 0.3, 3: 0.6, 4: 1.0,
+    5: 1.5, 6: 2.1, 7: 2.8, 8: 3.6, 9: 4.5,
+    10: 5.5
+}
+
+EXTRACTION_SKIM_CEILING = {
+    # Maximum skim_rate allowed at each extraction tier.
+    # Without extraction infrastructure, skim is capped low.
+    0: 0.05,   # 5% baseline -- petty corruption
+    1: 0.08,   # 8%
+    2: 0.12,   # 12%
+    3: 0.15,   # 15%
+    4: 0.20,   # 20%
+    5: 0.25,   # 25%
+    6: 0.30,   # 30%
+    7: 0.35,   # 35%
+    8: 0.40,   # 40%
+    9: 0.45,   # 45%
+    10: 0.65,  # 65% -- maximum extraction
+}
+
+SHADOW_TIER_UPGRADE_COOLDOWNS = {
+    # Cooldown in days after upgrading each shadow tier.
+    # Shadow upgrades are faster than national tiers (covert, fewer bureaucratic hurdles).
+    "media":                  {1:1, 2:2, 3:3, 4:5, 5:7, 6:9, 7:11, 8:14, 9:17, 10:21},
+    "judicial":               {1:2, 2:3, 3:4, 4:6, 5:8, 6:10, 7:13, 8:16, 9:20, 10:25},
+    "domestic_surveillance":  {1:2, 2:3, 3:4, 4:6, 5:8, 6:10, 7:13, 8:16, 9:20, 10:25},
+    "extraction":             {1:1, 2:2, 3:3, 4:4, 5:6, 6:8, 7:10, 8:13, 9:16, 10:20},
+    # militia cooldowns already in TIER_UPGRADE_COOLDOWNS
+}
+
+SHADOW_AXIS_FLAGS = {
+    # Maps shadow tier thresholds to existing game_state boolean flags.
+    # When a shadow tier reaches the threshold, the corresponding flag activates.
+    # This bridges the new shadow system with the existing suppression flag system.
+    "media": {
+        3: "action_press_suppressed",       # media >= 3 -> press suppressed
+        5: "action_media_taken",            # media >= 5 -> media captured
+    },
+    "judicial": {
+        4: "action_judiciary_captured",     # judicial >= 4 -> judiciary captured
+        7: "action_journalists_liquidated", # judicial >= 7 -> journalists liquidated
+    },
+    # FIX1: opposition_dissolved removed — now requires surveillance + judicial combo
+    # (see compute_shadow_state_costs)
+}
+
+SHADOW_PREREQUISITES = {
+    # {shadow_axis: {min_tier: {prereq_key: min_value}}}
+    # All are SOFT gates -- without prereq, cost x2 (same pattern as PREREQUISITES)
+    "media": {
+        # No prerequisites -- media control is entry-level corruption
+    },
+    "judicial": {
+        3: {"media_tier": 2},             # Need media cover before judicial capture
+    },
+    "domestic_surveillance": {
+        3: {"intelligence_tier": 2},      # Need intel infrastructure
+        6: {"judicial_tier": 3},          # Need legal cover for deep surveillance
+    },
+    "extraction": {
+        3: {"political_tier": 2},         # Need political connections for extraction
+        6: {"judicial_tier": 3},          # Need legal protection for large-scale extraction
+    },
+    # militia -- no shadow prerequisites (but costs personal wealth via TIER_COSTS)
+}
+
+print("[9.5A-Shadow] Shadow cost tables loaded: "
+      f"SHADOW_TIER_COSTS={len(SHADOW_TIER_COSTS)} axes, "
+      f"EXTRACTION_REVENUE={len(EXTRACTION_REVENUE)} tiers, "
+      f"EXTRACTION_SKIM_CEILING={len(EXTRACTION_SKIM_CEILING)} tiers, "
+      f"SHADOW_AXIS_FLAGS={sum(len(v) for v in SHADOW_AXIS_FLAGS.values())} flags")
+
+
+def check_prerequisites(game_state, tier_key, target_tier):
+    """9.5A: Check prerequisites for upgrading a tier.
+    Returns dict with met, violations, cost_multiplier, capability_modifier, hard_blocked."""
+    result = {
+        "met": True,
+        "violations": [],
+        "cost_multiplier": 1.0,
+        "capability_modifier": 1.0,
+        "hard_blocked": False,
+    }
+
+    prereqs = PREREQUISITES.get(tier_key, {})
+
+    # Check each prerequisite level threshold
+    for min_tier, requirements in prereqs.items():
+        if target_tier < min_tier:
+            continue
+        for prereq_key, prereq_value in requirements.items():
+            # Special case: diplomatic 7+ AND judicial capture = hard block
+            if tier_key == "diplomatic" and prereq_key == "action_judiciary_captured" and prereq_value is False:
+                if getattr(game_state, 'action_judiciary_captured', False):
+                    result["met"] = False
+                    result["hard_blocked"] = True
+                    result["violations"].append(
+                        f"Diplomatic tier {target_tier} incompatible with judicial capture")
+                continue
+
+            # Normal soft prerequisite check
+            current_val = getattr(game_state, prereq_key, 0)
+            if isinstance(current_val, float):
+                current_val = int(current_val)
+            if current_val < prereq_value:
+                result["met"] = False
+                result["violations"].append(
+                    f"{prereq_key} requires {prereq_value}, currently {current_val}")
+                result["cost_multiplier"] *= 2.0
+                result["capability_modifier"] = 0.5
+
+    # GDP gate check
+    gdp = getattr(game_state, 'gdp_base', 100.0)
+    if target_tier in GDP_GATES:
+        if gdp < GDP_GATES[target_tier]:
+            result["met"] = False
+            result["violations"].append(
+                f"GDP ${gdp:.0f}B below gate ${GDP_GATES[target_tier]:.0f}B for tier {target_tier}")
+            result["cost_multiplier"] *= 3.0
+            result["capability_modifier"] = 0.5
+
+    print(f"[9.5A] prereq_check: "
+          f"tier={tier_key} target={target_tier} "
+          f"met={result['met']} "
+          f"cost_mult={result['cost_multiplier']} "
+          f"hard_blocked={result['hard_blocked']}")
+
+    return result
+
+
+def compute_daily_commitment_cost(game_state):
+    """9.5A: Compute daily commitment costs for all axes based on tier levels.
+    Updates game_state.daily_*_cost fields and game_state.total_daily_commitment.
+    Militia costs come from personal_wealth, not national budget.
+    Returns (budget_total, militia_cost)."""
+
+    # Get education tier and tech tier for discount lookups
+    edu_tier = getattr(game_state, 'education_tier', 0)
+    # Compute tech tier from tech_level thresholds (matches game_state._compute_tech_tier)
+    _tl = float(getattr(game_state, 'tech_level', 0))
+    if _tl >= 100:
+        tech_tier = 5
+    elif _tl >= 75:
+        tech_tier = 4
+    elif _tl >= 50:
+        tech_tier = 3
+    elif _tl >= 25:
+        tech_tier = 2
+    elif _tl >= 10:
+        tech_tier = 1
+    else:
+        tech_tier = 0
+
+    budget_total = 0.0
+
+    # Budget axes — costs deducted from national budget
+    _budget_axes = [
+        ("military",     "military_tier",     "daily_military_cost"),
+        ("intelligence", "intelligence_tier", "daily_intel_cost"),
+        ("diplomatic",   "diplomatic_tier",   "daily_diplomatic_cost"),
+        ("social",       "social_tier",       "daily_social_cost"),
+        ("education",    "education_tier",    "daily_education_cost"),
+        ("resource",     "resource_tier",     "daily_resource_cost"),
+    ]
+
+    for axis_key, tier_attr, cost_attr in _budget_axes:
+        tier = getattr(game_state, tier_attr, 0)
+        base_cost = TIER_COSTS.get(axis_key, {}).get(tier, 0.0)
+
+        discount = 0.0
+
+        # Education discount: COMMITMENT_EDUCATION_DISCOUNTS[axis][min_tier] = {edu_min: disc}
+        _edu_disc = COMMITMENT_EDUCATION_DISCOUNTS.get(axis_key, {})
+        for min_tier, edu_req in _edu_disc.items():
+            if tier >= min_tier:
+                for edu_min, disc_val in edu_req.items():
+                    if edu_tier >= edu_min:
+                        discount += disc_val
+
+        # Tech discount: COMMITMENT_TECH_DISCOUNTS[axis][min_tier] = {tech_min: disc}
+        _tech_disc = COMMITMENT_TECH_DISCOUNTS.get(axis_key, {})
+        for min_tier, tech_req in _tech_disc.items():
+            if tier >= min_tier:
+                for tech_min, disc_val in tech_req.items():
+                    if tech_tier >= tech_min:
+                        discount += disc_val
+
+        final_cost = max(0.0, round(base_cost - discount, 2))
+        setattr(game_state, cost_attr, final_cost)
+        budget_total += final_cost
+
+    # Political axis — patronage/maintenance cost from national budget
+    pol_tier = getattr(game_state, 'political_tier', 0)
+    pol_cost = TIER_COSTS.get("political", {}).get(pol_tier, 0.0)
+    budget_total += pol_cost
+
+    budget_total = round(budget_total, 2)
+    game_state.total_daily_commitment = budget_total
+
+    # Militia — costs from personal wealth, NOT national budget
+    militia_tier = getattr(game_state, 'militia_tier', 0)
+    militia_cost = TIER_COSTS.get("militia", {}).get(militia_tier, 0.0)
+
+    print(f"[9.5A] daily_commitment: "
+          f"mil=${getattr(game_state, 'daily_military_cost', 0.0):.1f} "
+          f"intel=${getattr(game_state, 'daily_intel_cost', 0.0):.1f} "
+          f"diplo=${getattr(game_state, 'daily_diplomatic_cost', 0.0):.1f} "
+          f"social=${getattr(game_state, 'daily_social_cost', 0.0):.1f} "
+          f"edu=${getattr(game_state, 'daily_education_cost', 0.0):.1f} "
+          f"resource=${getattr(game_state, 'daily_resource_cost', 0.0):.1f} "
+          f"political=${pol_cost:.1f} "
+          f"militia=${militia_cost:.1f}(pw) "
+          f"total_budget=${budget_total:.1f}")
+
+    return budget_total, militia_cost
+
+
+def compute_shadow_state_costs(game_state):
+    """9.5A-Shadow: Compute daily shadow state costs from personal wealth.
+    Shadow axes (media, judicial, domestic_surveillance, extraction) are funded
+    from personal wealth, not national budget.
+
+    Also:
+    - Computes extraction revenue (offsets extraction cost)
+    - Enforces EXTRACTION_SKIM_CEILING on skim_rate
+    - Syncs SHADOW_AXIS_FLAGS (activates boolean flags at tier thresholds)
+    - Updates shadow_state_unlocked flag
+    - Stores daily costs on game_state for frontend display
+
+    Returns (total_shadow_cost, extraction_revenue, net_shadow_drain).
+    """
+    _shadow_axes = [
+        ("media",                  "media_tier",                  "daily_media_cost"),
+        ("judicial",               "judicial_tier",               "daily_judicial_cost"),
+        ("domestic_surveillance",  "domestic_surveillance_tier",  "daily_surveillance_cost"),
+        ("extraction",             "extraction_tier",             "daily_extraction_cost"),
+    ]
+
+    total_shadow_cost = 0.0
+
+    for axis_key, tier_attr, cost_attr in _shadow_axes:
+        tier = getattr(game_state, tier_attr, 0)
+        cost = SHADOW_TIER_COSTS.get(axis_key, {}).get(tier, 0.0)
+
+        # Apply SHADOW_PREREQUISITES soft gate cost multiplier
+        _prereqs = SHADOW_PREREQUISITES.get(axis_key, {})
+        for min_tier, requirements in _prereqs.items():
+            if tier >= min_tier:
+                for prereq_key, prereq_value in requirements.items():
+                    current_val = getattr(game_state, prereq_key, 0)
+                    if isinstance(current_val, float):
+                        current_val = int(current_val)
+                    if current_val < prereq_value:
+                        cost *= 2.0  # soft gate penalty
+
+        cost = round(cost, 2)
+        setattr(game_state, cost_attr, cost)
+        total_shadow_cost += cost
+
+    # Militia cost (already in TIER_COSTS, shared between systems)
+    militia_tier = getattr(game_state, 'militia_tier', 0)
+    militia_cost = TIER_COSTS.get("militia", {}).get(militia_tier, 0.0)
+    game_state.daily_militia_cost = militia_cost
+    total_shadow_cost += militia_cost
+
+    total_shadow_cost = round(total_shadow_cost, 2)
+
+    # Extraction revenue
+    ext_tier = getattr(game_state, 'extraction_tier', 0)
+    extraction_revenue = EXTRACTION_REVENUE.get(ext_tier, 0.0)
+    game_state.daily_extraction_revenue = extraction_revenue
+
+    # Net shadow drain (costs minus extraction revenue)
+    net_drain = round(total_shadow_cost - extraction_revenue, 2)
+    game_state.total_shadow_commitment = total_shadow_cost
+
+    # -- Enforce EXTRACTION_SKIM_CEILING --
+    skim_ceiling = EXTRACTION_SKIM_CEILING.get(ext_tier, 0.05)
+    current_skim = getattr(game_state, 'skim_rate', 0.0)
+    if current_skim > skim_ceiling:
+        game_state.skim_rate = skim_ceiling
+        print(f"[9.5A-Shadow] skim_rate capped: {current_skim*100:.0f}% -> {skim_ceiling*100:.0f}% "
+              f"(extraction_tier={ext_tier})")
+
+    # -- Sync SHADOW_AXIS_FLAGS --
+    # Activate boolean flags when shadow tiers reach thresholds
+    for axis_key, thresholds in SHADOW_AXIS_FLAGS.items():
+        # Map axis_key to the correct tier attribute
+        if axis_key == "political":
+            tier = getattr(game_state, 'political_tier', 0)
+        elif axis_key == "media":
+            tier = getattr(game_state, 'media_tier', 0)
+        elif axis_key == "judicial":
+            tier = getattr(game_state, 'judicial_tier', 0)
+        else:
+            continue
+
+        for threshold, flag_name in thresholds.items():
+            old_val = getattr(game_state, flag_name, False)
+            new_val = (tier >= threshold)
+            if new_val and not old_val:
+                setattr(game_state, flag_name, True)
+                print(f"[9.5A-Shadow] FLAG ACTIVATED: {flag_name} "
+                      f"({axis_key}_tier={tier} >= {threshold})")
+
+    # FIX1: Opposition dissolved requires BOTH surveillance AND judicial at meaningful levels
+    if (getattr(game_state, 'domestic_surveillance_tier', 0) >= 5
+            and getattr(game_state, 'judicial_tier', 0) >= 5):
+        if not getattr(game_state, 'action_opposition_dissolved', False):
+            game_state.action_opposition_dissolved = True
+            print(f"[FIX1] FLAG ACTIVATED: action_opposition_dissolved "
+                  f"(surv={game_state.domestic_surveillance_tier} jud={game_state.judicial_tier})")
+    # Note: once set, does not auto-clear if tiers drop
+    print(f"[FIX1] opposition_dissolved check: "
+          f"surv={getattr(game_state, 'domestic_surveillance_tier', 0)} "
+          f"jud={getattr(game_state, 'judicial_tier', 0)} "
+          f"dissolved={getattr(game_state, 'action_opposition_dissolved', False)}")
+
+    # -- Update shadow_state_unlocked --
+    any_shadow = (
+        getattr(game_state, 'media_tier', 0) > 0 or
+        getattr(game_state, 'judicial_tier', 0) > 0 or
+        getattr(game_state, 'domestic_surveillance_tier', 0) > 0 or
+        getattr(game_state, 'extraction_tier', 0) > 0 or
+        getattr(game_state, 'militia_tier', 0) > 0
+    )
+    game_state.shadow_state_unlocked = any_shadow
+
+    print(f"[9.5A-Shadow] shadow_costs: "
+          f"media=${getattr(game_state, 'daily_media_cost', 0):.1f} "
+          f"judicial=${getattr(game_state, 'daily_judicial_cost', 0):.1f} "
+          f"surv=${getattr(game_state, 'daily_surveillance_cost', 0):.1f} "
+          f"extract=${getattr(game_state, 'daily_extraction_cost', 0):.1f} "
+          f"militia=${militia_cost:.1f} "
+          f"total=${total_shadow_cost:.1f} "
+          f"ext_rev=${extraction_revenue:.1f} "
+          f"net_drain=${net_drain:.1f} "
+          f"skim_ceil={skim_ceiling*100:.0f}%")
+
+    return total_shadow_cost, extraction_revenue, net_drain
+
+
+# ── 9.5A: Tax Structure Modifiers ────────────────────────────────────────────
+TAX_STRUCTURE_MODIFIERS = {
+    "elite_heavy":  {"income": 0.85, "corporate": 1.15, "resource": 1.10},
+    "balanced":     {"income": 1.00, "corporate": 1.00, "resource": 1.00},
+    "mass_heavy":   {"income": 1.15, "corporate": 0.85, "resource": 0.90},
+}
+
+# Education → tax collection efficiency
+EDUCATION_TAX_EFFICIENCY = {
+    0: 0.92,  # Underdeveloped: -8% collection penalty (spec value)
+    1: 0.95,  # Basic: functional but leaky
+    2: 1.00,  # Developed: competent administration
+    3: 1.05,  # Advanced: efficient modern tax system
+}
+
+
+def _laffer_efficiency(rate):
+    """Laffer curve: efficiency drops at high tax rates.
+    Returns multiplier 0.0-1.0 on effective revenue from that rate."""
+    if rate <= 0.30:
+        return 1.0
+    elif rate <= 0.50:
+        return 1.0 - (rate - 0.30) * 0.50   # 1.0 → 0.90 at 50%
+    elif rate <= 0.70:
+        return 0.90 - (rate - 0.50) * 0.75   # 0.90 → 0.75 at 70%
+    else:
+        return max(0.30, 0.75 - (rate - 0.70) * 1.50)  # 0.75 → 0.30 at 100%
+
+
+def compute_tax_revenue(game_state):
+    """9.5A: Compute tax revenue using new commitment model fields.
+    Uses income_tax_rate, corporate_tax_rate, tax_rates['resource_tax'],
+    tax_structure, education efficiency, Laffer curve, and skim_rate.
+    Does NOT modify game_state.budget — that happens in Section 6.
+    Returns dict with all computed values for logging and comparison."""
+
+    gdp = getattr(game_state, 'gdp_base', 100.0)
+
+    # ── Tax rates (new standalone fields + resource from tax_rates dict) ──
+    income_rate = getattr(game_state, 'income_tax_rate', 0.25)
+    corp_rate = getattr(game_state, 'corporate_tax_rate', 0.20)
+    _tax_rates = getattr(game_state, 'tax_rates',
+                         {'income_tax': 0.20, 'corporate_tax': 0.15, 'resource_tax': 0.25})
+    resource_rate = _tax_rates.get('resource_tax', 0.25)
+    _endowment = getattr(game_state, 'resource_endowment', {})
+    oil_factor = _endowment.get('oil_reserves', 0.7)
+
+    # ── Base revenue streams (same GDP fractions as existing code) ──
+    income_base = gdp * income_rate * 0.10      # income tax on 10% of GDP
+    corp_base = gdp * corp_rate * 0.06           # corporate tax on 6% of GDP
+    resource_base = gdp * resource_rate * oil_factor * 0.12  # resource extraction
+
+    # ── Laffer curve — diminishing returns at high rates ──
+    income_rev = income_base * _laffer_efficiency(income_rate)
+    corp_rev = corp_base * _laffer_efficiency(corp_rate)
+    resource_rev = resource_base * _laffer_efficiency(resource_rate)
+
+    # ── Tax structure modifier ──
+    structure = getattr(game_state, 'tax_structure', 'balanced')
+    _struct_mods = TAX_STRUCTURE_MODIFIERS.get(structure, TAX_STRUCTURE_MODIFIERS['balanced'])
+    income_rev *= _struct_mods['income']
+    corp_rev *= _struct_mods['corporate']
+    resource_rev *= _struct_mods['resource']
+
+    # ── Education tax efficiency ──
+    edu_level = getattr(game_state, 'education_level', 0)
+    edu_eff = EDUCATION_TAX_EFFICIENCY.get(edu_level, 0.92)
+    print(f"[9.5A-FIX4] edu_tier={edu_level} edu_eff={edu_eff}")
+    income_rev *= edu_eff
+    corp_rev *= edu_eff
+    resource_rev *= edu_eff
+
+    # ── Institutional modifier (heat penalty) ── 9.5A-FIX1
+    institution_mod = 1.0
+    heat = getattr(game_state, 'detection_heat', 0)
+    if heat > 60:
+        institution_mod -= 0.10
+    elif heat > 40:
+        institution_mod -= 0.05
+    income_rev *= institution_mod
+    corp_rev *= institution_mod
+    resource_rev *= institution_mod
+    print(f"[9.5A-FIX1] heat={heat} inst_mod={institution_mod}")
+
+    gross_revenue = round(income_rev + corp_rev + resource_rev, 2)
+
+    # ── Approval modifier (same tiers as existing code) ──
+    approval = getattr(game_state, 'public_approval', 50)
+    if approval >= 80:
+        approval_mult = 1.4
+    elif approval >= 60:
+        approval_mult = 1.0
+    elif approval >= 40:
+        approval_mult = 0.7
+    else:
+        approval_mult = 0.4
+    gross_revenue = round(gross_revenue * approval_mult, 2)
+
+    # ── Stability modifier (same as existing) ──
+    stability = getattr(game_state, 'stability', 50)
+    if stability >= 80:
+        gross_revenue += 1.0
+    elif stability < 30:
+        gross_revenue -= 1.0
+
+    # ── Sanctions penalty (same as existing) ──
+    sanctions_tier = getattr(game_state, 'usa_sanctions_tier', 0)
+    if sanctions_tier >= 4:
+        gross_revenue -= 1.5
+    embargo_tier = getattr(game_state, 'arabia_embargo_tier', 0)
+    if embargo_tier >= 2:
+        gross_revenue -= 0.5
+
+    # ── Regime modifier (same as existing) ──
+    regime = getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy')
+    regime_mults = {
+        'Managed Democracy': 1.1,
+        'Soft Authoritarianism': 1.0,
+        'Patronage State': 0.95,
+        'Kleptocracy': 0.85,
+        'Totalitarian Regime': 0.75,
+    }
+    gross_revenue = round(gross_revenue * regime_mults.get(regime, 1.0), 2)
+
+    # ── Tech multiplier (same as existing) ──
+    tech_level = float(getattr(game_state, 'tech_level', 0))
+    tech_mult = 1.0 + (tech_level * 0.005)
+    if tech_mult > 1.0:
+        gross_revenue = round(gross_revenue * tech_mult, 2)
+
+    # ── Infrastructure bonus (same as existing) ──
+    infra_bonus = getattr(game_state, '_infra_gdp_bonus', 0.0)
+    if infra_bonus > 0:
+        gross_revenue = round(gross_revenue * (1.0 + infra_bonus), 2)
+
+    # ── GDP contraction override at critically low approval+stability ──
+    contraction = False
+    if approval < 20 and stability < 30:
+        gross_revenue = round(-1.0 - (30 - stability) * 0.05 - (20 - approval) * 0.05, 2)
+        contraction = True
+
+    # ── Skim diversion ──
+    skim_rate = getattr(game_state, 'skim_rate', 0.0)
+    if contraction or gross_revenue <= 0:
+        skim_income = 0.0
+        net_revenue = gross_revenue
+    else:
+        skim_income = round(gross_revenue * skim_rate, 2)
+        net_revenue = round(gross_revenue - skim_income, 2)
+        # ── Skim heat generation (moved from Section 6) ── 9.5A-FIX2
+        if skim_rate > 0.05:
+            _skim_heat = round((skim_rate - 0.05) * 100, 0)
+            _old_heat = getattr(game_state, 'detection_heat', 0)
+            game_state.detection_heat = min(100, _old_heat + int(_skim_heat))
+            print(f"[9.5A-FIX2] skim_rate={skim_rate*100:.0f}% skim_heat_added={_skim_heat:.0f} heat_total={game_state.detection_heat}")
+        else:
+            print(f"[9.5A-FIX2] skim_rate={skim_rate*100:.0f}% skim_heat_added=0 heat_total={getattr(game_state, 'detection_heat', 0)}")
+
+    # Floor net revenue at 0 for normal operation (contraction can be negative)
+    if not contraction:
+        net_revenue = max(0.0, net_revenue)
+
+    # ── Store revenue fields for frontend display ──
+    game_state.last_gross_revenue = round(gross_revenue, 2)
+    game_state.last_net_revenue = round(net_revenue, 2)
+    game_state.last_skim_amount = round(skim_income, 2)
+    print(f"[FIX] revenue stored: gross={game_state.last_gross_revenue:.2f} net={game_state.last_net_revenue:.2f} skim={game_state.last_skim_amount:.2f}")
+
+    result = {
+        'gross_revenue': round(gross_revenue, 1),
+        'net_revenue': round(net_revenue, 1),
+        'skim_income': round(skim_income, 1),
+        'skim_rate': skim_rate,
+        'income_rev': round(income_rev, 2),
+        'corp_rev': round(corp_rev, 2),
+        'resource_rev': round(resource_rev, 2),
+        'laffer_income': round(_laffer_efficiency(income_rate), 3),
+        'laffer_corp': round(_laffer_efficiency(corp_rate), 3),
+        'laffer_resource': round(_laffer_efficiency(resource_rate), 3),
+        'tax_structure': structure,
+        'edu_efficiency': edu_eff,
+        'approval_mult': approval_mult,
+        'tech_mult': round(tech_mult, 3),
+        'regime': regime,
+        'contraction': contraction,
+    }
+
+    print(f"[9.5A] tax_revenue: "
+          f"gross=${result['gross_revenue']:.1f} "
+          f"net=${result['net_revenue']:.1f} "
+          f"skim=${result['skim_income']:.1f} ({skim_rate*100:.0f}%) "
+          f"income=${result['income_rev']:.1f} "
+          f"corp=${result['corp_rev']:.1f} "
+          f"resource=${result['resource_rev']:.1f} "
+          f"laffer={result['laffer_income']:.2f}/{result['laffer_corp']:.2f}/{result['laffer_resource']:.2f} "
+          f"struct={structure} edu_eff={edu_eff} "
+          f"appr_mult={approval_mult} tech_mult={tech_mult:.3f}")
+
+    return result
+
+
+# ── 9.5A: Western Alignment Ceiling Table ─────────────────────────────────────
+# Each suppression action hard-caps EU relations. Cumulative (most restrictive wins).
+WESTERN_ALIGNMENT_CAPS = {
+    # (field_name, cap_when_active)
+    'action_press_suppressed': 85,
+    'action_judiciary_captured': 75,
+    'action_opposition_dissolved': 55,
+    'action_journalists_liquidated': 40,
+}
+# Combined: press + judiciary = 65, all active = 30
+
+
+def compute_eu_ceiling(game_state):
+    """9.5A-Shadow: Compute EU relations ceiling from shadow tier levels + suppression flags.
+
+    Base ceiling comes from boolean suppression flags (backward compatible):
+      - press_suppressed: 85
+      - judiciary_captured: 75
+      - press + judiciary: 65
+      - opposition_dissolved: 55
+      - journalists_liquidated: 40
+      - all active: 30
+
+    Tier-based refinement (additional reductions for deep shadow investment):
+      - media_tier >= 7: -5 (deep media control beyond basic suppression)
+      - judicial_tier >= 7: -5 (total judicial capture)
+      - domestic_surveillance_tier >= 5: -5 (surveillance state detected by EU)
+
+    Returns the computed ceiling (integer, 0-100).
+    """
+    # -- Flag-based caps (backward compatible) --
+    press_sup = getattr(game_state, 'action_press_suppressed', False)
+    jud_cap = getattr(game_state, 'action_judiciary_captured', False)
+    opp_dis = getattr(game_state, 'action_opposition_dissolved', False)
+    journ_liq = getattr(game_state, 'action_journalists_liquidated', False)
+
+    ceiling = 100
+    if press_sup:
+        ceiling = min(ceiling, 85)
+    if jud_cap:
+        ceiling = min(ceiling, 75)
+    if press_sup and jud_cap:
+        ceiling = min(ceiling, 65)
+    if opp_dis:
+        ceiling = min(ceiling, 55)
+    if journ_liq:
+        ceiling = min(ceiling, 40)
+    if press_sup and jud_cap and opp_dis and journ_liq:
+        ceiling = 30
+
+    # -- Tier-based refinement (9.5A-Shadow) --
+    media_tier = getattr(game_state, 'media_tier', 0)
+    judicial_tier = getattr(game_state, 'judicial_tier', 0)
+    surv_tier = getattr(game_state, 'domestic_surveillance_tier', 0)
+
+    tier_penalty = 0
+    if media_tier >= 7:
+        tier_penalty += 5
+    if judicial_tier >= 7:
+        tier_penalty += 5
+    if surv_tier >= 5:
+        tier_penalty += 5
+
+    if tier_penalty > 0:
+        ceiling = max(10, ceiling - tier_penalty)  # floor at 10
+        print(f"[9.5A-Shadow] EU ceiling tier penalty: -{tier_penalty} "
+              f"(media_t={media_tier} jud_t={judicial_tier} surv_t={surv_tier})")
+
+    print(f"[9.5A-Shadow] compute_eu_ceiling: {ceiling} "
+          f"(press={press_sup} jud={jud_cap} opp={opp_dis} journ={journ_liq} "
+          f"tier_pen={tier_penalty})")
+
+    return ceiling
+
+
+def compute_stability_components(gs) -> tuple:
+    """9.5B: Computes legitimacy and coercion stability raw scores from current game state.
+    Returns (legitimacy_float, coercion_float) as 0-100 values representing the ideal
+    composition ratio."""
+
+    # --- LEGITIMACY SOURCES ---
+    # Approval (primary driver, 0-40 points)
+    approval_score = (gs.public_approval / 100) * 40
+
+    # Education tier (0-15 points)
+    edu = getattr(gs, 'education_tier', getattr(gs, 'education_level', 0))
+    edu_score = (edu / 10) * 15
+
+    # Social tier (0-15 points)
+    social_score = (getattr(gs, 'social_tier', 0) / 10) * 15
+
+    # Election integrity (0-15 points)
+    elections_held = getattr(gs, 'elections_held', 0)
+    elections_stolen = getattr(gs, 'elections_stolen', 0)
+    if elections_held > 0:
+        integrity = 1.0 - (elections_stolen / elections_held)
+    else:
+        integrity = 0.8
+    election_score = integrity * 15
+
+    # Democratic track record (0-10 points)
+    suppression_count = sum([
+        1 if getattr(gs, 'action_press_suppressed', False) else 0,
+        1 if getattr(gs, 'action_judiciary_captured', False) else 0,
+        1 if getattr(gs, 'action_opposition_dissolved', False) else 0,
+        1 if getattr(gs, 'action_journalists_liquidated', False) else 0,
+    ])
+    track_record_score = max(0, 10 - (suppression_count * 2.5))
+
+    # Diplomatic tier (0-5 points)
+    diplo_score = (getattr(gs, 'diplomatic_tier', 0) / 10) * 5
+
+    legitimacy_raw = (approval_score + edu_score + social_score
+                      + election_score + track_record_score + diplo_score)
+    # Normalize: max raw = 100 (40+15+15+15+10+5), scale to 0-100
+    legitimacy = min(100, legitimacy_raw)
+
+    # --- COERCION SOURCES ---
+    # Military tier (0-30 points)
+    mil_score = (getattr(gs, 'military_tier', 0) / 10) * 30
+
+    # Militia tier (0-20 points)
+    # If merged into military, capability already reflected in military_tier
+    if getattr(gs, 'militia_merged', False):
+        militia_score = 0
+    else:
+        militia_score = (getattr(gs, 'militia_tier', 0) / 10) * 20
+
+    # Suppression axes (0-25 points)
+    media_t = getattr(gs, 'media_tier', 0)
+    judicial_t = getattr(gs, 'judicial_tier', 0)
+    surv_t = getattr(gs, 'domestic_surveillance_tier', 0)
+    suppression_score = min(25, (media_t + judicial_t + surv_t) / 30 * 25)
+
+    # Political tier / patronage (0-15 points)
+    pol_score = (getattr(gs, 'political_tier', 0) / 10) * 15
+
+    # Personal wealth patronage (0-10 points)
+    wealth = getattr(gs, 'personal_wealth', 0)
+    wealth_score = min(10, (wealth / 20) * 10)
+
+    coercion_raw = (mil_score + militia_score + suppression_score
+                    + pol_score + wealth_score)
+    # Normalize: max raw = 100 (30+20+25+15+10), scale to 0-100
+    coercion = min(100, coercion_raw)
+
+    # --- REGIME TYPE FLOORS AND CAPS ---
+    _si = getattr(gs, 'state_identity', {})
+    regime = _si.get('regime_type', 'Managed Democracy')
+
+    democratic_regimes = ['Managed Democracy']
+    soft_auth_regimes = ['Soft Authoritarianism', 'Patronage State']
+    full_dict_regimes = ['Kleptocracy', 'Totalitarian Regime']
+
+    if regime in democratic_regimes:
+        # Democracy: legitimacy floor 30, coercion hard-capped at 40
+        legitimacy = max(legitimacy, 30)
+        coercion = min(coercion, 40)
+    elif regime in soft_auth_regimes:
+        # Soft authoritarianism: slight legitimacy floor
+        legitimacy = max(legitimacy, 15)
+    elif regime in full_dict_regimes:
+        # Full dictatorship: legitimacy capped unless player invests
+        if edu < 2 and getattr(gs, 'social_tier', 0) < 2 and gs.public_approval < 50:
+            legitimacy = min(legitimacy, 40)
+        coercion = min(coercion, 100)  # no cap
+
+    print(f"[9.5B] compute_stability_components: "
+          f"leg_raw={legitimacy:.1f} coe_raw={coercion:.1f} "
+          f"regime={regime} "
+          f"approval={gs.public_approval} edu={edu} "
+          f"suppression={suppression_count}")
+
+    return (legitimacy, coercion)
+
+
+def apply_commitment_eot_checks(game_state, messages, net_revenue=None):
+    """9.5A: End-of-turn commitment model checks.
+    1. Coup amplifier — military_tier > political_tier by 3+
+    2. Intel politicization — political_tier >= 7 AND intelligence_tier >= 5
+    3. Western alignment ceiling — suppression state -> EU cap
+    4. Sustainability gap — commitment > revenue for 5+ consecutive days
+    Called from apply_end_of_turn_effects() after budget integration.
+    net_revenue is passed from Section 6 once wired; None = skip sustainability check."""
+
+    mil_tier = getattr(game_state, 'military_tier', 0)
+    pol_tier = getattr(game_state, 'political_tier', 0)
+    intel_tier = getattr(game_state, 'intelligence_tier', 0)
+
+    # ── 1. Coup Amplifier ──────────────────────────────────────────────
+    gap = mil_tier - pol_tier
+    was_active = getattr(game_state, 'coup_amplifier_active', False)
+    game_state.coup_amplifier_active = (gap > 3)
+
+    if game_state.coup_amplifier_active and not was_active:
+        messages.append(
+            f"⚠️ COUP RISK: Military tier ({mil_tier}) exceeds political control ({pol_tier}) "
+            f"by {gap} — generals may act independently")
+    elif not game_state.coup_amplifier_active and was_active:
+        messages.append("✅ Military-political gap closed — coup amplifier deactivated")
+
+    # ── 2. Intel Politicization ────────────────────────────────────────
+    was_politicized = getattr(game_state, 'intel_politicized', False)
+    game_state.intel_politicized = (pol_tier >= 7 and intel_tier >= 5)
+
+    if game_state.intel_politicized and not was_politicized:
+        messages.append(
+            "⚠️ Intelligence apparatus politicized — intercepts may be unreliable "
+            "(Political ≥7, Intel ≥5)")
+    elif not game_state.intel_politicized and was_politicized:
+        messages.append("✅ Intelligence depoliticized — intercept reliability restored")
+
+    # ── 3. Western Alignment Ceiling ───────────────────────────────────
+    ceiling = compute_eu_ceiling(game_state)
+
+    old_ceiling = getattr(game_state, 'eu_relations_ceiling', 100)
+    game_state.eu_relations_ceiling = ceiling
+
+    # Enforce ceiling on EU relations
+    eu_rel = game_state.relations.get('eu', 50)
+    if eu_rel > ceiling:
+        _old_eu = eu_rel
+        game_state.relations['eu'] = ceiling
+        messages.append(
+            f"🇪🇺 EU relations capped: {_old_eu:.0f} → {ceiling} "
+            f"(domestic suppression ceiling)")
+        print(f"[9.5A] EU ceiling enforced: {_old_eu:.0f} -> {ceiling}")
+
+    if ceiling < old_ceiling:
+        messages.append(
+            f"⚠️ Western alignment ceiling dropped: {old_ceiling} → {ceiling}")
+
+    # ── 4. Sustainability Gap ──────────────────────────────────────────
+    total_commitment = getattr(game_state, 'total_daily_commitment', 0.0)
+    deficit_days = getattr(game_state, 'commitment_deficit_days', 0)
+
+    if net_revenue is not None and total_commitment > 0:
+        # Unsustainable if commitment exceeds 120% of net revenue
+        if total_commitment > net_revenue * 1.2:
+            game_state.commitment_deficit_days = deficit_days + 1
+            if game_state.commitment_deficit_days >= 5:
+                # Find highest-cost budget axis and degrade it
+                _axis_costs = [
+                    ('military_tier', 'daily_military_cost'),
+                    ('intelligence_tier', 'daily_intel_cost'),
+                    ('diplomatic_tier', 'daily_diplomatic_cost'),
+                    ('social_tier', 'daily_social_cost'),
+                    ('education_tier', 'daily_education_cost'),
+                    ('resource_tier', 'daily_resource_cost'),
+                ]
+                _highest_axis = None
+                _highest_cost = 0.0
+                for _tier_attr, _cost_attr in _axis_costs:
+                    _cost = getattr(game_state, _cost_attr, 0.0)
+                    _tier = getattr(game_state, _tier_attr, 0)
+                    if _cost > _highest_cost and _tier > 0:
+                        _highest_cost = _cost
+                        _highest_axis = _tier_attr
+
+                if _highest_axis:
+                    _old_tier = getattr(game_state, _highest_axis)
+                    setattr(game_state, _highest_axis, _old_tier - 1)
+                    _axis_name = _highest_axis.replace('_tier', '')
+                    messages.append(
+                        f"📉 SUSTAINABILITY GAP: {_axis_name} tier degraded "
+                        f"{_old_tier} → {_old_tier - 1} "
+                        f"(commitment ${total_commitment:.1f}B > revenue ${net_revenue:.1f}B "
+                        f"for {deficit_days} consecutive days)")
+                    print(f"[9.5A] sustainability_gap: {_axis_name} {_old_tier} -> {_old_tier - 1}")
+                    game_state.commitment_deficit_days = 0  # reset after degradation
+        else:
+            # Revenue covers commitment — reset deficit counter
+            game_state.commitment_deficit_days = 0
+    elif net_revenue is None:
+        pass  # Section 6 not yet wired — skip sustainability check
+
+    print(f"[9.5A] eot_checks: "
+          f"coup_amp={game_state.coup_amplifier_active} "
+          f"(mil_t={mil_tier} pol_t={pol_tier} gap={gap}) "
+          f"intel_pol={game_state.intel_politicized} "
+          f"eu_ceiling={ceiling} "
+          f"deficit_days={getattr(game_state, 'commitment_deficit_days', 0)}")
 
 
 def apply_election_consequences(game_state, result_key):
@@ -175,6 +1145,370 @@ def apply_election_consequences(game_state, result_key):
 
     print(f"  [turn_processor] ELECTION RESULT: {result_key} — consequences applied: {changes}")
     return changes
+
+
+# ── 8C: Exile Sequence ──────────────────────────────────────────────────────
+
+from game_state import SUCCESSOR_NAMES, APPARATUS_SURVIVAL
+
+EXILE_DRAIN_BASE = 0.2  # $B/day living expenses
+
+# Stubbed successor events — fire by day number, keyed by disposition
+SUCCESSOR_EVENTS = {
+    'reformist': [
+        {'key': 'ref_eu_deal', 'day': 3,
+         'effects': {'eu': 5, 'stability': -5}},
+        {'key': 'ref_unpopular', 'day': 7,
+         'effects': {}},
+        {'key': 'ref_arabia_fumble', 'day': 12,
+         'effects': {'arabia': -8}},
+    ],
+    'hardliner': [
+        {'key': 'hard_usa_drop', 'day': 3,
+         'effects': {'usa': -12, 'russia': 5}},
+        {'key': 'hard_press', 'day': 6,
+         'effects': {'eu': -8}},
+        {'key': 'hard_stable', 'day': 10,
+         'effects': {}},
+    ],
+    'technocrat': [
+        {'key': 'tech_cold', 'day': 4,
+         'effects': {}},
+        {'key': 'tech_budget', 'day': 8,
+         'effects': {'stability': 5}},
+    ],
+    'populist': [
+        {'key': 'pop_spending', 'day': 3,
+         'effects': {}},
+        {'key': 'pop_arabia', 'day': 7,
+         'effects': {'arabia': 5, 'eu': -6}},
+        {'key': 'pop_approval', 'day': 11,
+         'effects': {}},
+    ],
+}
+
+# Successor event text templates (use {name} placeholder)
+SUCCESSOR_EVENT_TEXT = {
+    'ref_eu_deal': '{name} has signed an EU governance framework -- press freedom benchmarks attached. EU relations rise but stability drops.',
+    'ref_unpopular': 'Approval for {name} has fallen to 38%. The reforms are moving faster than the population can absorb.',
+    'ref_arabia_fumble': '{name} has renegotiated the Arabia energy deal at significantly worse terms. Oil costs rising.',
+    'hard_usa_drop': '{name} has expelled two Western NGOs. USA relations have dropped sharply.',
+    'hard_press': '{name} has moved against independent media. EU considering sanctions review.',
+    'hard_stable': 'Stability under {name} has reached 85%. The suppression is working, for now.',
+    'tech_cold': '{name} governs efficiently but without warmth. Approval has drifted to 42%.',
+    'tech_budget': '{name} has stabilized the budget through austerity. Public services cut 15%.',
+    'pop_spending': '{name} has announced a popular spending program. Budget drain accelerating.',
+    'pop_arabia': '{name} has made public overtures to Arabia that contradict your previous EU commitments.',
+    'pop_approval': '{name}\'s approval has hit 71%. The honeymoon is holding.',
+}
+
+
+def _calculate_exile_destination(gs):
+    """Fix B: Standalone helper to determine exile destination from highest NPC relations."""
+    DEST_MAP = {
+        'usa':    ('Washington D.C.', 'usa'),
+        'eu':     ('Brussels', 'eu'),
+        'arabia': ('Riyadh', 'arabia'),
+        'dprg':   ('Pyongyang', 'dprg'),
+        'russia': ('Moscow', 'russia'),
+        'china':  ('Shanghai', 'china'),
+    }
+    relations = {k: gs.relations.get(k, 0)
+                 for k in ('usa', 'arabia', 'eu', 'dprg', 'russia', 'china')}
+    top_npc = max(relations, key=relations.get)
+    city, npc = DEST_MAP[top_npc]
+    print(f"[exile] Destination calculated: {city} (highest NPC: {npc}, relations: {relations[top_npc]})")
+    return top_npc
+
+
+def _compute_departure_heat(game_state, trigger):
+    """9A: Compute departure heat (1-5) based on how the player left power."""
+    import math
+    # Level 5: Fugitive — violent departure + international warrant or war crimes
+    has_warrant = getattr(game_state, 'international_warrant', False)
+    has_war_crimes = getattr(game_state, 'war_crimes_flag', False)
+    brigades_deployed = getattr(game_state, 'brigades_deployed_last_turn', False)
+    militia_active = getattr(game_state, 'private_security_force', False)
+    lethal_flag = getattr(game_state, 'action_journalists_liquidated', False)
+    military_axis = game_state.cabinet_axes.get('military', 0)
+
+    # Check if militia/brigades were deployed (any brigade ops recently)
+    recent_brigade_ops = len(getattr(game_state, 'brigade_operations_this_turn', []))
+    militia_deployed = brigades_deployed or militia_active or recent_brigade_ops > 0
+
+    # Significant casualties: lethal actions taken
+    significant_casualties = lethal_flag
+
+    if militia_deployed and (significant_casualties or military_axis >= 7) and (has_warrant or has_war_crimes):
+        heat = 5  # Fugitive
+    elif militia_deployed and (significant_casualties or lethal_flag):
+        heat = 4  # Violent
+    elif militia_deployed:
+        heat = 3  # Contested
+    elif trigger == 'voted_out':
+        heat = 1  # Quiet — conceded peacefully
+    else:
+        # Some resistance but no militia
+        heat = 2  # Managed
+
+    heat = max(1, min(5, heat))
+    print(f"[DIAG] departure_heat computed={heat} flags=militia_deployed={militia_deployed} lethal={lethal_flag} warrant={has_warrant} war_crimes={has_war_crimes} mil_axis={military_axis} trigger={trigger}")
+    return heat
+
+
+def _compute_return_threshold(trigger, departure_heat):
+    """9A: Compute return threshold from collapse type and departure heat."""
+    base_by_trigger = {
+        'coup': 70,
+        'revolution': 90,
+        'debt': 65,
+        'voted_out': 50,
+    }
+    base = base_by_trigger.get(trigger, 70)
+    heat_modifier = (departure_heat - 1) * 8
+    return base + heat_modifier
+
+
+def exile_sequence_start(game_state, trigger):
+    """8C: Transition from in-power to exile. Called instead of game-over."""
+    game_state.in_exile = True
+    game_state.exile_trigger = trigger
+    game_state.exile_day = 0
+    game_state.exile_wealth_at_collapse = game_state.personal_wealth
+
+    # 9A: Snapshot state at exile moment for restoration calculations
+    game_state.exile_entry_gdp = getattr(game_state, 'gdp_base', 100.0)
+    game_state.exile_entry_relations = dict(game_state.relations)
+
+    # 9A: Compute departure heat and return threshold
+    game_state.departure_heat = _compute_departure_heat(game_state, trigger)
+    game_state.return_threshold = _compute_return_threshold(trigger, game_state.departure_heat)
+    print(f"[DIAG] return_threshold set={game_state.return_threshold} collapse={trigger} heat={game_state.departure_heat}")
+    game_state.return_progress = 0.0
+    game_state.return_attempts = 0
+    game_state.npc_assistance_tiers = {}
+    game_state.faction_contacts = {}
+    game_state.wealth_action_cooldowns = {}
+    game_state.detection_events = []
+    game_state.exile_successor_log = []
+    game_state.exile_actions_log = []
+
+    # Determine destination -- highest NPC relations at collapse
+    game_state.exile_destination = _calculate_exile_destination(game_state)
+
+    # Determine successor
+    game_state.successor_disposition = game_state._determine_successor()
+    game_state.successor_name = SUCCESSOR_NAMES[game_state.successor_disposition]
+
+    # Apparatus survival
+    survival = APPARATUS_SURVIVAL.get(trigger, APPARATUS_SURVIVAL['coup'])
+    game_state.exile_apparatus_survived = survival['survived']
+    game_state.exile_apparatus_detection_risk_modifier = survival['risk_modifier']
+
+    # Strip national resources -- these belong to the successor now
+    game_state.budget = 0.0
+    game_state.military_strength = 0
+    # Personal wealth, shadow apparatus, backchannel relations survive
+
+    print(f'[exile] Exile started: trigger={trigger} destination={game_state.exile_destination}')
+    print(f'[exile] Successor: {game_state.successor_name} ({game_state.successor_disposition})')
+    print(f'[exile] Apparatus: survived={game_state.exile_apparatus_survived} risk_modifier={game_state.exile_apparatus_detection_risk_modifier}')
+    print(f'[9A] departure_heat={game_state.departure_heat}, return_threshold={game_state.return_threshold}')
+
+    # 9A: Compute successor archetype and hostility
+    _archetype = _compute_successor_archetype(trigger, game_state.successor_disposition, game_state)
+    game_state.successor_archetype = _archetype
+    game_state.successor_hostility = _compute_successor_hostility(_archetype, game_state.departure_heat)
+    print(f'[9A] successor_archetype={_archetype} hostility={game_state.successor_hostility}')
+
+    if trigger == 'voted_out':
+        print(f'[exile] Voted out path: apparatus_risk=0.9 backing_discount=20%')
+
+
+def _compute_successor_archetype(trigger, disposition, game_state):
+    """9A: Map (trigger, disposition) to a named archetype."""
+    if trigger == 'voted_out' and disposition == 'reformist':
+        return 'Opposition Democracy'
+    if trigger == 'revolution' and disposition == 'populist':
+        return 'Populist Dictator'
+    if trigger == 'coup' and disposition == 'hardliner':
+        # Distinguish military vs oligarch coup
+        mil_axis = game_state.cabinet_axes.get('military', 0)
+        if mil_axis >= 5:
+            return 'Military Junta'
+        else:
+            return 'Oligarchic Council'
+    if trigger == 'debt' and disposition == 'technocrat':
+        return 'Technocratic Caretaker'
+    # Fallback: use disposition label directly
+    return disposition.replace('_', ' ').title()
+
+
+def _compute_successor_hostility(archetype, departure_heat):
+    """9A: Compute successor hostility (0-3) from archetype + departure heat."""
+    import math
+    base_by_archetype = {
+        'Opposition Democracy': 0,
+        'Technocratic Caretaker': 0,
+        'Oligarchic Council': 1,
+        'Populist Dictator': 2,
+        'Military Junta': 2,
+    }
+    base = base_by_archetype.get(archetype, 1)
+    heat_modifier = math.floor((departure_heat - 1) / 2)
+    return min(3, base + heat_modifier)
+
+
+def process_exile_eod(game_state):
+    """8C: End-of-day processing during exile. Replaces normal EOT."""
+    game_state.exile_day += 1
+    drain = EXILE_DRAIN_BASE
+
+    # Shadow apparatus maintenance
+    if game_state.exile_apparatus_survived:
+        drain += 0.3
+
+    game_state.personal_wealth = max(0, round(game_state.personal_wealth - drain, 2))
+
+    # NPC relations drift slowly downward in exile
+    for npc in ('usa', 'arabia', 'eu', 'dprg', 'russia', 'china'):
+        current = game_state.relations.get(npc, 50)
+        # Slow drift toward 30 (the floor of relevance)
+        if current > 30:
+            game_state.relations[npc] = max(30, round(current - 0.5, 1))
+
+    # Fire successor event (stubbed -- one per 2-3 days)
+    event_msg = _maybe_fire_successor_event(game_state)
+
+    print(f'[exile] EOD: day={game_state.exile_day} wealth={game_state.personal_wealth:.1f}B drain={drain:.1f}B')
+
+    messages = [f"Day {game_state.exile_day} in exile. Wealth: ${game_state.personal_wealth:.1f}B (burn: ${drain:.1f}B/day)"]
+    if event_msg:
+        messages.append(event_msg)
+    return messages
+
+
+def _maybe_fire_successor_event(game_state):
+    """9A: Fire a live GM-generated successor event once per exile day.
+    Replaces the static stub system from 8C."""
+    archetype = getattr(game_state, 'successor_archetype', None)
+    name = game_state.successor_name or 'The Successor'
+    hostility = getattr(game_state, 'successor_hostility', 0)
+
+    if not archetype:
+        # Fallback to old disposition if archetype not computed (pre-9A save)
+        archetype = (game_state.successor_disposition or 'populist').replace('_', ' ').title()
+
+    # Fire one event per exile day (called from process_exile_eod)
+    try:
+        from npc_engine import generate_successor_events
+        events = generate_successor_events(
+            successor_archetype=archetype,
+            successor_name=name,
+            successor_hostility=hostility,
+            exile_day=game_state.exile_day,
+            player_return_progress=getattr(game_state, 'return_progress', 0.0),
+            player_exile_actions_log=getattr(game_state, 'exile_actions_log', []),
+            game_state=game_state,
+        )
+    except Exception as _gm_err:
+        print(f'[9A] Successor event GM call failed: {_gm_err}')
+        # Static fallback: generate a generic event based on hostility
+        events = _static_successor_fallback(archetype, name, hostility, game_state.exile_day)
+
+    if not events:
+        return None
+
+    result_texts = []
+    for evt in events:
+        evt_type = evt.get('type', 'unknown')
+        description = evt.get('description', f'{name} takes action.')
+        effects = evt.get('effect', {})
+
+        # Apply mechanical effects
+        _apply_successor_effect(game_state, evt_type, effects)
+
+        # Log to exile_successor_log
+        log_entry = {
+            'day': game_state.exile_day,
+            'type': evt_type,
+            'description': description,
+            'effects': effects,
+        }
+        if not hasattr(game_state, 'exile_successor_log'):
+            game_state.exile_successor_log = []
+        game_state.exile_successor_log.append(log_entry)
+
+        result_texts.append(description)
+        print(f'[9A] successor_event fired: {evt_type} on exile_day={game_state.exile_day}')
+
+    return ' '.join(result_texts) if result_texts else None
+
+
+def _apply_successor_effect(game_state, evt_type, effects):
+    """9A: Apply the mechanical effects from a successor event."""
+    if evt_type == 'asset_seizure':
+        delta = effects.get('personal_wealth', 0)
+        if delta:
+            game_state.personal_wealth = max(0, round(game_state.personal_wealth + delta, 2))
+    elif evt_type == 'diplomatic_outreach':
+        for npc_id, rel_delta in effects.items():
+            if npc_id in ('usa', 'arabia', 'eu', 'dprg', 'russia', 'china'):
+                game_state.relations[npc_id] = max(0, min(100, game_state.relations.get(npc_id, 50) + rel_delta))
+    elif evt_type == 'propaganda_campaign':
+        delta = effects.get('approval_delta', 0)
+        if delta:
+            game_state.public_approval = max(0, min(90, game_state.public_approval + delta))
+    elif evt_type == 'arrest_warrant':
+        game_state.international_warrant = True
+    elif evt_type == 'reconciliation_offer':
+        pass  # opens democratic return path -- UI stub for now
+    elif evt_type == 'purge_allies':
+        # Reduce faction contact availability
+        fc = getattr(game_state, 'faction_contacts', {})
+        for faction_key in list(fc.keys()):
+            if fc[faction_key].get('unlocked') and not fc[faction_key].get('committed'):
+                fc[faction_key]['unlocked'] = False
+                print(f'[9A] purge_allies: faction {faction_key} contact revoked')
+                break
+        game_state.faction_contacts = fc
+    elif evt_type == 'economic_stabilization':
+        stab_delta = effects.get('stability_delta', 0)
+        if stab_delta > 0:
+            game_state.stability = max(0, min(90, game_state.stability + stab_delta))
+        # Progress penalty for player: stability for successor = harder return
+        progress_penalty = effects.get('progress_penalty', 0)
+        if progress_penalty:
+            game_state.return_progress = max(0, game_state.return_progress - progress_penalty)
+
+
+def _static_successor_fallback(archetype, name, hostility, exile_day):
+    """9A: Static fallback when GM call fails. Returns a list of event dicts."""
+    import random
+    if hostility <= 0:
+        templates = [
+            {'type': 'reconciliation_offer', 'description': f'{name} has made a public statement leaving the door open for political dialogue.', 'effect': {}},
+            {'type': 'diplomatic_outreach', 'description': f'{name} has reached out to the EU to signal continuity.', 'effect': {'eu': 3}},
+        ]
+    elif hostility == 1:
+        templates = [
+            {'type': 'economic_stabilization', 'description': f'{name} has announced an austerity program. Markets responded cautiously.', 'effect': {'stability_delta': 3}},
+            {'type': 'diplomatic_outreach', 'description': f'{name} is meeting with foreign representatives. Business as usual, conspicuously so.', 'effect': {}},
+        ]
+    elif hostility == 2:
+        templates = [
+            {'type': 'propaganda_campaign', 'description': f'{name} has launched a media campaign denouncing the previous regime.', 'effect': {'approval_delta': -5}},
+            {'type': 'asset_seizure', 'description': f'{name} has frozen several accounts linked to the former government.', 'effect': {'personal_wealth': -1.0}},
+        ]
+    else:
+        templates = [
+            {'type': 'arrest_warrant', 'description': f'{name} has issued an international arrest warrant for the former leader.', 'effect': {}},
+            {'type': 'asset_seizure', 'description': f'{name} has seized personal assets held within Europa.', 'effect': {'personal_wealth': -2.0}},
+            {'type': 'purge_allies', 'description': f'{name} has arrested several former officials with ties to the previous regime.', 'effect': {}},
+        ]
+    # Pick one event
+    return [random.choice(templates)]
+
 
 
 # ── Session 4C: Domestic Action Consequences (hard-coded, Claude never decides these) ──
@@ -337,7 +1671,7 @@ def apply_domestic_action(game_state, action_key):
     if _heat_add > 0:
         _old_heat = game_state.detection_heat
         game_state.detection_heat = min(100, game_state.detection_heat + _heat_add)
-        changes.append(f"🔥 +{_heat_add} detection heat ({_old_heat}% → {game_state.detection_heat}%)")
+        changes.append(f"🔥 +{_heat_add} detection heat ({_old_heat}% -> {game_state.detection_heat}%)")
         print(f"  [HEAT] Domestic action '{action_key}': +{_heat_add} heat ({_old_heat} -> {game_state.detection_heat})")
 
     # Log to action_history
@@ -446,11 +1780,11 @@ def apply_tech_gain(game_state, source_key):
 
     # Report tier transition if applicable
     if old_tier != new_tier:
-        changes.append(f"TIER UP: {TECH_TIER_NAMES[old_tier]} → {TECH_TIER_NAMES[new_tier]}")
+        changes.append(f"TIER UP: {TECH_TIER_NAMES[old_tier]} -> {TECH_TIER_NAMES[new_tier]}")
         eu_ceil = EU_TECH_CEILINGS[new_tier]
         changes.append(f"EU ceiling now ${eu_ceil}B" if eu_ceil else "EU ceiling REMOVED")
         changes.append(f"GDP bonus now +{int(ECONOMY_EFFICIENCY_MODIFIERS[new_tier] * 100)}%")
-        print(f"  [tech_level] Tier transition: {old_tier} → {new_tier} at tech_level={game_state.tech_level}")
+        print(f"  [tech_level] Tier transition: {old_tier} -> {new_tier} at tech_level={game_state.tech_level}")
 
     print(f"  [turn_processor] TECH GAIN: {source_key} +{actual_gain} -> level {game_state.tech_level}")
     return True, changes
@@ -534,6 +1868,15 @@ ALTERNATE_ENDING_CONDITIONS = {
         "legacy_bonus": 20,
         "grade_min": "B",
     },
+    "restoration_legacy": {
+        "priority": 3,
+        "any_turn": False,
+        "conditions": {"stability_min": 55, "approval_min": 45, "restoration_return": True},
+        "label": "Restoration Legacy",
+        "flavor": "Exiled and returned — Europa remembers both the fall and the climb back.",
+        "legacy_bonus": 25,
+        "grade_min": "B",
+    },
     "capture": {
         "priority": 2,
         "any_turn": False,
@@ -609,6 +1952,15 @@ def check_alternate_endings(game_state):
         if conds.get('no_press_suppression'):
             if getattr(game_state, 'action_press_suppressed', False):
                 met = False
+        # 9C: Restoration return (exile occurred + returned + restoration resolved)
+        if conds.get('restoration_return'):
+            _exile_day = getattr(game_state, 'exile_day', 0)
+            _return_attempts = getattr(game_state, 'return_attempts', 0)
+            _restoration_active = getattr(game_state, 'restoration_active', False)
+            if _exile_day <= 0 or _return_attempts <= 0 or _restoration_active:
+                met = False
+            if met:
+                print(f"  [9C] restoration_legacy triggered: stability={game_state.stability} approval={game_state.public_approval} exile_day={_exile_day}")
 
         if met:
             game_state.ending_triggered = key
@@ -776,6 +2128,22 @@ def process_choice_consequences(game_state, choice):
             # Arabia oil deals cheapen energy — people like that
             game_state.update_approval(8)
             messages.append("📊 Public approval: +8% (cheaper oil)")
+            # FIX 2: Arabia deals penalize EU relations, scaled to total deal value.
+            _ar_total = choice.get('deal_total_value', 0) or choice.get('deal_budget', 0) or abs(consequences.get('budget', 0))
+            if _ar_total > 4:
+                _ar_eu_pen = -6
+                _ar_size = "large"
+            elif _ar_total >= 2:
+                _ar_eu_pen = -4
+                _ar_size = "medium"
+            else:
+                _ar_eu_pen = -2
+                _ar_size = "small"
+            if 'eu' not in consequences:
+                _old_eu = game_state.relations['eu']
+                game_state.update_relations('eu', _ar_eu_pen, source="Arabia deal cross-NPC penalty")
+                messages.append(f"⚠️ Arabia {_ar_size} deal: EU {_old_eu}->{game_state.relations['eu']} ({_ar_eu_pen:+d})")
+                print(f"  [deal] Cross-NPC consequences fired: arabia {_ar_size} deal -> eu {_ar_eu_pen:+d}")
         elif npc == 'eu':
             game_state.update_approval(6)
             messages.append("📊 Public approval: +6% (EU alignment)")
@@ -785,7 +2153,8 @@ def process_choice_consequences(game_state, choice):
             # Also give USA a small positive (+2 to +3) since EU alignment is broadly Western.
             # BUG FIX 1: Skip cross-NPC penalty for NPCs already named in deal consequences.
             # Named penalty replaces cross-NPC penalty, never stacks. Cap indirect at -8.
-            _eu_budget = abs(consequences.get('budget', 0))
+            # 8A FIX 1: Use deal_budget for negotiated deals (budget is popped before reaching here)
+            _eu_budget = choice.get('deal_budget', 0) or abs(consequences.get('budget', 0))
             if _eu_budget > 3:
                 _dprg_pen, _arabia_pen, _usa_bonus = -8, -5, 3
                 _size_label = "large"
@@ -801,14 +2170,17 @@ def process_choice_consequences(game_state, choice):
                 _old_dprg = game_state.relations['dprg']
                 game_state.update_relations('dprg', _dprg_pen, source="EU deal cross-NPC penalty")
                 _cross_parts.append(f"DPRG {_old_dprg}->{game_state.relations['dprg']} ({_dprg_pen:+d})")
+                print(f"  [deal] Cross-NPC consequences fired: eu deal -> dprg {_dprg_pen:+d}")
             if 'arabia' not in consequences:
                 _old_arabia = game_state.relations['arabia']
                 game_state.update_relations('arabia', _arabia_pen, source="EU deal cross-NPC penalty")
                 _cross_parts.append(f"Arabia {_old_arabia}->{game_state.relations['arabia']} ({_arabia_pen:+d})")
+                print(f"  [deal] Cross-NPC consequences fired: eu deal -> arabia {_arabia_pen:+d}")
             if 'usa' not in consequences:
                 _old_usa = game_state.relations['usa']
                 game_state.update_relations('usa', _usa_bonus, source="EU deal cross-NPC bonus")
                 _cross_parts.append(f"USA {_old_usa}->{game_state.relations['usa']} ({_usa_bonus:+d})")
+                print(f"  [deal] Cross-NPC consequences fired: eu deal -> usa {_usa_bonus:+d}")
             if _cross_parts:
                 messages.append(f"⚠️ EU {_size_label} deal: {', '.join(_cross_parts)}")
         elif npc == 'dprg':
@@ -821,7 +2193,8 @@ def process_choice_consequences(game_state, choice):
                 messages.append("📊 Public approval: -10% (DPRG backlash)")
                 # ITEM 5: DPRG cross-NPC penalties, scaled by deal size.
                 # Replaces the fixed penalties in deal consequences dicts.
-                _dprg_budget = abs(consequences.get('budget', 0))
+                # 8A FIX 1: Use deal_budget for negotiated deals (budget is popped before reaching here)
+                _dprg_budget = choice.get('deal_budget', 0) or abs(consequences.get('budget', 0))
                 if _dprg_budget > 3:
                     _usa_pen, _eu_pen = -20, -15
                     _dprg_size = "large"
@@ -836,21 +2209,23 @@ def process_choice_consequences(game_state, choice):
                     _old_usa = game_state.relations['usa']
                     game_state.update_relations('usa', _usa_pen, source="DPRG deal cross-NPC penalty")
                     _dprg_cross_parts.append(f"USA {_old_usa}->{game_state.relations['usa']} ({_usa_pen:+d})")
+                    print(f"  [deal] Cross-NPC consequences fired: dprg deal -> usa {_usa_pen:+d}")
                 if 'eu' not in consequences:
                     _old_eu = game_state.relations['eu']
                     game_state.update_relations('eu', _eu_pen, source="DPRG deal cross-NPC penalty")
                     _dprg_cross_parts.append(f"EU {_old_eu}->{game_state.relations['eu']} ({_eu_pen:+d})")
+                    print(f"  [deal] Cross-NPC consequences fired: dprg deal -> eu {_eu_pen:+d}")
                 if _dprg_cross_parts:
                     messages.append(f"⚠️ DPRG {_dprg_size} deal: {', '.join(_dprg_cross_parts)}")
         elif npc == 'russia':
-            # 8A: Russia deal cross-NPC consequences, scaled to deal size.
-            # deal_budget is passed from api.py (budget popped from consequences for negotiated deals).
-            _ru_budget = choice.get('deal_budget', abs(consequences.get('budget', 0)))
-            if _ru_budget > 5:
-                _usa_pen, _eu_pen = -10, -5
+            # 8A: Russia deal cross-NPC consequences, scaled to TOTAL deal value
+            # (upfront + installments). deal_total_value is computed in api.py.
+            _ru_total = choice.get('deal_total_value', 0) or choice.get('deal_budget', 0) or abs(consequences.get('budget', 0))
+            if _ru_total > 4:
+                _usa_pen, _eu_pen = -12, -6
                 _ru_size = "large"
-            elif _ru_budget >= 2:
-                _usa_pen, _eu_pen = -7, -3
+            elif _ru_total >= 2:
+                _usa_pen, _eu_pen = -8, -4
                 _ru_size = "medium"
             else:
                 _usa_pen, _eu_pen = -5, -2
@@ -860,49 +2235,38 @@ def process_choice_consequences(game_state, choice):
                 _old_usa = game_state.relations['usa']
                 game_state.update_relations('usa', _usa_pen, source="Russia deal cross-NPC penalty")
                 _ru_cross_parts.append(f"USA {_old_usa}->{game_state.relations['usa']} ({_usa_pen:+d})")
-                print(f"  [deal] Cross-NPC consequences fired: russia deal → usa {_usa_pen:+d}")
+                print(f"  [deal] Cross-NPC consequences fired: russia {_ru_size} deal -> usa {_usa_pen:+d}")
             if 'eu' not in consequences:
                 _old_eu = game_state.relations['eu']
                 game_state.update_relations('eu', _eu_pen, source="Russia deal cross-NPC penalty")
                 _ru_cross_parts.append(f"EU {_old_eu}->{game_state.relations['eu']} ({_eu_pen:+d})")
-                print(f"  [deal] Cross-NPC consequences fired: russia deal → eu {_eu_pen:+d}")
+                print(f"  [deal] Cross-NPC consequences fired: russia {_ru_size} deal -> eu {_eu_pen:+d}")
             if _ru_cross_parts:
                 messages.append(f"⚠️ Russia {_ru_size} deal: {', '.join(_ru_cross_parts)}")
         elif npc == 'china':
-            # 8A: China deal cross-NPC consequences, scaled to deal size.
-            # Security/military component → harsher USA penalty.
-            _cn_budget = choice.get('deal_budget', abs(consequences.get('budget', 0)))
-            _deal_text = (choice.get('text') or '').lower()
-            _has_security = any(kw in _deal_text for kw in ('military', 'security', 'defense', 'defence', 'weapon', 'intelligence', 'base'))
-            if _has_security:
-                if _cn_budget > 5:
-                    _usa_pen = -15
-                elif _cn_budget >= 2:
-                    _usa_pen = -10
-                else:
-                    _usa_pen = -5
-                _cn_size = "security"
+            # 8A: China deal cross-NPC consequences, scaled to TOTAL deal value
+            # (upfront + installments). deal_total_value is computed in api.py.
+            _cn_total = choice.get('deal_total_value', 0) or choice.get('deal_budget', 0) or abs(consequences.get('budget', 0))
+            if _cn_total > 4:
+                _usa_pen, _eu_pen = -12, -4
+                _cn_size = "large"
+            elif _cn_total >= 2:
+                _usa_pen, _eu_pen = -6, -2
+                _cn_size = "medium"
             else:
-                if _cn_budget > 5:
-                    _usa_pen = -5
-                elif _cn_budget >= 2:
-                    _usa_pen = -3
-                else:
-                    _usa_pen = -2
-                _cn_size = "economic"
-            # EU penalty: mild for all China deals
-            _eu_pen = -3 if _cn_budget > 3 else -1
+                _usa_pen, _eu_pen = -2, -1
+                _cn_size = "small"
             _cn_cross_parts = []
             if 'usa' not in consequences:
                 _old_usa = game_state.relations['usa']
                 game_state.update_relations('usa', _usa_pen, source="China deal cross-NPC penalty")
                 _cn_cross_parts.append(f"USA {_old_usa}->{game_state.relations['usa']} ({_usa_pen:+d})")
-                print(f"  [deal] Cross-NPC consequences fired: china deal → usa {_usa_pen:+d}")
+                print(f"  [deal] Cross-NPC consequences fired: china {_cn_size} deal -> usa {_usa_pen:+d}")
             if 'eu' not in consequences:
                 _old_eu = game_state.relations['eu']
                 game_state.update_relations('eu', _eu_pen, source="China deal cross-NPC penalty")
                 _cn_cross_parts.append(f"EU {_old_eu}->{game_state.relations['eu']} ({_eu_pen:+d})")
-                print(f"  [deal] Cross-NPC consequences fired: china deal → eu {_eu_pen:+d}")
+                print(f"  [deal] Cross-NPC consequences fired: china {_cn_size} deal -> eu {_eu_pen:+d}")
             if _cn_cross_parts:
                 messages.append(f"⚠️ China {_cn_size} deal: {', '.join(_cn_cross_parts)}")
 
@@ -927,7 +2291,7 @@ def process_choice_consequences(game_state, choice):
             _before = game_state.relations.get(_drift_npc, 50)
             game_state.update_relations(_drift_npc, _delta)
             _after = game_state.relations.get(_drift_npc, 50)
-            print(f"  [deal] Cross-NPC consequences fired: {npc} deal → {_drift_npc} {_delta:+d}")
+            print(f"  [deal] Cross-NPC consequences fired: {npc} deal -> {_drift_npc} {_delta:+d}")
 
     return messages
 
@@ -1061,7 +2425,7 @@ def roll_detection(game_state):
     _detection_modifier = max(0.5, 1.0 - (float(getattr(game_state, 'tech_level', 0)) * 0.01))
     _raw_heat = game_state.detection_heat
     _heat = int(_raw_heat * _detection_modifier)
-    print(f"  [TECH] Detection modifier: {_detection_modifier:.3f} (raw heat {_raw_heat} → effective {_heat})")
+    print(f"  [TECH] Detection modifier: {_detection_modifier:.3f} (raw heat {_raw_heat} -> effective {_heat})")
     if _heat < 30:
         _scandal_prob = 0
     elif _heat < 50:
@@ -1678,7 +3042,7 @@ def update_npc_bilateral_relations(game_state):
         pk = _pair_key(last_npc, ally)
         _before = npc_rels.get(pk, 50)
         npc_rels[pk] = min(100, _before + 2)
-        print(f"  [npc] BILATERAL SCORE: {pk} {_before}→{npc_rels[pk]}")
+        print(f"  [npc] BILATERAL SCORE: {pk} {_before}->{npc_rels[pk]}")
 
     # Weaken rival-ally bonds
     for rival in rivals:
@@ -1686,9 +3050,72 @@ def update_npc_bilateral_relations(game_state):
             pk = _pair_key(rival, ally)
             _before = npc_rels.get(pk, 50)
             npc_rels[pk] = max(0, _before - 3)
-            print(f"  [npc] BILATERAL SCORE: {pk} {_before}→{npc_rels[pk]}")
+            print(f"  [npc] BILATERAL SCORE: {pk} {_before}->{npc_rels[pk]}")
 
     game_state.npc_relations = npc_rels
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 8D: The Leak — Scripted Branching Crisis
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _check_the_leak_trigger(gs):
+    """
+    Fires if: DPRG deal active AND USA relations above 60.
+    DPRG deal active = any entry in gs.active_deals where npc == 'dprg'
+    and the deal is not expired.
+    """
+    print(f"[leak] CHECK: fired={gs.the_leak_fired}, usa={gs.relations.get('usa', 0)}, deals={[d.get('npc') for d in getattr(gs, 'active_deals', [])]}")
+    if gs.the_leak_fired:
+        return False
+    if gs.relations.get('usa', 0) <= 60:
+        return False
+    dprg_has_active_deal = any(
+        d.get('npc') == 'dprg' and not d.get('expired', False)
+        for d in getattr(gs, 'active_deals', [])
+    )
+    if not dprg_has_active_deal:
+        return False
+    return True
+
+
+def _process_leak_followup(gs):
+    """Fires one day after player resolves The Leak. Returns list of messages."""
+    if not gs.the_leak_resolved:
+        return []
+    if gs.the_leak_followup_fired:
+        return []
+
+    import random
+    choice = gs.the_leak_choice
+    msgs = []
+
+    if choice == 'deny':
+        # Scandal risk materializes - roll 40% chance
+        if random.random() < 0.40:
+            gs.heat = min(100, gs.heat + 15)
+            msgs.append("\U0001f534 THE LEAK FALLOUT: Media questions persist. Investigative journalists have obtained corroborating sources. Heat +15.")
+            print(f"[leak] Deny follow-up: scandal materialized, heat +15")
+        else:
+            msgs.append("\U0001f534 THE LEAK FALLOUT: The denial holds. Media moves on to other stories.")
+            print(f"[leak] Deny follow-up: scandal did NOT materialize (60% chance)")
+
+    elif choice == 'admit':
+        msgs.append("\U0001f534 THE LEAK FALLOUT: Ji-won Ryang has issued a cold communiqu\u00e9 through back-channels. \"The admission was unnecessary. We had an understanding.\"")
+        print(f"[leak] Admit follow-up: Ji-won communiqu\u00e9")
+
+    elif choice == 'blame':
+        gs.public_approval = max(0, gs.public_approval - 5)
+        msgs.append("\U0001f534 THE LEAK FALLOUT: The named minister has publicly denied involvement and retained a high-profile attorney. Approval -5.")
+        print(f"[leak] Blame follow-up: minister denies, approval -5")
+
+    elif choice == 'jiwon':
+        msgs.append("\U0001f534 THE LEAK FALLOUT: Ji-won Ryang has sent a brief communiqu\u00e9 acknowledging the arrangement. \"The matter is resolved. We remember our friends.\"")
+        print(f"[leak] Ji-won follow-up: communiqu\u00e9 sent")
+
+    gs.the_leak_followup_fired = True
+    print(f"[leak] Follow-up consequences fired: choice={choice}")
+    return msgs
 
 
 def apply_end_of_turn_effects(game_state):
@@ -1698,6 +3125,28 @@ def apply_end_of_turn_effects(game_state):
     game_state.budget_last_eot = game_state.budget
 
     messages = []
+
+    # ──────────────────────────────────────────
+    # 8D: The Leak — crisis trigger and follow-up
+    # ──────────────────────────────────────────
+    leak_followup_msgs = _process_leak_followup(game_state)
+    if leak_followup_msgs:
+        messages.extend(leak_followup_msgs)
+
+    # Debug: print active_deals so we can confirm deal structure
+    _active_deals_dbg = getattr(game_state, 'active_deals', [])
+    if _active_deals_dbg:
+        print(f"[leak] active_deals contents: {_active_deals_dbg}")
+
+    if _check_the_leak_trigger(game_state):
+        game_state.the_leak_fired = True
+        messages.append({
+            'tag': 'CRISIS',
+            'type': 'the_leak',
+            'title': 'THE LEAK',
+            'body': 'Classified documents reveal your back-channel with Ji-won Ryang.'
+        })
+        print(f"[leak] The Leak triggered: dprg_deal=True usa_relations={game_state.relations.get('usa')}")
 
     # ──────────────────────────────────────────
     # 0a. SESSION 4B: PROTESTS (fires turn after election if protests_pending)
@@ -1767,7 +3216,7 @@ def apply_end_of_turn_effects(game_state):
         _old_heat = game_state.detection_heat
         game_state.detection_heat = max(0, game_state.detection_heat - 3)
         messages.append(
-            f"🕵️ Intelligence network: -3 heat ({_old_heat}% → {game_state.detection_heat}%)"
+            f"🕵️ Intelligence network: -3 heat ({_old_heat}% -> {game_state.detection_heat}%)"
         )
         print(f"  [HEAT] Intelligence axis L{_intel_level} passive: -3 heat ({_old_heat} -> {game_state.detection_heat})")
 
@@ -2234,41 +3683,53 @@ def apply_end_of_turn_effects(game_state):
     # ──────────────────────────────────────────
     # 7b. BUDGET ALLOCATION EFFECTS (Domestic Affairs)
     # ──────────────────────────────────────────
-    _ba = getattr(game_state, 'budget_allocation', {
-        "military": 20, "intelligence": 20, "public_services": 20,
-        "infrastructure": 20, "diplomacy": 20,
-    })
-    _ba_mil = _ba.get('military', 20)
-    _ba_intel = _ba.get('intelligence', 20)
-    _ba_svc = _ba.get('public_services', 20)
-    _ba_infra = _ba.get('infrastructure', 20)
-    _ba_diplo = _ba.get('diplomacy', 20)
+    # ── 9.5A: Tier-based capability effects (replaces allocation percentages) ──
+    _mil_tier = getattr(game_state, 'military_tier', 0)
+    _intel_tier_val = getattr(game_state, 'intelligence_tier', 0)
+    _social_tier = getattr(game_state, 'social_tier', 0)
+    _diplo_tier = getattr(game_state, 'diplomatic_tier', 0)
 
-    print(f"  [BUDGET] Allocation: mil={_ba_mil}%, intel={_ba_intel}%, services={_ba_svc}%, infra={_ba_infra}%, diplo={_ba_diplo}%")
-
-    # ── Military allocation ──
+    # ── Military decay (tier-driven) ──
     _mil = getattr(game_state, 'military_strength', 20)
     # Session 6: Military axis L6 (Standing Army) halves base decay from -2 to -1
     _mil_axis = getattr(game_state, 'cabinet_axes', {}).get('military', 0)
     _base_decay = 1 if _mil_axis >= 6 else 2
 
-    if _ba_mil > 30:
-        # High military spending: +2/turn (overrides decay)
-        _mil_change = 2
-        _mil_effect = "gaining"
-        _mil_label = f"(+{_mil_change}, high allocation {_ba_mil}%)"
-    elif _ba_mil >= 20:
-        # Medium: decay halved
+    if _mil_tier >= 3:
+        # tier 3+: decay stopped
+        _mil_change = 0
+        _mil_effect = "decay_stopped"
+        _mil_label = f"(±0, mil_tier {_mil_tier} stops decay)"
+    elif _mil_tier >= 1:
+        # tier 1+: decay halved
         _mil_change = -max(1, _base_decay // 2)
         _mil_effect = "decay_halved"
-        _mil_label = f"({_mil_change}, medium allocation {_ba_mil}%)"
+        _mil_label = f"({_mil_change}, mil_tier {_mil_tier} halves decay)"
     else:
-        # Low: normal decay
+        # tier 0: full decay rate
         _mil_change = -_base_decay
-        _mil_effect = "normal_decay"
-        _mil_label = f"({_mil_change}, low allocation {_ba_mil}%)"
+        _mil_effect = "full_decay"
+        _mil_label = f"({_mil_change}, mil_tier 0 full decay)"
+
+    # 9.5C: Loyal generals increase decay rate by 10% (incompetent logistics)
+    _loyal_gen = getattr(game_state, 'loyal_generals_installed', False)
+    if _loyal_gen and _mil_change < 0:
+        _mil_change = -round(abs(_mil_change) * 1.1)
+        if _mil_change == 0:
+            _mil_change = -1  # minimum -1 if decay was active
+        _mil_label += " [loyal gen +10% decay]"
 
     _new_mil = max(0, min(100, _mil + _mil_change))
+
+    # 9.5C: Loyal generals cap military strength at 60% of tier maximum
+    if _loyal_gen:
+        _mil_cap = int(_mil_tier * 6)  # tier 5 = cap 30, tier 10 = cap 60
+        if _new_mil > _mil_cap:
+            _new_mil = _mil_cap
+            _mil_label += f" [capped at {_mil_cap}]"
+        print(f"[9.5C] loyal_generals active: mil_cap={_mil_cap} "
+              f"strength={_new_mil} reversing={getattr(game_state, 'loyal_generals_reversing', False)}")
+
     game_state.military_strength = _new_mil
     messages.append(f"⚔️ Military: {_mil} -> {_new_mil} {_mil_label}")
 
@@ -2281,57 +3742,111 @@ def apply_end_of_turn_effects(game_state):
         game_state.update_stability(2)
         messages.append("⚔️ Military strength (40+): +2% stability (coup resistance)")
 
-    # ── Intelligence allocation (replaces old 4-option system) ──
-    if _ba_intel > 25:
-        _intel_tier = "expansion"
-        game_state.intel_turns_unfunded = 0
-        game_state.intel_budget_allocation = "expansion"
-    elif _ba_intel >= 20:
-        _intel_tier = "active"
+    # 9.5C: Loyal generals reversal transition
+    if getattr(game_state, 'loyal_generals_reversing', False):
+        _days_since_gen = game_state.current_day - getattr(game_state, 'loyal_generals_reversal_day', 0)
+        if _days_since_gen >= 3:
+            game_state.loyal_generals_installed = False
+            game_state.loyal_generals_reversing = False
+            if not hasattr(game_state, 'pending_briefing_items'):
+                game_state.pending_briefing_items = []
+            game_state.pending_briefing_items.append(
+                "The new military leadership has assumed command. "
+                "The capable officers who were passed over are watching carefully.")
+            messages.append("⚔️ Military leadership transition complete — professional command restored")
+            print(f"[9.5C] loyal_generals reversal complete day={game_state.current_day}")
+
+    # ── 9.5C: Loyal Intel Chief EOT effects ──
+    _loyal_intel = getattr(game_state, 'loyal_intel_chief_installed', False)
+    if _loyal_intel:
+        # Intel distortion: 20% chance per turn that next intercept is unreliable
+        import random as _rand_intel
+        game_state.intel_distortion_active = (_rand_intel.random() < 0.20)
+
+        # Educated population + blind apparatus: suppress coup warnings
+        _edu_for_intel = getattr(game_state, 'education_tier',
+                                 getattr(game_state, 'education_level', 0))
+        if _edu_for_intel >= 2:
+            game_state.coup_warnings_suppressed = True
+        else:
+            game_state.coup_warnings_suppressed = False
+
+        print(f"[9.5C] loyal_intel active: "
+              f"distortion={game_state.intel_distortion_active} "
+              f"coup_warn_suppressed={game_state.coup_warnings_suppressed} "
+              f"reversing={getattr(game_state, 'loyal_intel_chief_reversing', False)}")
+    else:
+        game_state.intel_distortion_active = False
+        game_state.coup_warnings_suppressed = False
+
+    # 9.5C: Loyal intel chief reversal transition
+    if getattr(game_state, 'loyal_intel_chief_reversing', False):
+        _days_since_intel = game_state.current_day - getattr(game_state, 'loyal_intel_chief_reversal_day', 0)
+        if _days_since_intel >= 3:
+            game_state.loyal_intel_chief_installed = False
+            game_state.loyal_intel_chief_reversing = False
+            game_state.intel_distortion_active = False
+            game_state.coup_warnings_suppressed = False
+            if not hasattr(game_state, 'pending_briefing_items'):
+                game_state.pending_briefing_items = []
+            game_state.pending_briefing_items.append(
+                "The new intelligence chief has taken over. "
+                "Intercept quality will recover over the coming days.")
+            messages.append("🕵️ Intelligence leadership transition complete — professional chief restored")
+            print(f"[9.5C] loyal_intel reversal complete day={game_state.current_day}")
+
+    # ── Intelligence status (tier-driven) ──
+    if _intel_tier_val >= 1:
+        _intel_status = "active"
         game_state.intel_turns_unfunded = 0
         game_state.intel_budget_allocation = "active"
-    elif _ba_intel >= 15:
-        _intel_tier = "maintenance"
-        game_state.intel_turns_unfunded = 0
-        game_state.intel_budget_allocation = "maintenance"
     else:
-        _intel_tier = "underfunded"
+        _intel_status = "inactive"
         game_state.intel_budget_allocation = "none"
         game_state.intel_turns_unfunded += 1
         if game_state.intel_turns_unfunded >= 2:
             _current_tier = getattr(game_state, 'intel_apparatus_tier', 0)
             if _current_tier > 0:
                 game_state.intel_apparatus_tier = _current_tier - 1
-                messages.append(f"🕵️ Intel apparatus degraded: tier {_current_tier} -> {_current_tier - 1} (underfunded {game_state.intel_turns_unfunded} turns)")
+                messages.append(f"🕵️ Intel apparatus degraded: tier {_current_tier} -> {_current_tier - 1} (unfunded {game_state.intel_turns_unfunded} turns)")
                 print(f"  [BUDGET] INTEL DEGRADATION: tier {_current_tier} -> {_current_tier - 1}")
             game_state.intel_turns_unfunded = 0
-    messages.append(f"🕵️ Intelligence tier: {_intel_tier} ({_ba_intel}% allocation)")
+    messages.append(f"🕵️ Intelligence: {_intel_status} (intel_tier {_intel_tier_val})")
 
-    # ── Public Services allocation ──
+    # ── Social tier → approval + stability ──
     _approval_mod = 0
     _stab_mod = 0
-    if _ba_svc > 30:
-        _approval_mod = 2
-        _stab_mod = 1
-        game_state.update_approval(2)
-        game_state.update_stability(1)
-        messages.append(f"🏥 Public services (high {_ba_svc}%): +2 approval, +1 stability")
-    elif _ba_svc < 20:
-        _approval_mod = -1
-        _stab_mod = -1
-        game_state.update_approval(-1)
-        game_state.update_stability(-1)
-        messages.append(f"🏥 Public services (low {_ba_svc}%): -1 approval, -1 stability")
+    if _social_tier >= 3:
+        _approval_mod = 6
+        _stab_mod = 2
+        game_state.update_approval(6)
+        game_state.update_stability(2)
+        messages.append(f"🏥 Social tier {_social_tier}: +6 approval, +2 stability")
+    elif _social_tier >= 2:
+        _approval_mod = 3
+        _stab_mod = 2
+        game_state.update_approval(3)
+        game_state.update_stability(2)
+        messages.append(f"🏥 Social tier {_social_tier}: +3 approval, +2 stability")
 
-    # ── Infrastructure allocation — GDP bonus applied in section 9b ──
-    # Stored on game_state for section 9b to read
-    game_state._infra_gdp_bonus = 0.005 if _ba_infra > 30 else 0.0
+    # ── Infrastructure bonus (social_tier-driven) — GDP bonus applied in section 9b ──
+    if _social_tier >= 3:
+        game_state._infra_gdp_bonus = 1.5
+    elif _social_tier >= 2:
+        game_state._infra_gdp_bonus = 1.0
+    elif _social_tier >= 1:
+        game_state._infra_gdp_bonus = 0.5
+    else:
+        game_state._infra_gdp_bonus = 0.0
 
-    # ── Diplomacy allocation — negative relation drift moderation ──
-    # Stored on game_state for relation penalty sections to read
-    game_state._diplo_drift_modifier = 0.5 if _ba_diplo > 30 else 1.0
+    # ── Diplomacy drift moderation (tier-driven) ──
+    game_state._diplo_drift_modifier = 0.5 if _diplo_tier >= 2 else 1.0
 
-    print(f"  [BUDGET] Effects: military={_mil_effect}, intel_tier={_intel_tier}, approval={_approval_mod:+d}, stab={_stab_mod:+d}, infra_bonus={game_state._infra_gdp_bonus}, diplo_mod={game_state._diplo_drift_modifier}")
+    print(f"  [BUDGET] Tier effects: mil_tier={_mil_tier} intel_tier={_intel_tier_val} "
+          f"social_tier={_social_tier} diplo_tier={_diplo_tier}")
+    print(f"  [9.5A-FIX3] tier_effects: mil_decay={_mil_effect} "
+          f"intel={_intel_status} social_approval={_approval_mod} "
+          f"social_stab={_stab_mod}")
 
     # ──────────────────────────────────────────
     # 7b2. ADVISOR TRUST DRAIN, BETRAYAL, & GATE CHECKS (v2)
@@ -2491,11 +4006,11 @@ def apply_end_of_turn_effects(game_state):
     if _ru_drift != 0:
         _before = game_state.relations.get('russia', 35)
         game_state.update_relations('russia', _ru_drift)
-        print(f"  [npc] CROSS-NPC drift: russia relations {_before:.1f}→{game_state.relations.get('russia', 35):.1f} (source: regime drift)")
+        print(f"  [npc] CROSS-NPC drift: russia relations {_before:.1f}->{game_state.relations.get('russia', 35):.1f} (source: regime drift)")
     if _cn_drift != 0:
         _before = game_state.relations.get('china', 35)
         game_state.update_relations('china', _cn_drift)
-        print(f"  [npc] CROSS-NPC drift: china relations {_before:.1f}→{game_state.relations.get('china', 35):.1f} (source: regime drift)")
+        print(f"  [npc] CROSS-NPC drift: china relations {_before:.1f}->{game_state.relations.get('china', 35):.1f} (source: regime drift)")
 
     print(f"  [WORLD] Russia relations: {game_state.relations.get('russia', 35):.1f}, China relations: {game_state.relations.get('china', 35):.1f}")
 
@@ -2830,6 +4345,16 @@ def apply_end_of_turn_effects(game_state):
         print(f"  [turn_processor] TAX REVENUE — income: ${_income_rev_9b:.1f}B (rate {_income_rate*100:.0f}%), corporate: ${_corp_rev_9b:.1f}B (rate {_corp_rate*100:.0f}%), resource: ${_resource_rev_9b:.1f}B (rate {_resource_rate*100:.0f}%), total: ${_gdp_revenue:.1f}B")
         messages.append(f"💵 GDP revenue (tax rates: {_income_rate*100:.0f}%/{_corp_rate*100:.0f}%/{_resource_rate*100:.0f}%, approval {_approval}%, stability {_stab}%{_tech_label}{_infra_label}): +${_gdp_revenue:.1f}B")
 
+    # ──────────────────────────────────────────
+    # 9.5A: NEW tax revenue computation (comparison log — old code above still active)
+    # ──────────────────────────────────────────
+    _95a_rev = compute_tax_revenue(game_state)
+    print(f"  [9.5A] budget_integration: OLD_revenue=${_gdp_revenue:.1f} "
+          f"NEW_gross=${_95a_rev['gross_revenue']:.1f} "
+          f"NEW_net=${_95a_rev['net_revenue']:.1f} "
+          f"NEW_skim=${_95a_rev['skim_income']:.1f} "
+          f"delta=${_95a_rev['net_revenue'] - _gdp_revenue:.1f}")
+
     # FIX F (session 6): Log peak relations each turn for verification
     _rh = getattr(game_state, 'relations_high', {})
     print(f"  [turn_processor] PEAK RELATIONS — USA: {_rh.get('usa', 50)}, Arabia: {_rh.get('arabia', 50)}, EU: {_rh.get('eu', 50)}, DPRG: {_rh.get('dprg', 50)}")
@@ -3073,6 +4598,11 @@ def apply_end_of_turn_effects(game_state):
             _maint_drain += (_ax_level - _free_thresh) * _cost_per
     _projected_drain += _maint_drain
 
+    # 9.5A: Add daily commitment costs to drain projection
+    _commitment_drain = getattr(game_state, 'total_daily_commitment', 0.0)
+    _projected_drain += _commitment_drain
+    print(f"  [BANKRUPTCY] now shows commitment drain included in projection: ${_commitment_drain:.1f}B")
+
     # Projected income: real GDP tax-rate formula (matches section 9b)
     _gdp_base_pw = getattr(game_state, 'gdp_base', 100.0)
     _tax_rates_pw = getattr(game_state, 'tax_rates', {'income_tax': 0.20, 'corporate_tax': 0.15, 'resource_tax': 0.25})
@@ -3101,9 +4631,10 @@ def apply_end_of_turn_effects(game_state):
 
     _projected_budget = game_state.budget - _projected_drain + _projected_income
     print(f"  [BANKRUPTCY] Projection: budget={game_state.budget:.1f}, drain={_projected_drain:.1f} "
-          f"(govt=3.0, oil={_oil_cost_pw:.1f}, sanctions={_sanction_drain}[tier {_usa_tier_pw}→{_usa_projected_tier}], "
-          f"embargo={_embargo_drain}[tier {_arabia_tier_pw}→{_arabia_projected_tier}], "
-          f"eu={_eu_drain}, maint={_maint_drain:.1f}, crisis_mult={_crisis_mult_pw}), "
+          f"(govt=3.0, oil={_oil_cost_pw:.1f}, sanctions={_sanction_drain}[tier {_usa_tier_pw}->{_usa_projected_tier}], "
+          f"embargo={_embargo_drain}[tier {_arabia_tier_pw}->{_arabia_projected_tier}], "
+          f"eu={_eu_drain}, maint={_maint_drain:.1f}, commitment={_commitment_drain:.1f}, "
+          f"crisis_mult={_crisis_mult_pw}), "
           f"income={_projected_income:.1f}, projected={_projected_budget:.1f}")
     # fixes_9 Fix 5: Caveat text — projection models drain only, not player deal choices
     if _projected_budget < 0:
@@ -3129,8 +4660,8 @@ def apply_end_of_turn_effects(game_state):
         print(f"  [turn_processor] ARABIA TIER WARNING: relations {_arabia_rel:.0f} near boundary")
 
     # ──────────────────────────────────────────
-    # 13. SESSION 5: CABINET AXIS MAINTENANCE COSTS
-    # Each axis above its free threshold costs maintenance per turn.
+    # 13. SESSION 5: CABINET AXIS MAINTENANCE COSTS (OLD — disabled by 9.5A)
+    # Kept for comparison logging only. Budget deduction replaced by commitment model.
     # ──────────────────────────────────────────
     from game_state import AXIS_MAINTENANCE
     _cabinet_axes = getattr(game_state, 'cabinet_axes', {})
@@ -3143,12 +4674,119 @@ def apply_end_of_turn_effects(game_state):
             _maintenance_total += cost
             _maintenance_parts.append(f"{axis_name} {level}: ${cost:.1f}B")
     if _maintenance_total > 0:
-        game_state.update_budget(-_maintenance_total)
+        # 9.5A: OLD deduction disabled — replaced by commitment costs below
+        # game_state.update_budget(-_maintenance_total)
         game_state.cabinet_maintenance_paid = getattr(game_state, 'cabinet_maintenance_paid', 0.0) + _maintenance_total
+        print(f"  [9.5A] OLD_cabinet_maintenance: ${_maintenance_total:.1f}B ({_maintenance_parts}) [DISABLED - not deducted]")
+
+    # ──────────────────────────────────────────
+    # 13-9.5A: COMMITMENT MODEL COSTS (replaces old cabinet maintenance)
+    # ──────────────────────────────────────────
+    _95a_budget_total, _95a_militia_cost = compute_daily_commitment_cost(game_state)
+
+    # Deduct commitment costs from national budget
+    if _95a_budget_total > 0:
+        game_state.update_budget(-_95a_budget_total)
         messages.append(
-            f"🗄️ Cabinet maintenance: -${_maintenance_total:.1f}B ({', '.join(_maintenance_parts)})"
+            f"🏛️ Commitment costs: -${_95a_budget_total:.1f}B "
+            f"(mil ${getattr(game_state, 'daily_military_cost', 0):.1f} "
+            f"intel ${getattr(game_state, 'daily_intel_cost', 0):.1f} "
+            f"diplo ${getattr(game_state, 'daily_diplomatic_cost', 0):.1f} "
+            f"social ${getattr(game_state, 'daily_social_cost', 0):.1f} "
+            f"edu ${getattr(game_state, 'daily_education_cost', 0):.1f} "
+            f"resource ${getattr(game_state, 'daily_resource_cost', 0):.1f} "
+            f"political ${TIER_COSTS.get('political', {}).get(getattr(game_state, 'political_tier', 0), 0):.1f})"
         )
-        print(f"  [turn_processor] CABINET MAINTENANCE: ${_maintenance_total:.1f}B ({_maintenance_parts})")
+    print(f"  [9.5A] budget_integration: commitment_deducted=${_95a_budget_total:.1f} "
+          f"OLD_maintenance=${_maintenance_total:.1f} "
+          f"delta=${_95a_budget_total - _maintenance_total:.1f}")
+
+    # Militia costs — deduct from personal wealth, NOT budget
+    if _95a_militia_cost > 0:
+        _pw_before = getattr(game_state, 'personal_wealth', 0.0)
+        if _pw_before >= _95a_militia_cost:
+            game_state.personal_wealth = round(_pw_before - _95a_militia_cost, 2)
+            messages.append(f"⚔️ Militia maintenance: -${_95a_militia_cost:.1f}B personal wealth")
+        else:
+            # Can't afford militia — degrade militia tier
+            game_state.personal_wealth = 0.0
+            _old_mt = getattr(game_state, 'militia_tier', 0)
+            if _old_mt > 0:
+                game_state.militia_tier = _old_mt - 1
+                messages.append(
+                    f"⚔️ Militia unpaid: personal wealth depleted, "
+                    f"militia tier degraded {_old_mt} → {_old_mt - 1}")
+                print(f"  [9.5A] militia_unpaid: pw={_pw_before:.1f}, cost={_95a_militia_cost:.1f}, "
+                      f"tier {_old_mt} -> {_old_mt - 1}")
+            else:
+                messages.append(f"⚔️ Militia disbanded: cannot maintain without personal wealth")
+        print(f"  [9.5A] militia_cost: ${_95a_militia_cost:.1f} from personal_wealth "
+              f"(${_pw_before:.1f} -> ${getattr(game_state, 'personal_wealth', 0.0):.1f})")
+
+    # ──────────────────────────────────────────
+    # 13-9.5A-Shadow: SHADOW STATE COSTS (personal wealth drain)
+    # ──────────────────────────────────────────
+    _shadow_total, _shadow_ext_rev, _shadow_net = compute_shadow_state_costs(game_state)
+
+    if _shadow_net > 0:
+        _pw_before_shadow = getattr(game_state, 'personal_wealth', 0.0)
+        if _pw_before_shadow >= _shadow_net:
+            game_state.personal_wealth = round(_pw_before_shadow - _shadow_net, 2)
+            messages.append(
+                f"🕶 Shadow state costs: -${_shadow_net:.1f}B personal "
+                f"(costs ${_shadow_total:.1f}B - extraction revenue ${_shadow_ext_rev:.1f}B)")
+        else:
+            # Can't afford shadow costs -- degrade highest-cost shadow axis
+            game_state.personal_wealth = 0.0
+            _shadow_axes_degrade = [
+                ('media_tier', 'daily_media_cost'),
+                ('judicial_tier', 'daily_judicial_cost'),
+                ('domestic_surveillance_tier', 'daily_surveillance_cost'),
+                ('extraction_tier', 'daily_extraction_cost'),
+                ('militia_tier', 'daily_militia_cost'),
+            ]
+            _highest_shadow = None
+            _highest_shadow_cost = 0.0
+            for _tier_attr, _cost_attr in _shadow_axes_degrade:
+                _cost = getattr(game_state, _cost_attr, 0.0)
+                _tier = getattr(game_state, _tier_attr, 0)
+                if _cost > _highest_shadow_cost and _tier > 0:
+                    _highest_shadow_cost = _cost
+                    _highest_shadow = _tier_attr
+            if _highest_shadow:
+                _old_t = getattr(game_state, _highest_shadow)
+                setattr(game_state, _highest_shadow, _old_t - 1)
+                _axis_name = _highest_shadow.replace('_tier', '')
+                messages.append(
+                    f"🕶 Shadow unpaid: personal wealth depleted, "
+                    f"{_axis_name} tier degraded {_old_t} -> {_old_t - 1}")
+                print(f"  [9.5A-Shadow] shadow_unpaid: pw={_pw_before_shadow:.1f}, "
+                      f"net_cost={_shadow_net:.1f}, {_axis_name} {_old_t} -> {_old_t - 1}")
+        print(f"  [9.5A-Shadow] shadow_drain: ${_shadow_net:.1f} from personal_wealth "
+              f"(${_pw_before_shadow:.1f} -> ${getattr(game_state, 'personal_wealth', 0.0):.1f})")
+    elif _shadow_ext_rev > 0 and _shadow_net <= 0:
+        # Extraction revenue exceeds costs -- net gain to personal wealth
+        _net_gain = round(abs(_shadow_net), 2)
+        if _net_gain > 0:
+            game_state.update_personal_wealth(_net_gain, source="shadow_extraction")
+            messages.append(
+                f"🕶 Shadow extraction net gain: +${_net_gain:.1f}B personal "
+                f"(revenue ${_shadow_ext_rev:.1f}B > costs ${_shadow_total:.1f}B)")
+            print(f"  [9.5A-Shadow] extraction_net_gain: +${_net_gain:.1f} to personal_wealth")
+
+    # Skim income — add skim_rate% of old revenue to personal wealth
+    _skim_rate = getattr(game_state, 'skim_rate', 0.0)
+    if _skim_rate > 0 and _gdp_revenue > 0:
+        _skim_income = round(_gdp_revenue * _skim_rate, 2)
+        game_state.update_personal_wealth(_skim_income, source="skim")
+        messages.append(f"💰 Budget diversion: +${_skim_income:.1f}B personal ({_skim_rate*100:.0f}% skim)")
+        # [9.5A-FIX2] Skim heat generation moved to compute_tax_revenue()
+        print(f"  [9.5A] skim_income: ${_skim_income:.1f}B to personal_wealth "
+              f"(rate={_skim_rate*100:.0f}%, revenue=${_gdp_revenue:.1f})")
+
+    # Apply commitment EOT checks (coup amplifier, intel politicization, EU ceiling, sustainability gap)
+    _95a_net_rev = _95a_rev.get('net_revenue', _gdp_revenue)
+    apply_commitment_eot_checks(game_state, messages, net_revenue=_95a_net_rev)
 
     # ──────────────────────────────────────────
     # 13b. TECH LEVEL PASSIVE ACQUISITION (redesigned)
@@ -3181,17 +4819,17 @@ def apply_end_of_turn_effects(game_state):
     _new_tech = game_state.tech_level
 
     print(f"  [TECH] Gain this turn: {_tech_gain:.3f} (eu={_tech_contribs.get('eu', 0):.3f}, usa={_tech_contribs.get('usa', 0):.3f}, arabia={_tech_contribs.get('arabia', 0):.3f}, dprg={_tech_contribs.get('dprg', 0):.3f})")
-    print(f"  [TECH] Tech level: {_old_tech:.1f} → {_new_tech:.1f}")
+    print(f"  [TECH] Tech level: {_old_tech:.1f} -> {_new_tech:.1f}")
     if _deals_this_turn:
         print(f"  [TECH] Deal bonus active for: {', '.join(_deals_this_turn)}")
-    messages.append(f"🔬 Tech: {_old_tech:.1f} → {_new_tech:.1f} (+{_tech_gain:.2f})")
+    messages.append(f"🔬 Tech: {_old_tech:.1f} -> {_new_tech:.1f} (+{_tech_gain:.2f})")
 
     # ── Tech tier transition detection + console logs ──
     _old_tier = get_tech_tier(_old_tech)
     _new_tier = get_tech_tier(_new_tech)
     if _old_tier != _new_tier:
-        print(f"  [tech_level] Tier transition: {_old_tier} → {_new_tier} at tech_level={_new_tech}")
-        messages.append(f"🔬 TIER UP: {TECH_TIER_NAMES[_old_tier]} → {TECH_TIER_NAMES[_new_tier]}")
+        print(f"  [tech_level] Tier transition: {_old_tier} -> {_new_tier} at tech_level={_new_tech}")
+        messages.append(f"🔬 TIER UP: {TECH_TIER_NAMES[_old_tier]} -> {TECH_TIER_NAMES[_new_tier]}")
     # Log modifiers every turn
     _econ_mod = get_economy_efficiency_modifier(_new_tech)
     _intel_mod = get_intel_detection_risk_modifier(_new_tech)
@@ -3487,7 +5125,7 @@ def apply_end_of_turn_effects(game_state):
 
     # ── Session 6: NPC Conditional Leverage Demands (once per game) ──────
     # Sadam/Ji-won: automatic rewards (direct state change).
-    # Marsha/Bill: interactive demands → pending_npc_contacts with leverage_type
+    # Marsha/Bill: interactive demands -> pending_npc_contacts with leverage_type
     #   so the frontend shows a LEVERAGE DEMAND card with Accept/Decline.
     _axes_lev = getattr(game_state, 'cabinet_axes', {})
 
@@ -3650,7 +5288,7 @@ def apply_end_of_turn_effects(game_state):
                 'eu_deal': 'Europa deepens ties with Brussels. Moscow observes the direction Europa is choosing.',
                 'election': 'The election outcome in Europa has drawn attention from the Russian government.',
                 'summit': 'Following the UN summit declaration, Moscow wishes to communicate its position.',
-                'regime_shift': f'The political restructuring in Europa has not gone unnoticed. ({_old_regime} → {_axis_regime})',
+                'regime_shift': f'The political restructuring in Europa has not gone unnoticed. ({_old_regime} -> {_axis_regime})',
             }
             _volkov_reason = _volkov_reasons.get(_volkov_trigger,
                 'The Russian Foreign Ministry has a periodic communication for Europa.')
@@ -3692,8 +5330,8 @@ def apply_end_of_turn_effects(game_state):
     # ──────────────────────────────────────────
     # 13i. 8B: EDUCATION SYSTEM — GAIN / DECAY / EFFECTS
     # Education level 0-3 drives GDP, tax, stability, approval, and NPC modifiers.
-    # Progression: allocation above threshold → gain_progress accumulates → level up.
-    # Underfunding: allocation below maintenance → decay_clock ticks → level down.
+    # Progression: allocation above threshold -> gain_progress accumulates -> level up.
+    # Underfunding: allocation below maintenance -> decay_clock ticks -> level down.
     # ──────────────────────────────────────────
     _edu_level = getattr(game_state, 'education_level', 0)
     _edu_alloc = getattr(game_state, 'education_allocation', 0.0)
@@ -3722,8 +5360,8 @@ def apply_end_of_turn_effects(game_state):
                 _edu_level = min(3, _edu_level + 1)
                 _edu_progress = 0.0
                 _edu_decay_clock = 0  # reset decay on level-up
-                messages.append(f"🎓 EDUCATION LEVEL UP: {EDUCATION_LEVEL_NAMES[_edu_old_level]} → {EDUCATION_LEVEL_NAMES[_edu_level]}")
-                print(f"  [education] LEVEL UP: {_edu_old_level} → {_edu_level} ({EDUCATION_LEVEL_NAMES[_edu_level]})")
+                messages.append(f"🎓 EDUCATION LEVEL UP: {EDUCATION_LEVEL_NAMES[_edu_old_level]} -> {EDUCATION_LEVEL_NAMES[_edu_level]}")
+                print(f"  [education] LEVEL UP: {_edu_old_level} -> {_edu_level} ({EDUCATION_LEVEL_NAMES[_edu_level]})")
         else:
             print(f"  [education] GAIN: below threshold (alloc=${_edu_alloc:.1f}B < threshold=${_gain_threshold:.1f}B) — no progress")
 
@@ -3740,8 +5378,8 @@ def apply_end_of_turn_effects(game_state):
                     _edu_level = max(0, _edu_level - 1)
                     _edu_progress = 0.8 if _edu_level > 0 else 0.0  # partial progress retained
                     _edu_decay_clock = 0
-                    messages.append(f"🎓 EDUCATION DECAY: {EDUCATION_LEVEL_NAMES[_edu_old_level]} → {EDUCATION_LEVEL_NAMES[_edu_level]} (underfunded)")
-                    print(f"  [education] LEVEL DOWN: {_edu_old_level} → {_edu_level} ({EDUCATION_LEVEL_NAMES[_edu_level]})")
+                    messages.append(f"🎓 EDUCATION DECAY: {EDUCATION_LEVEL_NAMES[_edu_old_level]} -> {EDUCATION_LEVEL_NAMES[_edu_level]} (underfunded)")
+                    print(f"  [education] LEVEL DOWN: {_edu_old_level} -> {_edu_level} ({EDUCATION_LEVEL_NAMES[_edu_level]})")
                 else:
                     messages.append(f"🎓 Education eroding: progress -{EDUCATION_DECAY_RATE:.0%} (underfunded)")
                     print(f"  [education] DECAY: progress now {_edu_progress:.2f} (lost {EDUCATION_DECAY_RATE})")
@@ -3795,17 +5433,23 @@ def apply_end_of_turn_effects(game_state):
     game_state.education_gain_progress = round(_edu_progress, 3)
     game_state.education_decay_clock = _edu_decay_clock
 
+    # 9.5A: Sync education_tier from education_level
+    _old_edu_tier = getattr(game_state, 'education_tier', 0)
+    game_state.education_tier = _edu_level
+    if _old_edu_tier != _edu_level:
+        print(f"  [9.5A] education_tier synced: {_old_edu_tier} -> {_edu_level}")
+
     # -- Summary log --
     _level_name = EDUCATION_LEVEL_NAMES[_edu_level] if _edu_level < len(EDUCATION_LEVEL_NAMES) else f'L{_edu_level}'
     print(f"  [education] END OF TURN: level={_edu_level} ({_level_name}), progress={_edu_progress:.2f}, decay_clock={_edu_decay_clock}, alloc=${_edu_alloc:.1f}B")
     if _edu_level != _edu_old_level:
-        print(f"  [education] LEVEL CHANGED: {_edu_old_level} → {_edu_level}")
+        print(f"  [education] LEVEL CHANGED: {_edu_old_level} -> {_edu_level}")
 
     # ──────────────────────────────────────────
     # 14. SESSION 7A STEP 4: ERA THRESHOLD DETECTION + TIME BACKSTOP
     # Check for era-defining events after all EOT consequences have fired.
     # Threshold events: regime shift, election, stability collapse, relations extremes.
-    # Time backstop: 20+ days in era with no threshold in last 5 → suggest era close.
+    # Time backstop: 20+ days in era with no threshold in last 5 -> suggest era close.
     # ──────────────────────────────────────────
     _era_threshold = None
 
@@ -3862,6 +5506,57 @@ def apply_end_of_turn_effects(game_state):
     # Flag is transient (not serialized), so it auto-resets on next request.
     # Resetting here was causing double-fire: apply_end_of_turn_effects() cleared
     # the flag before check_pressure_events() could read it in api.py.
+
+    # ──────────────────────────────────────────
+    # 9.5A-Shadow: FEAR DECAY PROCESSING
+    # ──────────────────────────────────────────
+    from advisor_engine import process_fear_decay, check_witnessed_defection_risk
+    _fear_msgs = process_fear_decay(game_state)
+    if _fear_msgs:
+        messages.extend(_fear_msgs)
+
+    # Check witnessed-elimination advisor defection on player weakness
+    _defection_events = check_witnessed_defection_risk(game_state)
+    for _def_key, _def_msg in _defection_events:
+        messages.append(_def_msg)
+
+    # ──────────────────────────────────────────
+    # 9.5B: STABILITY COMPOSITION UPDATE
+    # After all stability deltas applied, compute the legitimacy/coercion split.
+    # ──────────────────────────────────────────
+    _leg_raw, _coe_raw = compute_stability_components(game_state)
+
+    # Update composition fields as ratio of current displayed stability
+    _base_stability = game_state.stability
+    _total_components = _leg_raw + _coe_raw
+    if _total_components > 0:
+        _leg_ratio = _leg_raw / _total_components
+        _coe_ratio = _coe_raw / _total_components
+        game_state.legitimacy_stability = round(_base_stability * _leg_ratio, 1)
+        game_state.coercion_stability = round(_base_stability * _coe_ratio, 1)
+    else:
+        game_state.legitimacy_stability = 0.0
+        game_state.coercion_stability = 0.0
+
+    # Sudden collapse risk: coercion-dominant stability can fail catastrophically
+    if (game_state.coercion_stability > game_state.legitimacy_stability * 1.5
+            and game_state.stability > 20):
+        game_state.sudden_collapse_risk = True
+    else:
+        game_state.sudden_collapse_risk = False
+
+    # Resilience: legitimacy-dominant stability absorbs economic shocks better
+    if (game_state.legitimacy_stability > game_state.coercion_stability * 2):
+        game_state.stability_resilient = True
+    else:
+        game_state.stability_resilient = False
+
+    print(f"[9.5B] stability_components: "
+          f"leg={game_state.legitimacy_stability} "
+          f"coe={game_state.coercion_stability} "
+          f"total={game_state.stability} "
+          f"sudden={game_state.sudden_collapse_risk} "
+          f"resilient={game_state.stability_resilient}")
 
     # Clean up transient budget allocation attributes (not serialized)
     for _attr in ('_infra_gdp_bonus', '_diplo_drift_modifier'):
@@ -4206,7 +5901,7 @@ FINAL RELATIONS AT DEPARTURE:
   🇺🇸 USA:    {game_state.relations['usa']}/100
   🛢️  Arabia: {game_state.relations['arabia']}/100
   🇪🇺 EU:     {game_state.relations['eu']}/100
-  ⚡ DPRG:   {game_state.relations['dprg']}/100  ← arranged the exit
+  ⚡ DPRG:   {game_state.relations['dprg']}/100  <- arranged the exit
 
 {'─'*60}
 LEGACY — ✦ The Escaped Architect ✦
@@ -4221,50 +5916,107 @@ LEGACY — ✦ The Escaped Architect ✦
     return msg
 
 
+def _composition_collapse_type(gs) -> str:
+    """9.5B: Determine collapse type weighted by stability composition."""
+    leg = getattr(gs, 'legitimacy_stability', 0.0)
+    coe = getattr(gs, 'coercion_stability', 0.0)
+    total = max(leg + coe, 1)
+    coe_pct = coe / total
+
+    if coe_pct > 0.65:
+        # Coercion-dominant: military or elite coup
+        collapse_type = "coup"
+    elif coe_pct < 0.35:
+        # Legitimacy-dominant: institutions failed, population organized
+        collapse_type = "revolution"
+    else:
+        # Mixed: debt crisis if budget cause, otherwise revolution
+        if gs.budget <= 0:
+            collapse_type = "debt"
+        else:
+            collapse_type = "revolution"
+
+    print(f"[9.5B] collapse_type: {collapse_type} "
+          f"leg={leg:.1f} coe={coe:.1f} coe_pct={coe_pct:.2f}")
+    return collapse_type
+
+
 def check_game_over(game_state):
-    """Check win/loss conditions - returns (is_over, result, message)"""
+    """Check win/loss conditions - returns (is_over, result, message).
+    8C: Defeat conditions now trigger exile instead of game-over.
+    Returns (False, 'exile_started', msg) when exile is triggered."""
+
+    # 8C: If already in exile, skip all defeat checks — game continues in exile mode
+    if getattr(game_state, 'in_exile', False):
+        # FIX 2: Safety defaults for cheat-injected exile state
+        if not hasattr(game_state, 'exile_entry_relations') or not game_state.exile_entry_relations:
+            game_state.exile_entry_relations = dict(game_state.relations)
+        if not getattr(game_state, 'exile_trigger', None):
+            game_state.exile_trigger = 'revolution'
+        if not getattr(game_state, 'successor_name', None):
+            game_state.successor_name = 'the successor government'
+        print(f"  [9C] permanent_exile safety defaults applied: trigger={game_state.exile_trigger}")
+
+        # 9C: Check permanent exile — all return attempts exhausted, insufficient progress
+        _ret_attempts = getattr(game_state, 'return_attempts', 0)
+        _ret_progress = getattr(game_state, 'return_progress', 0)
+        if _ret_attempts >= 3 and _ret_progress < 30:
+            game_state.ending_triggered = "permanent_exile"
+            game_state.in_exile = False
+            print(f"[9C] permanent_exile triggered: attempts={_ret_attempts} progress={_ret_progress}")
+            return (True, 'permanent_exile', 'All return attempts exhausted. You will die in exile.')
+        return (False, None, None)
+
+    # FIX 1: Restoration grace period — skip all collapse triggers while active
+    _grace = getattr(game_state, 'restoration_grace_days', 0)
+    if _grace > 0:
+        game_state.restoration_grace_days -= 1
+        print(f"[RESTORE] grace period: {game_state.restoration_grace_days} days remaining")
+        return (False, None, None)
 
     pw = game_state.personal_wealth
 
-    # Defeat: bankruptcy
+    # 8C: Defeat -> Exile: bankruptcy
     if game_state.budget <= 0:
-        p_title, p_desc = get_personal_outcome(False, pw, game_state)
-        msg = f"""
-{'='*60}
-💀 BANKRUPTCY — GAME OVER 💀
-{'='*60}
+        exile_sequence_start(game_state, 'debt')
+        return (False, 'exile_started', 'Europa has gone bankrupt. You are forced into exile.')
 
-Europa's treasury has run dry. ${game_state.budget:.1f}B.
-The government cannot pay its bills. Civil services collapse.
-Workers go unpaid. The streets fill with protest.
-
-CAUSE OF DEFEAT: Financial mismanagement / hostile economic pressure
-
-FINAL STATE:
-  Budget:    ${game_state.budget:.1f}B  ← BANKRUPT
-  Stability:  {game_state.stability}%
-  Approval:   {game_state.public_approval}%
-  Turn:       {game_state.current_turn}/{game_state.max_turns}
-
-FINAL RELATIONS:
-  🇺🇸 USA:    {game_state.relations['usa']}/100
-  🛢️  Arabia: {game_state.relations['arabia']}/100
-  🇪🇺 EU:     {game_state.relations['eu']}/100
-  ⚡ DPRG:   {game_state.relations['dprg']}/100
-
-{'─'*60}
-LEGACY — ✦ {p_title} ✦
-  Personal Wealth: ${pw:.1f}B
-
-  {p_desc}
-{'='*60}
-"""
-        return (True, 'defeat', msg)
-
-    # fixes_8 Fix 14: Military coup probability at military 0
+    # 9.5A: Coup amplifier — strong military without political control
     _mil = getattr(game_state, 'military_strength', 20)
     _stab = game_state.stability
     _coup_immune = getattr(game_state, 'coup_immune', False)
+    _coup_amp = getattr(game_state, 'coup_amplifier_active', False)
+    _loyal_generals = getattr(game_state, 'loyal_generals_installed', False)
+    if _coup_amp and _stab < 40 and not _coup_immune:
+        # Coup amplifier: mil_tier > pol_tier by 3+, strong military may seize power
+        _mil_tier_c = getattr(game_state, 'military_tier', 0)
+        _pol_tier_c = getattr(game_state, 'political_tier', 0)
+        _amp_gap = _mil_tier_c - _pol_tier_c
+        # Base probability from gap size: 10% at gap=4, 15% at gap=5, 20% at gap 6+
+        _amp_prob = 0.05 + (_amp_gap - 3) * 0.05
+        # Stability modifier: lower stability increases risk
+        if _stab < 20:
+            _amp_prob += 0.10
+        # Loyal generals reduce coup amplifier risk by 30%
+        if _loyal_generals:
+            _amp_prob *= 0.70
+            print(f"  [9.5A] Loyal generals reduce coup amp probability by 30%")
+        # Education resistance
+        _edu_lvl_amp = getattr(game_state, 'education_level', 0)
+        _edu_resist_amp = {0: 0.0, 1: 0.0, 2: 0.05, 3: 0.15}.get(_edu_lvl_amp, 0.0)
+        if _edu_resist_amp > 0:
+            _amp_prob = max(0, _amp_prob - _edu_resist_amp)
+        _amp_prob = min(max(0, _amp_prob), 0.50)  # cap at 50%
+        import random as _random_amp
+        _amp_roll = _random_amp.random()
+        _amp_fired = _amp_roll < _amp_prob
+        print(f"  [9.5A] COUP AMPLIFIER CHECK: mil_tier={_mil_tier_c}, pol_tier={_pol_tier_c}, "
+              f"gap={_amp_gap}, stability={_stab}, prob={_amp_prob:.0%}, "
+              f"loyal_gen={_loyal_generals}, fired={_amp_fired}")
+        if _amp_fired:
+            game_state.stability = 0  # force collapse — falls through to exile check below
+
+    # fixes_8 Fix 14: Military coup probability at military 0
     if _mil == 0 and _stab < 30 and not _coup_immune:
         # Base coup probability: stability determines base
         if _stab < 15:
@@ -4294,75 +6046,17 @@ LEGACY — ✦ {p_title} ✦
     elif _mil == 0 and _coup_immune:
         print(f"  [turn_processor] COUP CHECK: military={_mil}, stability={_stab}, probability=N/A, immune=True, fired=False")
 
-    # Defeat: collapse (Session 4C: coup_immune blocks this if opposition dissolved)
+    # 8C: Defeat -> Exile: stability collapse
     if game_state.stability <= 0 and not getattr(game_state, 'coup_immune', False):
-        p_title, p_desc = get_personal_outcome(False, pw, game_state)
-        msg = f"""
-{'='*60}
-💀 GOVERNMENT COLLAPSE — GAME OVER 💀
-{'='*60}
+        # 9.5B: Use composition-weighted collapse type
+        _exile_trigger = _composition_collapse_type(game_state)
+        exile_sequence_start(game_state, _exile_trigger)
+        return (False, 'exile_started', f'The government has collapsed ({_exile_trigger}). You are forced into exile.')
 
-Stability has reached {game_state.stability}%. The government falls.
-Protests turn to riots. The military refuses orders.
-Europa fractures into chaos.
-
-CAUSE OF DEFEAT: Political instability / approval collapse
-
-FINAL STATE:
-  Budget:    ${game_state.budget:.1f}B
-  Stability:  {game_state.stability}%  ← COLLAPSED
-  Approval:   {game_state.public_approval}%
-  Turn:       {game_state.current_turn}/{game_state.max_turns}
-
-FINAL RELATIONS:
-  🇺🇸 USA:    {game_state.relations['usa']}/100
-  🛢️  Arabia: {game_state.relations['arabia']}/100
-  🇪🇺 EU:     {game_state.relations['eu']}/100
-  ⚡ DPRG:   {game_state.relations['dprg']}/100
-
-{'─'*60}
-LEGACY — ✦ {p_title} ✦
-  Personal Wealth: ${pw:.1f}B
-
-  {p_desc}
-{'='*60}
-"""
-        return (True, 'defeat', msg)
-
-    # Defeat: approval collapse
+    # 8C: Defeat -> Exile: approval collapse
     if game_state.public_approval <= 0:
-        p_title, p_desc = get_personal_outcome(False, pw, game_state)
-        msg = f"""
-{'='*60}
-💀 POPULAR REVOLT — GAME OVER 💀
-{'='*60}
-
-Public approval: {game_state.public_approval}%. The people have had enough.
-Mass protests topple the government. No foreign ally intervenes.
-Europa's leadership experiment ends in disgrace.
-
-CAUSE OF DEFEAT: Total loss of public confidence
-
-FINAL STATE:
-  Budget:    ${game_state.budget:.1f}B
-  Stability:  {game_state.stability}%
-  Approval:   {game_state.public_approval}%  ← REVOLT
-  Turn:       {game_state.current_turn}/{game_state.max_turns}
-
-FINAL RELATIONS:
-  🇺🇸 USA:    {game_state.relations['usa']}/100
-  🛢️  Arabia: {game_state.relations['arabia']}/100
-  🇪🇺 EU:     {game_state.relations['eu']}/100
-  ⚡ DPRG:   {game_state.relations['dprg']}/100
-
-{'─'*60}
-LEGACY — ✦ {p_title} ✦
-  Personal Wealth: ${pw:.1f}B
-
-  {p_desc}
-{'='*60}
-"""
-        return (True, 'defeat', msg)
+        exile_sequence_start(game_state, 'revolution')
+        return (False, 'exile_started', 'Popular revolt. You are forced into exile.')
 
     # Victory: survived 10 turns
     # FIX B: Use >= so Turn 10 EOT triggers victory without needing current_turn = 11 hack
@@ -4450,7 +6144,7 @@ LEGACY — ✦ {p_title} ✦
 
 # ── Session 7A Feature 10: GM Consequence Application ──────────────────────
 
-# Credibility → relation penalty multiplier for affected parties
+# Credibility -> relation penalty multiplier for affected parties
 _CREDIBILITY_MULTIPLIER = {
     'strong': 0.0,       # credible proposal — no extra penalty
     'credible': 0.0,
@@ -4509,7 +6203,7 @@ def apply_gm_consequences(game_state):
                     new_rel = game_state.relations[party_key]
                     label = _npc_labels.get(party_key, party_key.upper())
                     messages.append(
-                        f"🌐 {label}: {old_rel} → {new_rel} ({total_penalty:+d}) — affected by {proposal}"
+                        f"🌐 {label}: {old_rel} -> {new_rel} ({total_penalty:+d}) — affected by {proposal}"
                     )
                     print(f"[GM] EOT: {party_key} relations {old_rel}->{new_rel} ({total_penalty:+d}) from GM consequence")
 
@@ -4606,3 +6300,138 @@ def check_ignored_communiques(game_state):
     game_state.npcs_interacted_this_turn = []
 
     return messages
+
+
+
+# ── 9A: Restoration Identity Formation ────────────────────────────────────────
+
+# Actions and their democratic/authoritarian weight
+RESTORATION_DEMOCRATIC_SIGNALS = {
+    # Budget/policy actions that signal democratic governance
+    'free_press': 3,
+    'judicial_independence': 3,
+    'fair_elections': 4,
+    'reduce_military': 2,
+    'reduce_intelligence': 2,
+    'education_investment': 2,
+    'social_investment': 2,
+    'transparency_reform': 3,
+    'release_prisoners': 3,
+    'diplomatic_opening': 1,
+}
+
+RESTORATION_AUTHORITARIAN_SIGNALS = {
+    # Actions that signal authoritarian consolidation
+    'press_suppressed': 3,
+    'judicial_capture': 3,
+    'election_manipulation': 4,
+    'military_expansion': 2,
+    'intelligence_expansion': 2,
+    'loyalty_brigades': 3,
+    'extraction_increase': 2,
+    'media_control': 3,
+    'purge_opposition': 4,
+    'emergency_powers': 3,
+}
+
+
+def _track_restoration_choice(game_state, action_key, context=None):
+    """9A: Track a player action during restoration period for identity formation.
+
+    Called by turn_processor or api endpoints when player takes an action
+    that signals democratic or authoritarian intent during restoration.
+    """
+    if not game_state.restoration_active:
+        return
+
+    if action_key in RESTORATION_DEMOCRATIC_SIGNALS:
+        weight = RESTORATION_DEMOCRATIC_SIGNALS[action_key]
+        game_state.restoration_democratic_tally += weight
+        print(f"[9A] restoration signal: {action_key} -> democratic +{weight} (total: d={game_state.restoration_democratic_tally} a={game_state.restoration_authoritarian_tally})")
+    elif action_key in RESTORATION_AUTHORITARIAN_SIGNALS:
+        weight = RESTORATION_AUTHORITARIAN_SIGNALS[action_key]
+        game_state.restoration_authoritarian_tally += weight
+        print(f"[9A] restoration signal: {action_key} -> authoritarian +{weight} (total: d={game_state.restoration_democratic_tally} a={game_state.restoration_authoritarian_tally})")
+
+
+def _compute_restoration_regime_label(game_state):
+    """9A: Resolve the restoration regime label based on accumulated democratic vs authoritarian tally.
+
+    Called at end of restoration period (after N turns) or when tally reaches threshold.
+    Returns the new regime label string.
+    """
+    d = game_state.restoration_democratic_tally
+    a = game_state.restoration_authoritarian_tally
+    prior = game_state.prior_regime_label or "Managed Democracy"
+
+    # Net score: positive = democratic, negative = authoritarian
+    net = d - a
+    total = d + a
+
+    print(f"[9A] restoration regime resolution: democratic={d} authoritarian={a} net={net} total={total} prior={prior}")
+
+    if total < 5:
+        # Too few signals: inherit a cautious version of prior regime
+        label = f"Restored {prior}"
+        print(f"[9A] restoration label (insufficient signals): {label}")
+        return label
+
+    if net >= 8:
+        label = "Restored Democracy"
+    elif net >= 4:
+        label = "Reform Government"
+    elif net >= 0:
+        label = "Managed Democracy"  # Middle ground
+    elif net >= -4:
+        label = "Restored Authoritarianism"
+    elif net >= -8:
+        label = "Consolidation Regime"
+    else:
+        label = "Restoration Dictatorship"
+
+    print(f"[9A] restoration label (resolved): {label}")
+    return label
+
+
+def _check_restoration_resolution(game_state):
+    """9A: Check if restoration period should resolve into a new regime identity.
+
+    Called during EOD processing. Resolution happens when:
+    - Total tally >= 15 (enough signals accumulated), OR
+    - 10+ turns have passed since restoration began
+
+    Returns True if resolution occurred, False otherwise.
+    """
+    if not game_state.restoration_active:
+        return False
+
+    d = game_state.restoration_democratic_tally
+    a = game_state.restoration_authoritarian_tally
+
+    # FIX 9: Resolution triggers when either tally reaches 3
+    if d < 3 and a < 3:
+        return False
+
+    # Resolve — determine label from which tally hit threshold
+    if d >= 3 and a >= 3:
+        # Both reached 3 — use whichever is higher
+        if d >= a:
+            new_label = _compute_restoration_regime_label(game_state)
+        else:
+            new_label = _compute_restoration_regime_label(game_state)
+    else:
+        new_label = _compute_restoration_regime_label(game_state)
+    print(f"[FIX9] restoration resolved label={new_label} dem={d} auth={a}")
+
+    # Apply the new regime label
+    if hasattr(game_state, 'state_identity') and isinstance(game_state.state_identity, dict):
+        old_label = game_state.state_identity.get('regime_type', 'Unknown')
+        game_state.state_identity['regime_type'] = new_label
+        print(f"[9A] REGIME LABEL RESOLVED: {old_label} -> {new_label}")
+    else:
+        print(f"[9A] WARNING: state_identity not found, could not apply label {new_label}")
+
+    # End restoration period
+    game_state.restoration_active = False
+
+    return True

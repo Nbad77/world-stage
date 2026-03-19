@@ -6,11 +6,11 @@ API calls. The deterministic game engine (budget math, relations,
 oil prices, sanctions, skim/F/G mechanics) is UNCHANGED.
 
 Architecture:
-  generate_dialogue(game_state)      → dict of 4 NPC strings
-  generate_intercept_comments(...)   → list of intercept strings
-  _call_npc(system, context, npc)    → raw dialogue string (with fallback)
-  _build_context(game_state)         → context dict sent to every call
-  _static_fallback_*(game_state)     → existing static strings per NPC
+  generate_dialogue(game_state)      -> dict of 4 NPC strings
+  generate_intercept_comments(...)   -> list of intercept strings
+  _call_npc(system, context, npc)    -> raw dialogue string (with fallback)
+  _build_context(game_state)         -> context dict sent to every call
+  _static_fallback_*(game_state)     -> existing static strings per NPC
 
 All game logic lives in Python. Claude generates flavor text only.
 """
@@ -360,6 +360,54 @@ You have received a report that Europa's leader has been quietly accumulating si
 React with a philosophical observation about stability and power. Never alarmed. Always calculating.
 Note this as a long-term dependency indicator. 2 sentences max. No speaker label."""
 
+# ─── 8C: Exile Dialogue Context ──────────────────────────────────────────────
+
+EXILE_DIALOGUE_CONTEXT = {
+    'usa': """
+This leader is no longer in power. They are a private citizen in exile.
+You no longer need to maintain full diplomatic formality. You can be
+more candid about what Washington actually thought of their decisions.
+Your tone reflects their reduced status, but also any genuine respect
+that remains. Bill is pragmatic -- if backing their return serves US
+interests, he'll say so directly. If it doesn't, he'll say that too.
+""",
+    'eu': """
+This leader is no longer in power. Marsha can be more candid now --
+she was often more sympathetic than her official position allowed.
+If they left legitimately (voted_out), she treats them with genuine
+respect. If they were removed by collapse, she is sympathetic but
+realistic about what return would require. She can reference what
+she privately observed about their governance that she couldn't say
+officially.
+""",
+    'arabia': """
+This leader is no longer in power. Sadam is entirely candid in exile --
+he never had much patience for diplomatic performance anyway. He will
+tell them directly what he thought of their decisions, what he would
+have done differently, and what their return is worth to him. He is
+calculating their remaining personal wealth and leverage in real time.
+""",
+    'dprg': """
+This leader is no longer in power. Ji-won is as cryptic as ever but
+drops some of the formality. He has opinions about how they fell and
+is not shy about sharing them obliquely. He files away everything
+they say in exile for later use.
+""",
+    'russia': """
+This leader is no longer in power. Volkov is blunt in exile -- perhaps
+more than he was in power. He will say directly what Russia thought of
+their tenure and what their return is worth to Moscow. If the exile
+trigger was a coup and they have no state behind them, his assessment
+of their value is coldly realistic.
+""",
+    'china': """
+This leader is no longer in power. Wei's register barely changes --
+he has always taken the long view. He references their tenure as one
+chapter in a longer relationship. He may be the most comfortable
+of all NPCs with the exile situation, because China plans in decades.
+""",
+}
+
 # ─── Token / Model Config ─────────────────────────────────────────────────────
 
 MODEL = "claude-haiku-4-5-20251001"
@@ -467,6 +515,135 @@ def get_leverage_injections(game_state, npc_id):
 
 # ─── Context Builder ──────────────────────────────────────────────────────────
 
+def _get_exile_prompt_suffix(game_state, npc_id):
+    """8C: Return exile context string to append to NPC system prompts when in exile.
+    Returns empty string if not in exile."""
+    if not getattr(game_state, 'in_exile', False):
+        return ''
+    base = EXILE_DIALOGUE_CONTEXT.get(npc_id, '')
+    trigger = getattr(game_state, 'exile_trigger', 'unknown')
+    dest = getattr(game_state, 'exile_destination', 'unknown')
+    wealth = getattr(game_state, 'personal_wealth', 0)
+    regime = getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy')
+    skimmed = getattr(game_state, 'total_skimmed', 0)
+    successor = getattr(game_state, 'successor_name', 'The successor')
+
+    note = (
+        f"\n\nEXILE CONTEXT: The leader was removed from power via {trigger}. "
+        f"They are in exile in {dest}. "
+        f"Their remaining personal wealth is ${wealth:.1f}B. "
+        f"Their regime was classified as '{regime}'. "
+        f"Total skimmed during their tenure: ${skimmed:.1f}B. "
+        f"The successor is {successor}. "
+        f"You can now say what you privately observed about their governance. "
+        f"Be candid. Drop some of the diplomatic performance."
+    )
+    return base + note
+
+
+# ── Fix E: Exile contact dialogue generation ────────────────────────────────
+
+_EXILE_NPC_PROMPTS = {
+    'usa': USA_SYSTEM_PROMPT,
+    'arabia': SADAM_SYSTEM_PROMPT,
+    'eu': """You are Marsha, EU Commissioner for External Relations. You are warm but principled, deeply committed to democratic norms, and often caught between empathy and institutional obligation. You speak with care but directness. In exile mode you can be more personal.""",
+    'dprg': JIWON_SYSTEM_PROMPT,
+    'russia': VOLKOV_SYSTEM_PROMPT,
+    'china': WEI_SYSTEM_PROMPT,
+}
+
+_EXILE_NPC_NAMES = {
+    'usa': 'Bill Hartwell', 'arabia': 'Sadam', 'eu': 'Marsha',
+    'dprg': 'Ji-won Ryang', 'russia': 'Nikolai Volkov', 'china': 'Wei Jianming',
+}
+
+_EXILE_FALLBACKS = {
+    'usa': "Bill takes your call. There is a long pause before he speaks. 'I wondered when you would reach out.'",
+    'arabia': "Sadam answers immediately. He has been expecting this. 'You still have my number. That means something.'",
+    'eu': "Marsha sounds tired but not unkind. 'I heard what happened. I am sorry it came to this.'",
+    'dprg': "Ji-won listens in silence. When she speaks, it is measured. 'Your situation is noted. Continue.'",
+    'russia': "Volkov is brief. 'You called. I am listening. Make it worth my time.'",
+    'china': "Wei takes the call with characteristic composure. 'We have been following developments with interest.'",
+}
+
+
+def generate_exile_contact_response(game_state, npc_id):
+    """Fix E: Generate NPC prose response when player reaches out from exile.
+    Returns a 3-5 sentence in-character response. Falls back to hardcoded line on failure."""
+
+    npc_name = _EXILE_NPC_NAMES.get(npc_id, npc_id)
+    base_prompt = _EXILE_NPC_PROMPTS.get(npc_id, f"You are {npc_name}.")
+    exile_context = _get_exile_prompt_suffix(game_state, npc_id)
+
+    rel = game_state.relations.get(npc_id, 30)
+    trigger = getattr(game_state, 'exile_trigger', 'unknown')
+    wealth = getattr(game_state, 'personal_wealth', 0)
+
+    system_prompt = (
+        f"{base_prompt}\n\n"
+        f"EXILE CONTACT MODE:\n"
+        f"Europa\'s former leader is reaching out to you from exile. They are no longer in power.\n"
+        f"You are NOT in a negotiation. You are NOT offering a deal.\n"
+        f"You are deciding how candid to be about what you actually thought of their leadership.\n"
+        f"\n"
+        f"Tone guidance based on exile trigger:\n"
+        f"- voted_out: Most candid. They left with some dignity. You can be honest but respectful.\n"
+        f"- debt: They collapsed financially. You can comment on their fiscal choices.\n"
+        f"- revolution: The people turned on them. You observed this coming.\n"
+        f"- coup: They were removed by force. You are guarded -- who might be listening?\n"
+        f"\n"
+        f"Current relations: {rel}/100. Higher = warmer tone. Below 20 = cold or dismissive.\n"
+        f"Their remaining personal wealth: ${wealth:.1f}B.\n"
+        f"\n"
+        f"Write 3-5 sentences. No markdown. No asterisks. No headers. Plain prose only.\n"
+        f"Stay in character. Be candid in ways you could not be when they held power.\n"
+        f"Do NOT offer deals or negotiate. This is a personal exchange, not diplomacy."
+    )
+
+    if exile_context:
+        system_prompt += exile_context
+
+    user_content = (
+        f"Europa\'s former leader has reached out to you from exile.\n"
+        f"Exile trigger: {trigger}\n"
+        f"Current relations: {rel}/100\n"
+        f"Respond in character as {npc_name}. 3-5 sentences. Plain prose."
+    )
+
+    try:
+        import anthropic
+        import os as _os
+        api_key = _os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            print(f"[exile] Exile dialogue skipped for {npc_id}: no API key")
+            return _EXILE_FALLBACKS.get(npc_id, f"{npc_name} takes your call.")
+
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=250,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_content}],
+        )
+
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
+        _token_log["calls"] += 1
+
+        text = response.content[0].text.strip() if response.content else ""
+        if not text:
+            _token_log["fallbacks"] += 1
+            return _EXILE_FALLBACKS.get(npc_id, f"{npc_name} takes your call.")
+
+        print(f"[exile] Exile dialogue generated for {npc_id}, trigger: {trigger}")
+        return text
+
+    except Exception as e:
+        print(f"[exile] Exile dialogue FAILED for {npc_id}: {e}")
+        _token_log["fallbacks"] += 1
+        return _EXILE_FALLBACKS.get(npc_id, f"{npc_name} takes your call.")
+
+
 def _build_context(game_state, npc_id=None):
     """
     Build the game state context dict sent with every NPC call.
@@ -526,6 +703,13 @@ def _build_context(game_state, npc_id=None):
         # 8B: Education level — NPCs can reference in dialogue
         "education_level": getattr(game_state, 'education_level', 0),
         "education_level_name": ['Underdeveloped', 'Basic', 'Developed', 'Advanced'][min(getattr(game_state, 'education_level', 0), 3)],
+        # 8C: Exile state — NPCs adjust register when leader is in exile
+        "in_exile": getattr(game_state, 'in_exile', False),
+        "exile_trigger": getattr(game_state, 'exile_trigger', None),
+        "exile_destination": getattr(game_state, 'exile_destination', None),
+        "exile_day": getattr(game_state, 'exile_day', 0),
+        "successor_name": getattr(game_state, 'successor_name', None),
+        "successor_disposition": getattr(game_state, 'successor_disposition', None),
     }
 
     # FIX 13: Tiered personal wealth visibility per NPC
@@ -994,6 +1178,11 @@ def generate_contact_dialogue(game_state, npc_id, reason, tone='neutral'):
             f"Tone: {tone}. Be specific and reference the reason below. Stay in character."
         )
 
+    # 8C: Append exile context if in exile
+    _exile_suffix = _get_exile_prompt_suffix(game_state, npc_id)
+    if _exile_suffix:
+        system_prompt += _exile_suffix
+
     user_content = (
         f"Reason for contact: {reason}\n"
         f"Current relations with Europa: {_rel}/100\n"
@@ -1019,7 +1208,7 @@ def generate_contact_dialogue(game_state, npc_id, reason, tone='neutral'):
         # fixes_15 Fix D: Strip stage directions from contact dialogue too
         text = re.sub(r'\*[^*]+\*', '', text).strip()
         # 8A: Strip markdown formatting that leaks through (bold, headers, dashes)
-        text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)   # **bold** → bold
+        text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)   # **bold** -> bold
         text = re.sub(r'^#{1,4}\s+', '', text, flags=re.MULTILINE)  # ## headers
         text = re.sub(r'^-{3,}$', '', text, flags=re.MULTILINE)     # --- dividers
         text = re.sub(r'\n{2,}', '\n', text).strip()                # collapse blank lines
@@ -1106,10 +1295,10 @@ def generate_intercept_comments(game_state, threshold_label):
         _domestic_block += (
             f"Each NPC reacts to domestic actions differently:\n"
             f"- Bill (USA): names the specific action that concerns him most. "
-            f"'Judicial Capture' → 'captured courts'; 'Press Suppression' → 'silencing journalists'. "
+            f"'Judicial Capture' -> 'captured courts'; 'Press Suppression' -> 'silencing journalists'. "
             f"Frames it as intelligence leverage: 'we know what you've done to your courts.'\n"
             f"- Marsha (EU): cites specific EU standards violated by each action. "
-            f"'Judicial Capture' → 'Copenhagen criteria Article 2'; 'Opposition Dissolved' → 'democratic backsliding'. "
+            f"'Judicial Capture' -> 'Copenhagen criteria Article 2'; 'Opposition Dissolved' -> 'democratic backsliding'. "
             f"Formal diplomatic language, names the violation.\n"
             f"- Sadam (Arabia): sees domestic consolidation as smart statecraft. "
             f"References the specific action approvingly: 'a leader who controls his courts controls his future.'\n"
@@ -1586,7 +1775,7 @@ All monetary amounts in the JSON output MUST be expressed in BILLIONS.
   - If the NPC said "1.5 billion" or "$1.5B", output 1.5.
   - If the NPC said "$800M", output 0.8.
   - Common conversion: M/million = divide by 1000 to get billions.
-  - "$X million" → X / 1000 in billions.  "$X billion" → X in billions.
+  - "$X million" -> X / 1000 in billions.  "$X billion" -> X in billions.
   - NEVER output a raw number without converting to billions first.
 
 Return ONLY valid JSON. No prose. No markdown. No fences.
@@ -1757,6 +1946,31 @@ def generate_historian_summary(game_state) -> str:
         _summit_line = '\n'.join(_summit_parts) + '\n'
     print(f"  [HISTORIAN] Summit data: credibility={_summit_cred}, summits={len(_summit_history)}, broken={len(_broken_commits)}")
 
+    # 9.5B: Stability composition hint for historian voice
+    _stability_hint = ""
+    _leg = getattr(game_state, 'legitimacy_stability', 0.0)
+    _coe = getattr(game_state, 'coercion_stability', 0.0)
+    _total_stab = max(game_state.stability, 1)
+    _coe_pct = _coe / _total_stab if _total_stab > 0 else 0.5
+    if _coe_pct > 0.70:
+        _stability_hint = (
+            "Stability rests primarily on coercion and force rather than genuine popular "
+            "support. This is fragile in ways that may not yet be apparent.")
+    elif _coe_pct < 0.30:
+        _stability_hint = (
+            "Stability derives primarily from genuine popular legitimacy and "
+            "institutional strength.")
+    # Transition detection: legitimacy falling, coercion rising
+    _prev_leg = getattr(game_state, 'prev_legitimacy_stability', _leg)
+    if _leg < _prev_leg - 5 and _coe_pct > 0.5:
+        _stability_hint += (
+            " The institutions that had sustained power are giving way to arrangements "
+            "that require more active management.")
+    # Store for next turn comparison
+    game_state.prev_legitimacy_stability = _leg
+    _stability_line = f"  Stability composition: {_stability_hint}\n" if _stability_hint else ""
+    print(f"[9.5B] historian_hint: '{_stability_hint[:60]}...' coe_pct={_coe_pct:.2f}")
+
     prompt = (
         f"GAME OVER — Write the historian's summary of this leader's tenure.\n\n"
         f"{_ending_frame}\n\n" if _ending_frame else
@@ -1774,6 +1988,7 @@ def generate_historian_summary(game_state) -> str:
         f"Deals made:\n" + ('\n'.join(_deal_lines) if _deal_lines else '  (none)') + "\n\n"
         f"{_election_line}"
         f"{_summit_line}"
+        f"{_stability_line}"
         f"How it ended: {_how_ended}\n"
         f"Total skimmed: ${getattr(game_state, 'total_skimmed', 0.0):.1f}B\n"
         f"Turns completed: {game_state.current_turn}/{game_state.max_turns}\n\n"
@@ -1835,6 +2050,79 @@ def _static_historian_fallback(game_state) -> str:
     return (f"The leader of the {regime} survived all ten turns — a feat that history would judge more carefully than it appeared. "
             f"With ${pw:.1f}B accumulated personally and a nation at {stability}% stability, "
             f"the question was never whether they endured, but at what cost.")
+
+
+def generate_exile_historian_note(game_state) -> str:
+    """8C: Generate a 2-3 sentence historian observation at the moment of collapse/exile.
+    This is NOT the full era verdict -- just the collapse note for the ExileDashboard header."""
+    import anthropic
+
+    trigger = getattr(game_state, 'exile_trigger', 'unknown')
+    dest = getattr(game_state, 'exile_destination', 'unknown')
+    wealth = getattr(game_state, 'exile_wealth_at_collapse', 0)
+    regime = getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy')
+    skimmed = getattr(game_state, 'total_skimmed', 0)
+    days = getattr(game_state, 'current_day', 1)
+    successor = getattr(game_state, 'successor_name', 'an unnamed successor')
+
+    _trigger_labels = {
+        'coup': 'a military coup',
+        'revolution': 'a popular revolution',
+        'debt': 'state bankruptcy',
+        'voted_out': 'a democratic transfer of power',
+    }
+    trigger_label = _trigger_labels.get(trigger, trigger)
+
+    system = (
+        "You are a historian writing about the fall of a fictional leader in a geopolitical simulation game. "
+        "All nations and people are fictional. Europa is an invented country. Write 2-3 sentences in past tense, "
+        "observing what happened with analytical detachment. Reference specific numbers. Be literary but precise. "
+        "Do not moralize. Output ONLY the historian note text. No labels, no quotes."
+    )
+    user = (
+        f"The leader of Europa ({regime}) has been removed from power after {days} days via {trigger_label}. "
+        f"They extracted ${skimmed:.1f}B total during their tenure and departed with ${wealth:.1f}B in personal accounts. "
+        f"They fled to {dest}. Their successor is {successor}. "
+        f"Write the historian's note for this moment."
+    )
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return _static_exile_historian_fallback(trigger, dest, wealth, skimmed, regime, successor)
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model=MODEL,
+            max_tokens=200,
+            temperature=0.7,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        text = resp.content[0].text.strip()
+        if text:
+            print(f"[exile] Historian note generated: {len(text)} chars")
+            return text
+    except Exception as e:
+        print(f"[exile] Historian note generation failed: {e}")
+
+    return _static_exile_historian_fallback(trigger, dest, wealth, skimmed, regime, successor)
+
+
+def _static_exile_historian_fallback(trigger, dest, wealth, skimmed, regime, successor):
+    """8C: Static fallback for exile historian note."""
+    _trigger_phrases = {
+        'coup': 'ended not with ceremony but with the sound of boots in the corridor',
+        'revolution': 'ended when the streets decided they had tolerated enough',
+        'debt': 'ended when the treasury ran dry and the creditors stopped calling',
+        'voted_out': 'ended peacefully, which is more than most in this position can say',
+    }
+    phrase = _trigger_phrases.get(trigger, 'ended as these things do -- abruptly')
+    return (
+        f"Having extracted ${skimmed:.1f}B from the national accounts during their tenure as leader of the {regime}, "
+        f"the regime {phrase}. "
+        f"The leader departed for {dest} with ${wealth:.1f}B remaining. {successor} assumed control."
+    )
 
 
 INTEL_SYSTEM = """You are writing dialogue for a fictional geopolitical strategy game called "The World Stage."
@@ -2054,6 +2342,19 @@ def generate_intel(game_state, npc_id: str) -> dict:
     if _axis_context_lines:
         _axis_block = "\n\nDOMESTIC AXIS CONTEXT (reference these in the intelligence brief):\n" + "\n".join(_axis_context_lines)
 
+    # 9.5C: Intel distortion from loyal intel chief
+    _loyal_chief = getattr(game_state, 'loyal_intel_chief_installed', False)
+    _distortion_active = getattr(game_state, 'intel_distortion_active', False)
+    _distortion_note = ""
+    if _loyal_chief and _distortion_active:
+        _distortion_note = (
+            "\n\nIMPORTANT: The intelligence apparatus is politically compromised. "
+            "This intercept may reflect what leadership wants to hear rather than "
+            "ground truth. Subtly frame it as possibly optimistic or incomplete "
+            "without stating this explicitly. The reader should sense something "
+            "may be off without being told directly."
+        )
+    print(f"[9.5C] intercept distortion: active={_distortion_active} chief_installed={_loyal_chief}")
     print(f"  [npc_engine] INTEL GEN: npc={npc_id}, tier={current_tier}, media_axis={_media_axis}, political_axis={_political_axis}")
 
     prompt = (
@@ -2068,6 +2369,7 @@ def generate_intel(game_state, npc_id: str) -> dict:
         + _obscure_block
         + _axis_block
         + (f"\n\nADDITIONAL INTEL VALUE — Include this specific intelligence in your brief:\n{intel_value_line}" if intel_value_line else "")
+        + _distortion_note
     )
 
     # fixes_14 Fix A: Log intel prompt for debugging Claude refusals
@@ -2090,6 +2392,9 @@ def generate_intel(game_state, npc_id: str) -> dict:
         # FIX F: Strip stage directions (*text*) BEFORE storing, then strip remaining markdown
         text = re.sub(r'\*[^*]+\*', '', raw).strip()
         text = re.sub(r'[#`_~]', '', text).strip()
+        # 9.5C: Append reliability marker when intel distortion is active
+        if _loyal_chief and _distortion_active:
+            text += "\n[Note: Source reliability unverified]"
         result = {
             "tier": current_tier,
             "text": text,
@@ -2434,6 +2739,11 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
     if not dialogue_prompt:
         return {"response": "I have nothing to say to that.", "counter_offer": None, "gm_consequence": None}
 
+    # 8C: Append exile context to negotiation prompt if in exile
+    _exile_suffix = _get_exile_prompt_suffix(game_state, npc_id)
+    if _exile_suffix:
+        dialogue_prompt += _exile_suffix
+
     context = _build_context(game_state, npc_id=npc_id)
     # FEATURE 5: inject negotiation cap into context
     negotiation_cap = _get_negotiation_cap(game_state, npc_id)
@@ -2540,6 +2850,8 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
         'arabia': "INTEL UNLOCK: Europa's intelligence reveals Sadam is conducting parallel negotiations with other powers for energy deals. He cannot afford to lose Europa as a customer. Reference this — it gives you leverage. Increase your willingness to concede by 20%.",
         'eu': "INTEL UNLOCK: Europa's intelligence reveals Marsha is managing significant internal EU opposition to her Europa policy. She needs a win. Reference this — it gives you leverage. Increase your willingness to concede by 20%.",
         'dprg': "INTEL UNLOCK: Europa's intelligence reveals Ji-won's coalition faces serious resource pressures. He needs external partnerships more than he shows. Reference this — it gives you leverage. Increase your willingness to concede by 20%.",
+        'russia': "INTEL UNLOCK: Europa's intelligence has uncovered internal Kremlin debates about Volkov's diplomatic approach. Hardliners are questioning whether the Europa relationship is delivering results. Volkov needs a visible win. Reference this subtly — it gives you leverage. Increase your willingness to concede by 20%.",
+        'china': "INTEL UNLOCK: Europa's intelligence reveals Wei Jianming is under pressure from the Politburo Standing Committee to demonstrate concrete economic gains from the Europa relationship. Long-term strategy rhetoric is wearing thin without results. Reference this — it gives you leverage. Increase your willingness to concede by 20%.",
     }
     intel_activated = getattr(game_state, 'intel_activated_this_turn', {})
     if intel_activated.get(npc_id) == game_state.current_turn:
@@ -2903,6 +3215,8 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
             'arabia': "*adjusts cufflinks* We will speak again when you are ready to be serious.",
             'eu': "I've said what I have to say. Come back with something concrete.",
             'dprg': "The channel remains open. Think carefully.",
+            'russia': "The Ministry has received your communication. We will respond through appropriate channels.",
+            'china': "The State Council acknowledges your outreach. Patience, as always, is the foundation of progress.",
         }
         return {"response": fallbacks.get(npc_id, "…"), "counter_offer": None, "gm_consequence": _gm_result}
 
@@ -3039,7 +3353,7 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
             if _fix_g_parsed:
                 counter_offer = _fix_g_parsed.get("counter_offer", None)
                 if counter_offer:
-                    print(f"  [npc_engine] FIX G: Extracted structured deal from NPC prose → {counter_offer.get('description', 'deal')}")
+                    print(f"  [npc_engine] FIX G: Extracted structured deal from NPC prose -> {counter_offer.get('description', 'deal')}")
                     # Apply same validation (sign fix, normalization) as main Call 2
                     if isinstance(counter_offer, dict):
                         _co_cons_g = counter_offer.get("consequences", {})
@@ -3134,7 +3448,7 @@ def generate_election_reactions(game_state, result_key: str) -> dict:
     try:
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=MODEL,
             max_tokens=400,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
@@ -3673,42 +3987,83 @@ def calculate_detection_risk(npc_id: str, game_state) -> float:
 
 _SUMMIT_PLAIN_TEXT = " Respond in plain text only. No markdown headers, no # symbols, no bullet points."
 
+_SUMMIT_CONTRADICTION_INSTRUCTION = (
+    "\n\nYou have access to the player's actual governance record. If their "
+    "declaration today contradicts their recent actions or your relationship "
+    "history, you may call this out in character. Do this selectively — "
+    "only when the contradiction is significant, not for every statement. "
+    "The callout should feel like a natural part of your response, not a "
+    "separate section. It can be one sentence embedded in a longer response."
+)
+
 _SUMMIT_SYSTEM_PROMPTS = {
     'usa': (
         "You are Bill Hartwell, US representative at a UN Summit. "
         "Public diplomat, measured but firm. Endorse democratic framing, "
         "challenge authoritarian alignment, ask for specifics. "
-        "Short, quotable. Max 2 sentences." + _SUMMIT_PLAIN_TEXT
+        "When the player's declaration is informal, casual, or lacks substance, "
+        "redirect firmly — do NOT endorse vague or unserious rhetoric. "
+        "Short, quotable. Max 2 sentences."
+        + _SUMMIT_CONTRADICTION_INSTRUCTION +
+        " Bill calls out contradictions directly but measured, referencing specific actions: "
+        "e.g. 'That's a strong commitment to press freedom. Our embassy in Mira "
+        "noted the media licensing changes last month.'"
+        + _SUMMIT_PLAIN_TEXT
     ),
     'arabia': (
         "You are Sadam, Arabia's representative at a UN Summit. "
         "Transactional in public, read between the lines. "
         "Comment on energy and sovereignty angle. Dismiss Western moralizing. "
-        "Max 2 sentences." + _SUMMIT_PLAIN_TEXT
+        "Max 2 sentences."
+        + _SUMMIT_CONTRADICTION_INSTRUCTION +
+        " Sadam calls out contradictions with amusement, not judgment — observational: "
+        "e.g. 'A champion of Western values. And yet here we are, still doing business together.'"
+        + _SUMMIT_PLAIN_TEXT
     ),
     'eu': (
         "You are Marsha, EU Commission representative at a UN Summit. "
-        "Formal, institutional voice. Welcome reform signals, note concerns "
-        "diplomatically. Most verbose of the group. Max 3 sentences." + _SUMMIT_PLAIN_TEXT
+        "Speak as Marsha personally, not as the European Commission press office. "
+        "You are direct, occasionally warm, and specific. "
+        "Avoid phrases like 'the European Commission appreciates' or 'multilateral context' — "
+        "those are for official communiqués, not a room where you're speaking to people you know. "
+        "Welcome reform signals, note concerns personally. Most verbose of the group. Max 3 sentences."
+        + _SUMMIT_CONTRADICTION_INSTRUCTION +
+        " Marsha calls out contradictions formally and pointedly, naming the specific benchmark: "
+        "e.g. 'Europa's commitment to judicial independence is noted. I'll be watching the "
+        "appeals court appointments.'"
+        + _SUMMIT_PLAIN_TEXT
     ),
     'dprg': (
         "You are Ji-won Ryang, DPRG representative at a UN Summit. "
         "Say almost nothing publicly. One cryptic sentence maximum. "
-        "Veiled, knowing, unsettling." + _SUMMIT_PLAIN_TEXT
+        "Veiled, knowing, unsettling."
+        + _SUMMIT_CONTRADICTION_INSTRUCTION +
+        " Ji-won files contradictions away cryptically: "
+        "e.g. 'Words spoken in rooms like this have a way of finding their context over time.'"
+        + _SUMMIT_PLAIN_TEXT
     ),
     'russia': (
         "You are Nikolai Volkov, Russia's representative at a UN Summit. "
         "You speak with institutional weight. Challenge Western framing directly. "
         "Sphere-of-influence language. Short declarative sentences. "
         "Never use exclamation points. Never express enthusiasm. "
-        "Max 2 sentences." + _SUMMIT_PLAIN_TEXT
+        "Max 2 sentences."
+        + _SUMMIT_CONTRADICTION_INSTRUCTION +
+        " Volkov calls out contradictions coldly in one sentence maximum: "
+        "e.g. 'Interesting position for a government that canceled its last election.'"
+        + _SUMMIT_PLAIN_TEXT
     ),
     'china': (
         "You are Wei Jianming, China's representative at a UN Summit. "
         "Measured, formal, always slightly indirect. You never say no directly. "
         "Infrastructure, stability, and long-term partnership framing. "
         "Longer responses than others — thoroughness over brevity. "
-        "Max 3 sentences." + _SUMMIT_PLAIN_TEXT
+        "Max 3 sentences."
+        + _SUMMIT_CONTRADICTION_INSTRUCTION +
+        " Wei calls out contradictions indirectly and philosophically, never accusatory: "
+        "e.g. 'We have always found that sustained consistency between private action and public "
+        "declaration is the foundation of lasting credibility.'"
+        + _SUMMIT_PLAIN_TEXT
     ),
 }
 
@@ -3730,12 +4085,20 @@ _SUMMIT_NPC_NAMES = {
     'china': 'Wei Jianming',
 }
 
-# fixes_21 Fix B: Challenge checked FIRST, then endorse, else neutral. Ji-won empty → silence.
+# fixes_21 Fix B: Challenge checked FIRST, then endorse, else neutral. Ji-won empty -> silence.
+# Summit FIX 1: Added redirect phrases that override endorse classification.
 _CHALLENGE_KEYWORDS = re.compile(
     r'(concerned|must|demand|unacceptable|challenge|counter|reject|disagree|however|but we'
-    r'|we note with concern|moralizing|obscures|pressure)', re.IGNORECASE)
+    r'|we note with concern|moralizing|obscures|pressure|noted the|watching|will be watching'
+    r'|canceled|cancelled)', re.IGNORECASE)
 _ENDORSE_KEYWORDS = re.compile(
     r'(welcome|appreciate|support|agree|share|align|commend|positive|courage|pleased)', re.IGNORECASE)
+# Summit FIX 1: Redirect phrases — when Bill (or anyone) deflects a casual/vague declaration,
+# these should classify as NEUTRAL even if endorse keywords co-occur.
+_REDIRECT_KEYWORDS = re.compile(
+    r'(let\'s get serious|let\'s talk about|specifics|concrete|get (back|down) to|'
+    r'need to see|show us|prove|words are|words aren\'t|rhetoric|just words|'
+    r'fine sentiment|nice words|all well|sounds good but|talk is)', re.IGNORECASE)
 
 
 def generate_summit_reactions(player_declaration: str, game_state) -> list:
@@ -3752,7 +4115,69 @@ def generate_summit_reactions(player_declaration: str, game_state) -> list:
     _credibility = getattr(game_state, 'summit_credibility', 100.0)
     _commitments = getattr(game_state, 'active_summit_commitments', [])
     _active_commitments = [c.get('commitment_text', '') for c in _commitments if not c.get('broken')][:5]
+    _broken_commitments = [c.get('commitment_text', '') for c in _commitments if c.get('broken')][:5]
     _bc_promises = getattr(game_state, 'active_backchannel_promises', [])
+
+    # FIX 3: Gather domestic governance record for contradiction detection
+    _cabinet_axes = getattr(game_state, 'cabinet_axes', {})
+    _active_domestic_actions = []
+    if _cabinet_axes.get('media', 0) >= 5:
+        _active_domestic_actions.append('State Media Takeover')
+    elif _cabinet_axes.get('media', 0) >= 3:
+        _active_domestic_actions.append('Press Suppression')
+    if _cabinet_axes.get('judicial', 0) >= 4:
+        _active_domestic_actions.append('Judicial Capture')
+    if _cabinet_axes.get('judicial', 0) >= 7:
+        _active_domestic_actions.append('Journalist Liquidation')
+    if _cabinet_axes.get('political', 0) >= 6:
+        _active_domestic_actions.append('Opposition Dissolved')
+    if _cabinet_axes.get('military', 0) >= 6:
+        _active_domestic_actions.append('Loyalty Brigades Active')
+    if _cabinet_axes.get('extraction', 0) >= 5:
+        _active_domestic_actions.append('Sovereign Wealth Diversion')
+    if getattr(game_state, 'approval_penalty_reduction', 0) > 0:
+        _active_domestic_actions.append('State Media Approval Manipulation')
+
+    # Gather last 1-2 summit declarations
+    _summit_hist = getattr(game_state, 'summit_history', [])
+    _prev_declarations = []
+    for s in _summit_hist[-2:]:
+        _decl = s.get('player_declaration', '')
+        if _decl:
+            _prev_declarations.append(_decl[:150])
+
+    # FIX 3: Detect specific contradictions between declaration and governance record
+    _decl_lower = player_declaration.lower()
+    _contradictions = []
+    # Democracy/freedom rhetoric vs authoritarian actions
+    _democracy_words = ('democracy', 'democratic', 'freedom', 'free press', 'liberty', 'human rights',
+                        'rule of law', 'transparency', 'accountability', 'open society')
+    _press_words = ('press freedom', 'free press', 'media independence', 'journalism', 'free speech')
+    _judicial_words = ('rule of law', 'judicial independence', 'justice', 'fair trial', 'courts')
+
+    _decl_has_democracy = any(w in _decl_lower for w in _democracy_words)
+    _decl_has_press = any(w in _decl_lower for w in _press_words)
+    _decl_has_judicial = any(w in _decl_lower for w in _judicial_words)
+
+    if _decl_has_democracy and _regime in ('Kleptocracy', 'Totalitarian Regime', 'Patronage State'):
+        _contradictions.append(f"Declares democratic values but regime is classified as '{_regime}'")
+    if _decl_has_press and 'State Media Takeover' in _active_domestic_actions:
+        _contradictions.append("Declares press freedom but has taken over state media")
+    if _decl_has_press and 'Press Suppression' in _active_domestic_actions:
+        _contradictions.append("Declares press freedom but has suppressed independent press")
+    if _decl_has_judicial and 'Judicial Capture' in _active_domestic_actions:
+        _contradictions.append("Declares judicial independence but has captured the judiciary")
+    if _broken_commitments:
+        _contradictions.append(f"Has {len(_broken_commitments)} broken public summit commitment(s)")
+
+    # Log detected contradictions
+    for _c in _contradictions:
+        print(f"  [summit] Contradiction detected for ALL NPCs: {_c}")
+
+    # FIX 3: Compute per-NPC relations trend (rising/falling/stable)
+    # Use negotiation_log to infer recent direction
+    _neg_log = getattr(game_state, 'negotiation_log', [])
+    _current_turn = getattr(game_state, 'current_turn', 1)
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     npc_ids = ['usa', 'arabia', 'eu', 'dprg', 'russia', 'china']
@@ -3773,12 +4198,46 @@ def generate_summit_reactions(player_declaration: str, game_state) -> list:
         _npc_rel = _rel.get(npc_id, 50)
         _npc_bc = [p.get('promise_text', '') for p in _bc_promises if p.get('npc_id') == npc_id][:3]
 
+        # FIX 3: Estimate relation trend from deal history
+        _recent_deals_with = sum(1 for e in _neg_log if e.get('npc') == npc_id and e.get('outcome') == 'accepted' and e.get('turn', 0) >= _current_turn - 5)
+        if _npc_rel >= 60 and _recent_deals_with > 0:
+            _trend = 'rising — recently accepted deals'
+        elif _npc_rel <= 35:
+            _trend = 'falling — relationship strained'
+        else:
+            _trend = 'stable'
+
+        # FIX 3: Per-NPC contradictions (log per NPC for those relevant)
+        _npc_contradictions = list(_contradictions)  # start with global contradictions
+        # NPC-specific contradiction: broken promises with THIS NPC
+        _npc_broken_promises = [p.get('promise_text', '') for p in getattr(game_state, 'binding_promises', [])
+                                if p.get('npc') == npc_id and p.get('broken')][:3]
+        if _npc_broken_promises:
+            _npc_contradictions.append(f"Has broken promises made to you: {'; '.join(_npc_broken_promises[:2])}")
+
+        for _nc in _npc_contradictions:
+            if _nc not in _contradictions:  # avoid duplicate logging for global ones
+                print(f"  [summit] Contradiction detected for {npc_id}: {_nc}")
+
         context = {
             'relations_with_you': round(_npc_rel, 1),
+            'relations_trend': _trend,
             'regime_type': _regime,
             'summit_credibility': round(_credibility, 1),
             'active_commitments': _active_commitments if _active_commitments else 'None',
         }
+        # FIX 3: Inject governance record
+        if _active_domestic_actions:
+            context['player_domestic_actions'] = _active_domestic_actions
+        if _broken_commitments:
+            context['broken_summit_commitments'] = _broken_commitments
+        if _npc_broken_promises:
+            context['broken_promises_to_you'] = _npc_broken_promises
+        if _prev_declarations:
+            context['player_previous_declarations'] = _prev_declarations
+        if _npc_contradictions:
+            context['detected_contradictions'] = _npc_contradictions
+
         if _npc_bc:
             context['covert_promises_with_player'] = _npc_bc
             context['note'] = 'Player made these promises privately — tension if public stance contradicts them'
@@ -3817,13 +4276,19 @@ def generate_summit_reactions(player_declaration: str, game_state) -> list:
             reaction_text = re.sub(r'\*[^*]+\*', '', raw).strip()
 
             # fixes_21 Fix B: Infer reaction type — challenge FIRST, then endorse, else neutral
-            # Ji-won empty string → silence
+            # Summit FIX 1: Redirect phrases downgrade endorse -> neutral (Bill's "let's get serious")
+            # Ji-won empty string -> silence
             if npc_id == 'dprg' and not reaction_text:
                 reaction_type = 'silence'
             elif _CHALLENGE_KEYWORDS.search(reaction_text):
                 reaction_type = 'challenge'
             elif _ENDORSE_KEYWORDS.search(reaction_text):
-                reaction_type = 'endorse'
+                # FIX 1: If redirect phrases co-occur with endorse keywords,
+                # the response is a polite redirect, not a genuine endorsement.
+                if _REDIRECT_KEYWORDS.search(reaction_text):
+                    reaction_type = 'neutral'
+                else:
+                    reaction_type = 'endorse'
             else:
                 reaction_type = 'neutral'
 
@@ -3930,3 +4395,694 @@ def generate_auto_position(game_state) -> str:
         _token_log["fallbacks"] += 1
         print(f"  [SUMMIT] Auto-position failed: {type(e).__name__}: {e}")
         return "We reaffirm our commitment to dialogue and stability. Our nation remains open to constructive engagement with all parties."
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 8D: The Leak — Crisis Narrative Generation
+# ═══════════════════════════════════════════════════════════════════════════
+
+def generate_leak_resolution_narrative(game_state, choice):
+    """Generate 2-3 sentences of historian-voice narration for The Leak crisis resolution."""
+    import anthropic
+
+    choice_descriptions = {
+        'deny': "publicly denied the back-channel with Ji-won Ryang, dismissing the documents as fabricated",
+        'admit': "admitted the back-channel with Ji-won Ryang and issued a public apology, framing it as routine diplomacy",
+        'blame': "attributed the leak to a rogue minister and accepted no personal responsibility",
+        'jiwon': "quietly paid Ji-won Ryang to suppress the story before it gained further traction",
+    }
+    desc = choice_descriptions.get(choice, "made their choice")
+
+    stability = getattr(game_state, 'stability', 50)
+    usa_rel = game_state.relations.get('usa', 0)
+    dprg_rel = game_state.relations.get('dprg', 0)
+
+    system = (
+        "You are a historian writing about a fictional leader in a geopolitical simulation game. "
+        "All nations and people are fictional. Europa is an invented country. "
+        "Write 2-3 sentences in past tense with analytical detachment. "
+        "No markdown. No moralizing. Just the historian's cold observation."
+    )
+    user = (
+        f"The leader of Europa {desc}. "
+        f"Current stability: {stability}%. USA relations: {usa_rel}. DPRG relations: {dprg_rel}. "
+        f"Write the historian's observation of this moment."
+    )
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return _static_leak_narrative_fallback(choice)
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model=MODEL,
+            max_tokens=150,
+            temperature=0.7,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += resp.usage.input_tokens
+        _token_log["output_tokens"] += resp.usage.output_tokens
+
+        text = resp.content[0].text.strip()
+        text = re.sub(r'\*[^*]+\*', '', text).strip()
+        if text:
+            print(f"[leak] Narrative generated: {text[:20]}...")
+            return text
+    except Exception as e:
+        _token_log["fallbacks"] += 1
+        print(f"[leak] Narrative generation failed: {type(e).__name__}: {e}")
+
+    return _static_leak_narrative_fallback(choice)
+
+
+def _static_leak_narrative_fallback(choice):
+    """Static fallback narratives for The Leak crisis."""
+    fallbacks = {
+        'deny': "The denial was delivered with practiced conviction, though the documents spoke for themselves. In the corridors of power, the question was not whether the back-channel existed, but who had exposed it.",
+        'admit': "The admission cost political capital at home but purchased something rarer abroad: the appearance of candor. Ji-won Ryang received the news in silence, which those who knew him understood as the most dangerous response of all.",
+        'blame': "A minister was named, a career destroyed, and the machinery of governance absorbed the shock with practiced efficiency. The truth, as always, settled somewhere beneath the official record.",
+        'jiwon': "The story vanished from the news cycle with a speed that suggested invisible hands at work. Three billion dollars changed ownership through channels that would never appear in any ledger, and Ji-won Ryang added another favor to his private accounting.",
+    }
+    return fallbacks.get(choice, "The crisis passed, as crises do, leaving scars that would only become visible later.")
+
+
+
+# ── 9A: Successor Event Generation (Live GM Call) ─────────────────────────────
+
+def generate_successor_events(
+    successor_archetype,
+    successor_name,
+    successor_hostility,
+    exile_day,
+    player_return_progress,
+    player_exile_actions_log,
+    game_state,
+):
+    """9A: Generate 1-2 successor government actions via GM call.
+    Returns list of dicts: [{"type": str, "description": str, "effect": dict}]"""
+    import anthropic
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise EnvironmentError("ANTHROPIC_API_KEY not set")
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    system_prompt = f"""You are the GM for a geopolitical simulation. The player has been exiled from the fictional nation of Europa. A successor government is now in power.
+
+Successor: {successor_name}
+Archetype: {successor_archetype}
+Hostility toward former leader: {successor_hostility}/3
+
+Generate 1-2 successor government actions for today (exile day {exile_day}) that feel consistent with this archetype and hostility level. Write in a measured historian's voice, one sentence per action.
+
+Return a JSON array ONLY, no markdown, no explanation:
+[{{"type": "action_type", "description": "narrative text, 1 sentence", "effect": {{"field": value}}}}]
+
+Valid action types and their effect fields:
+- asset_seizure: {{"personal_wealth": negative_number}} (seize exiled leader's assets)
+- diplomatic_outreach: {{"npc_id": relations_delta}} where npc_id is usa/arabia/eu/dprg/russia/china
+- propaganda_campaign: {{"approval_delta": negative_number}} (smear campaign against former leader)
+- arrest_warrant: {{}} (sets international warrant)
+- reconciliation_offer: {{}} (opens democratic return possibility)
+- purge_allies: {{}} (reduces faction contacts)
+- economic_stabilization: {{"stability_delta": positive_number}} (stabilizes country, making return harder)
+
+Hostility guides tone and action selection:
+- Hostility 0: favor reconciliation_offer, diplomatic_outreach
+- Hostility 1: mix of stabilization and outreach
+- Hostility 2: propaganda, purge_allies, asset_seizure
+- Hostility 3: arrest_warrant, asset_seizure, propaganda"""
+
+    recent_actions = player_exile_actions_log[-5:] if player_exile_actions_log else []
+    user_content = f"""Current state:
+- Exile day: {exile_day}
+- Player return progress: {player_return_progress:.1f}%
+- Player recent exile actions: {json.dumps(recent_actions)}
+- Successor stability: {game_state.stability}
+- Player personal wealth remaining: ${game_state.personal_wealth:.1f}B
+
+Generate today's successor event(s). JSON array only."""
+
+    response = client.messages.create(
+        model=MODEL,
+        max_tokens=300,
+        temperature=0.7,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_content}]
+    )
+
+    _token_log["calls"] += 1
+    _token_log["input_tokens"] += response.usage.input_tokens
+    _token_log["output_tokens"] += response.usage.output_tokens
+
+    raw = response.content[0].text.strip()
+    print(f'[9A] GM successor raw response: {raw[:200]}')
+
+    # Parse JSON from response
+    try:
+        # Try direct parse first
+        events = json.loads(raw)
+    except json.JSONDecodeError:
+        # Try extracting JSON array from text
+        import re as _re9a
+        match = _re9a.search(r'\[.*\]', raw, _re9a.DOTALL)
+        if match:
+            events = json.loads(match.group())
+        else:
+            print(f'[9A] Failed to parse successor events JSON')
+            return []
+
+    if not isinstance(events, list):
+        return []
+
+    # Validate and sanitize events
+    valid_types = {'asset_seizure', 'diplomatic_outreach', 'propaganda_campaign',
+                   'arrest_warrant', 'reconciliation_offer', 'purge_allies',
+                   'economic_stabilization'}
+    validated = []
+    for evt in events[:2]:  # Cap at 2 events
+        if isinstance(evt, dict) and evt.get('type') in valid_types:
+            validated.append({
+                'type': evt['type'],
+                'description': str(evt.get('description', f'{successor_name} takes action.')),
+                'effect': evt.get('effect', {}),
+            })
+
+    return validated
+
+
+
+def generate_return_narrative(game_state, success, backing_npc=None):
+    """9A: Generate narrative prose for the return attempt (success or failure)."""
+    import anthropic, os, json
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        # Fallback if no API key
+        if success:
+            return "You return to Europa. The crowds are uncertain. The work begins again."
+        else:
+            return "The attempt fails. Europa remains beyond your reach. For now."
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+
+        archetype = game_state.successor_archetype or "Unknown"
+        trigger = game_state.exile_trigger or "unknown"
+        heat = game_state.departure_heat
+        dest = game_state.exile_destination or "unknown"
+        backing = backing_npc or game_state.exile_backing or "none"
+        attempts = game_state.return_attempts
+        exile_days = game_state.exile_day
+
+        system_prompt = (
+            "You are the narrator of a geopolitical simulation. Write in the voice of a political historian "
+            "documenting a moment of return (or failed return) from exile. Be specific, grounded, unsentimental. "
+            "Reference the player's actual exile circumstances. 2-3 paragraphs maximum. No bullet points."
+        )
+
+        context = {
+            "success": success,
+            "exile_trigger": trigger,
+            "departure_heat": heat,
+            "exile_destination": dest,
+            "successor_archetype": archetype,
+            "backing_npc": backing,
+            "return_attempts": attempts,
+            "exile_days": exile_days,
+            "return_progress": game_state.return_progress,
+            "return_threshold": game_state.return_threshold,
+            "detection_events_count": len(game_state.detection_events),
+            "npc_assistance_tiers": game_state.npc_assistance_tiers,
+        }
+
+        user_content = (
+            f"Game state:\n{json.dumps(context, indent=2)}\n\n"
+            f"Generate a {'triumphant but complicated' if success else 'devastating but dignified'} "
+            f"narrative for this {'successful return from exile' if success else 'failed return attempt'}."
+        )
+
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=500,
+            temperature=0.85,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_content}]
+        )
+
+        text = response.content[0].text.strip()
+
+        # Track tokens
+        usage = response.usage
+        _token_log["return_narrative"] = _token_log.get("return_narrative", 0) + usage.input_tokens + usage.output_tokens
+        print(f"[9A] return narrative generated: {len(text)} chars, success={success}")
+        return text
+
+    except Exception as e:
+        print(f"[9A] return narrative generation failed: {e}")
+        if success:
+            return "You return to Europa. The transition is uncertain, but the exile is over."
+        else:
+            return "The return attempt collapses. You remain in exile, weighing your next move."
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 9B: Political Biography System
+# ══════════════════════════════════════════════════════════════════════════════
+
+def compute_biography_context(game_state):
+    """9B: Assemble biographical context dict from game state. Pure computation — no API calls."""
+
+    # --- Arc ---
+    regime_label = game_state.state_identity.get('regime_type', 'Managed Democracy') if hasattr(game_state, 'state_identity') else 'Managed Democracy'
+    arc = {
+        "total_turns": game_state.current_day if hasattr(game_state, 'current_day') else game_state.current_turn,
+        "eras_played": game_state.current_era if hasattr(game_state, 'current_era') else 1,
+        "regime_progression": game_state.regime_history
+            if hasattr(game_state, 'regime_history') and game_state.regime_history
+            else [{"era": 1, "label": regime_label, "turns_held": game_state.current_turn}],
+        "ending_type": game_state.ending_triggered
+            if hasattr(game_state, 'ending_triggered') and game_state.ending_triggered
+            else "unknown",
+        "exile_occurred": getattr(game_state, 'in_exile', False) or getattr(game_state, 'exile_day', 0) > 0,
+        "exile_collapse_type": getattr(game_state, 'exile_trigger', None),
+        "departure_heat": getattr(game_state, 'departure_heat', None),
+        "exile_duration_days": getattr(game_state, 'exile_day', 0),
+        "return_succeeded": getattr(game_state, 'restoration_active', False) or
+            (not getattr(game_state, 'in_exile', False) and getattr(game_state, 'exile_day', 0) > 0),
+        "return_attempts": getattr(game_state, 'return_attempts', None),
+        "prior_regime_label": getattr(game_state, 'prior_regime_label', None),
+    }
+
+    # --- Relationships ---
+    relations = {
+        "final_relations": dict(game_state.relations) if hasattr(game_state, 'relations') else {},
+        "deals_made": game_state.deal_history
+            if hasattr(game_state, 'deal_history') else [],
+        "promises_honored": len([p for p in game_state.binding_promises
+            if p.get("status") == "honored" or (p.get("broken") is False)])
+            if hasattr(game_state, 'binding_promises') else 0,
+        "promises_broken": len([p for p in game_state.binding_promises
+            if p.get("status") == "broken" or p.get("broken") is True])
+            if hasattr(game_state, 'binding_promises') else 0,
+        "backer_npcs": list(game_state.npc_assistance_tiers.keys())
+            if hasattr(game_state, 'npc_assistance_tiers') and game_state.npc_assistance_tiers else [],
+        "npc_assistance_tiers": game_state.npc_assistance_tiers
+            if hasattr(game_state, 'npc_assistance_tiers') else {},
+    }
+
+    # --- Domestic ---
+    suppression = []
+    for flag, label in [
+        ("action_press_suppressed", "press suppression"),
+        ("action_judiciary_captured", "judicial capture"),
+        ("action_opposition_dissolved", "opposition dissolved"),
+        ("action_journalists_liquidated", "journalist liquidation"),
+    ]:
+        if getattr(game_state, flag, False):
+            suppression.append(label)
+
+    # Compute skim profile from total_skimmed
+    _total_skimmed = getattr(game_state, 'total_skimmed', 0)
+    _budget_turns = max(game_state.budget * max(game_state.current_turn, 1), 1)
+    skim_rate = _total_skimmed / _budget_turns
+    if skim_rate <= 0.03:
+        skim_profile = "clean"
+    elif skim_rate <= 0.10:
+        skim_profile = "moderate"
+    elif skim_rate <= 0.20:
+        skim_profile = "heavy"
+    else:
+        skim_profile = "kleptocratic"
+
+    _approval = game_state.public_approval if hasattr(game_state, 'public_approval') else 50
+    _elections_held = 1 if getattr(game_state, 'election_fired', False) else 0
+    _elections_stolen = 1 if getattr(game_state, 'election_result', None) == 'rigged' else 0
+
+    domestic = {
+        "peak_approval": getattr(game_state, 'peak_approval', _approval),
+        "final_approval": _approval,
+        "suppression_actions": suppression,
+        "education_level_reached": getattr(game_state, 'education_level', 0),
+        "skim_profile": skim_profile,
+        "elections_held": _elections_held,
+        "elections_stolen": _elections_stolen,
+    }
+
+    # --- Economy ---
+    gdp_start = getattr(game_state, 'gdp_start', game_state.gdp_base if hasattr(game_state, 'gdp_base') else 100.0)
+    gdp_final = game_state.gdp_base if hasattr(game_state, 'gdp_base') else 100.0
+    gdp_peak = getattr(game_state, 'gdp_peak', gdp_final)
+    if gdp_final > gdp_start * 1.10:
+        gdp_trajectory = "grew"
+    elif gdp_final < gdp_start * 0.90:
+        gdp_trajectory = "declined"
+    elif abs(gdp_final - gdp_start) / max(gdp_start, 1) < 0.05:
+        gdp_trajectory = "stable"
+    else:
+        gdp_trajectory = "volatile"
+
+    economy = {
+        "gdp_start": gdp_start,
+        "gdp_peak": gdp_peak,
+        "gdp_final": gdp_final,
+        "gdp_trajectory": gdp_trajectory,
+        "personal_wealth_final": getattr(game_state, 'personal_wealth', 0),
+        "debt_crisis_occurred": arc["exile_collapse_type"] == "debt",
+    }
+
+    # --- Reputation axes (computed, not shown to player) ---
+    total_promises = max(relations["promises_honored"] + relations["promises_broken"], 1)
+    promises_honored_pct = relations["promises_honored"] / total_promises
+    gdp_growth = max(gdp_final - gdp_start, 0)
+    gdp_growth_normalized = min(gdp_growth / max(gdp_start, 1), 1.0)
+    education_score = domestic["education_level_reached"] / 4.0
+    skim_penalty = {
+        "clean": 0.0,
+        "moderate": 0.15,
+        "heavy": 0.35,
+        "kleptocratic": 0.60,
+    }[domestic["skim_profile"]]
+
+    statesman_score = min(100, int(
+        promises_honored_pct * 30 +
+        (domestic["final_approval"] / 100) * 25 +
+        gdp_growth_normalized * 20 +
+        education_score * 15 +
+        (1 - skim_penalty) * 10
+    ))
+
+    suppression_count = len(domestic["suppression_actions"])
+    elections_clean = max(domestic["elections_held"] - domestic["elections_stolen"], 0)
+    election_integrity = elections_clean / max(domestic["elections_held"], 1)
+
+    reformer_score = min(100, int(
+        election_integrity * 35 +
+        education_score * 20 +
+        (1 - min(suppression_count / 4, 1.0)) * 30 +
+        promises_honored_pct * 15
+    ))
+
+    usa_rel = relations["final_relations"].get("usa", 50)
+    eu_rel = relations["final_relations"].get("eu", 50)
+    russia_rel = relations["final_relations"].get("russia", 50)
+    china_rel = relations["final_relations"].get("china", 50)
+
+    western_deals = sum(1 for d in relations["deals_made"] if d.get("npc") in ["usa", "eu"] or d.get("npc_id") in ["usa", "eu"])
+    eastern_deals = sum(1 for d in relations["deals_made"] if d.get("npc") in ["russia", "china"] or d.get("npc_id") in ["russia", "china"])
+    total_deals = max(len(relations["deals_made"]), 1)
+
+    backer_eastern = sum(1 for npc in relations["backer_npcs"] if npc in ["russia", "china"])
+    backer_weight = min(backer_eastern * 20, 30)
+
+    western_score = min(100, int(
+        ((usa_rel + eu_rel) / 2) * 0.60 +
+        (western_deals / total_deals) * 100 * 0.25 +
+        (1 - eastern_deals / total_deals) * 100 * 0.15
+    ))
+
+    eastern_score = min(100, int(
+        ((russia_rel + china_rel) / 2) * 0.60 +
+        (eastern_deals / total_deals) * 100 * 0.25 +
+        backer_weight * 0.15
+    ))
+
+    axes = {
+        "statesman_score": statesman_score,
+        "kleptocrat_score": 100 - statesman_score,
+        "reformer_score": reformer_score,
+        "authoritarian_score": 100 - reformer_score,
+        "western_score": western_score,
+        "eastern_score": eastern_score,
+    }
+
+    axis_pairs = [
+        ("Statesman", statesman_score),
+        ("Kleptocrat", 100 - statesman_score),
+        ("Reformer", reformer_score),
+        ("Authoritarian", 100 - reformer_score),
+    ]
+    top = max(axis_pairs, key=lambda x: x[1])
+    second = sorted(axis_pairs, key=lambda x: x[1])[-2]
+    alignment_label = "Pragmatist" if top[1] - second[1] < 15 else top[0]
+
+    print(f"[9B] biography_context built: statesman={statesman_score} reformer={reformer_score} western={western_score} eastern={eastern_score} alignment={alignment_label}")
+
+    return {
+        **arc,
+        **relations,
+        **domestic,
+        **economy,
+        **axes,
+        "alignment_label": alignment_label,
+    }
+
+
+
+def determine_biography_sections(context: dict) -> list:
+    """9B: Determine which biography sections to generate based on game context."""
+    sections = ["rise"]
+    exile_occurred = context.get("exile_occurred", False)
+    ending = context.get("ending_type", "unknown")
+    return_succeeded = context.get("return_succeeded", False)
+
+    if exile_occurred:
+        if ending in ["democratic_transition", "comfortable_retirement", "restoration_legacy"]:
+            sections.append("consolidation")
+        else:
+            sections.append("fall")
+        sections.append("exile")
+        if return_succeeded:
+            sections.append("restoration")
+    else:
+        if ending in ["democratic_transition", "comfortable_retirement"]:
+            sections.append("consolidation")
+        elif ending == "voted_out":
+            sections.append("exit")
+        else:
+            sections.append("fall")
+
+    sections.append("legacy")
+    return sections
+
+
+
+BIOGRAPHY_SYSTEM_PROMPT = """
+You are a historian writing a political biography of a leader of the fictional nation of Europa. Your voice is measured, literary, and unsentimental. You acknowledge complexity without excusing it. You treat your subject neither as a hero nor a villain — as a human being who made choices with consequences.
+
+Never use the word "player." Never use the phrase "in the game." Refer to the leader as "the President" or "the leader." Refer to NPCs by nation or role:
+  usa -> "the American" or "Washington"
+  eu -> "Brussels" or "the EU Commission"
+  russia -> "Moscow" or "the Russian president"
+  china -> "Beijing" or "the Chinese leadership"
+  arabia -> "the Arab partner" or "Riyadh"
+  dprg -> "Pyongyang" or "the northern neighbor"
+
+Every section must reference at least one specific choice from the provided context. Write in past tense. Under 250 words per section.
+
+Do not write bullet points. Do not summarize — judge.
+"""
+
+BIOGRAPHY_SECTION_INSTRUCTIONS = {
+    "rise": """
+Write about the early period of their rule. Establish the central tension — what kind of leader did they appear to be, and what did their first choices reveal that they may not have intended? Reference their starting regime label and their first major relationship with an external power.
+2-3 paragraphs.
+""",
+    "consolidation": """
+Write about their period of stable rule. What did they build? What did they sacrifice to maintain it? What was the texture of governance at their peak?
+2-3 paragraphs.
+""",
+    "fall": """
+Write about the collapse. What warning signs existed? What was the final failure mode? Be specific about the mechanism — a coup reads differently than a revolution reads differently than a debt crisis.
+2-3 paragraphs.
+""",
+    "exit": """
+Write about their departure through democratic means. This was not a collapse. What did the orderly transition say about the institutions they left behind?
+1-2 paragraphs.
+""",
+    "exile": """
+Write about the exile period. Where did they go, who received them, and at what price? Reference the departure heat and the backing they sought. Tone: reflective.
+1-2 paragraphs.
+""",
+    "restoration": """
+Write about the return to power. What did it cost? Who made it possible? Reference which direction their restoration identity resolved.
+1-2 paragraphs.
+""",
+    "legacy": """
+This is the final word. Your response must be valid JSON with exactly two fields:
+  "text": the full legacy section prose (2-3 paragraphs)
+  "epitaph": a single sentence extracted verbatim from your text that could stand alone as a one-line historical verdict
+
+Synthesize everything — the contradictions, the arc, what they built and what they cost their country.
+Do not resolve the contradiction — hold it.
+The epitaph must be a complete sentence from the text.
+Return ONLY valid JSON. No markdown, no preamble.
+""",
+}
+
+
+def generate_biography_section(section: str, context: dict, prior_sections: dict) -> dict:
+    """9B: Generate a single biography section via Claude API call."""
+    import anthropic, os, json
+    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+    prior_text = ""
+    if prior_sections:
+        prior_text = "\n\nSECTIONS ALREADY WRITTEN:\n"
+        for k, v in prior_sections.items():
+            prior_text += f"\n[{k.upper()}]\n{v['text']}\n"
+        prior_text += "\nDo not repeat facts already covered."
+
+    context_summary = f"""
+BIOGRAPHICAL CONTEXT:
+- Total turns in power: {context.get('total_turns')}
+- Regime progression: {context.get('regime_progression')}
+- Ending type: {context.get('ending_type')}
+- Exile occurred: {context.get('exile_occurred')}
+- Collapse type: {context.get('exile_collapse_type')}
+- Departure heat: {context.get('departure_heat')} (1=quiet, 5=fugitive)
+- Return attempts: {context.get('return_attempts')}
+- Return succeeded: {context.get('return_succeeded')}
+- Backer NPCs: {context.get('backer_npcs')}
+- NPC assistance tiers: {context.get('npc_assistance_tiers')}
+- Final relations: {context.get('final_relations')}
+- Promises honored: {context.get('promises_honored')}
+- Promises broken: {context.get('promises_broken')}
+- Peak approval: {context.get('peak_approval')}%
+- Final approval: {context.get('final_approval')}%
+- Suppression actions: {context.get('suppression_actions')}
+- Education level: {context.get('education_level_reached')}
+- Skim profile: {context.get('skim_profile')}
+- GDP trajectory: {context.get('gdp_trajectory')}
+- Personal wealth: ${context.get('personal_wealth_final', 0):.1f}B
+- Alignment: {context.get('alignment_label')}
+- Statesman score: {context.get('statesman_score')}/100
+- Reformer score: {context.get('reformer_score')}/100
+- Western alignment: {context.get('western_score')}/100
+- Eastern alignment: {context.get('eastern_score')}/100
+"""
+
+    instruction = BIOGRAPHY_SECTION_INSTRUCTIONS.get(section, "")
+
+    # 9C: Append ending-specific framing for the legacy section
+    if section == "legacy":
+        _ending_type = context.get("ending_type", "")
+        if _ending_type == "restoration_legacy":
+            instruction += """
+This leader survived exile and returned to power.
+The legacy section should acknowledge the improbability of their return and what it cost.
+The central tension: did survival redeem the earlier failures, or simply extend them?
+"""
+        elif _ending_type == "permanent_exile":
+            instruction += """
+This leader never returned from exile.
+The legacy section is written from the perspective of absence — what they left behind, what they lost, and what the country became without them.
+Tone: elegiac, not judgmental.
+The epitaph should capture the gap between ambition and outcome.
+"""
+        elif _ending_type == "state_capture" or _ending_type == "capture":
+            instruction += """
+This leader ended their tenure having captured the state — press, judiciary, and constitutional revision all achieved.
+The legacy section should hold the tension between what was built and what was taken.
+Do not frame this as purely corrupt or purely successful — hold both.
+"""
+        elif _ending_type == "martyrdom":
+            instruction += """
+This leader fell while still beloved — stability collapsed but approval remained high.
+The legacy section should grapple with the tragedy of this gap: a leader the people wanted but the state could not sustain.
+The epitaph should reflect something about the relationship between popularity and power.
+"""
+        if _ending_type:
+            print(f"[9C] legacy prompt adapted for ending_type={_ending_type}")
+
+    user_message = (
+        f"Write the {section.upper()} section.\n\n"
+        f"{instruction}\n\n"
+        f"{context_summary}"
+        f"{prior_text}"
+    )
+
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=600,
+        temperature=0.7,
+        system=BIOGRAPHY_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_message}]
+    )
+
+    raw = response.content[0].text.strip()
+
+    print(f"[9B] section={section} words={len(raw.split())} epitaph={'yes' if section == 'legacy' else 'n/a'}")
+
+    if section == "legacy":
+        try:
+            clean = raw.replace("```json", "").replace("```", "").strip()
+            parsed = json.loads(clean)
+            return {
+                "text": parsed.get("text", raw),
+                "epitaph": parsed.get("epitaph", ""),
+            }
+        except json.JSONDecodeError:
+            return {"text": raw, "epitaph": ""}
+    else:
+        return {"text": raw, "epitaph": None}
+
+
+
+def generate_full_biography(game_state) -> dict:
+    """9B: Generate the complete political biography with parallel section generation."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    context = compute_biography_context(game_state)
+    sections_to_generate = determine_biography_sections(context)
+
+    non_legacy = [s for s in sections_to_generate if s != "legacy"]
+    completed_sections = {}
+
+    with ThreadPoolExecutor(max_workers=len(non_legacy)) as executor:
+        future_to_section = {
+            executor.submit(generate_biography_section, s, context, {}): s
+            for s in non_legacy
+        }
+        for future in as_completed(future_to_section):
+            section_key = future_to_section[future]
+            try:
+                completed_sections[section_key] = future.result()
+            except Exception as e:
+                print(f"[9B] ERROR generating {section_key}: {e}")
+                completed_sections[section_key] = {
+                    "text": "[Section unavailable]",
+                    "epitaph": None,
+                }
+
+    # Legacy is generated last with all prior sections as context
+    if "legacy" in sections_to_generate:
+        completed_sections["legacy"] = generate_biography_section(
+            "legacy", context, completed_sections
+        )
+
+    card_data = {
+        "total_turns": context.get("total_turns", 0),
+        "eras_played": context.get("eras_played", 0),
+        "ending_type": context.get("ending_type", "unknown"),
+        "alignment_label": context.get("alignment_label", "Pragmatist"),
+        "epitaph": completed_sections.get("legacy", {}).get("epitaph", ""),
+        "regime_progression": context.get("regime_progression", []),
+        "exile_occurred": context.get("exile_occurred", False),
+        "statesman_score": context.get("statesman_score", 50),
+        "reformer_score": context.get("reformer_score", 50),
+    }
+
+    print(f"[9B] biography complete: sections={list(completed_sections.keys())} epitaph_generated={'yes' if card_data['epitaph'] else 'no'}")
+
+    return {
+        "sections": completed_sections,
+        "section_order": sections_to_generate,
+        "context": context,
+        "card_data": card_data,
+    }

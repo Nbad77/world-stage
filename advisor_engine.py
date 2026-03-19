@@ -35,7 +35,7 @@ ADVISOR_ARCHETYPES = {
         'gate': None,  # always available
         'hire_cost_type': 'national',  # $0.5B national
         'hire_cost': 0.5,
-        'haiku_voice': 'cautious, precise, "the numbers suggest fiscal exposure here"',
+        'haiku_voice': 'cautious, precise, "the numbers suggest fiscal exposure here", "this skim rate is not sustainable at current stability levels"',
     },
     'technocrat': {
         'label': 'Technocrat',
@@ -48,7 +48,7 @@ ADVISOR_ARCHETYPES = {
         'gate': None,
         'hire_cost_type': 'national',
         'hire_cost': 0.5,
-        'haiku_voice': 'analytical, references efficiency and long-term returns',
+        'haiku_voice': 'analytical, references efficiency and long-term returns, "the infrastructure ROI on this option is significantly better over 5 turns"',
     },
     'diplomat': {
         'label': 'Diplomat',
@@ -61,7 +61,7 @@ ADVISOR_ARCHETYPES = {
         'gate': None,
         'hire_cost_type': 'national',
         'hire_cost': 0.5,
-        'haiku_voice': 'measured, relationship-focused, references NPC history and diplomatic precedent',
+        'haiku_voice': 'measured, relationship-focused, references NPC history and diplomatic precedent, "Marsha\'s position on this has softened since turn 3"',
     },
     'general': {
         'label': 'General',
@@ -74,7 +74,7 @@ ADVISOR_ARCHETYPES = {
         'gate': 'military_axis_4',
         'hire_cost_type': 'national',
         'hire_cost': 0.5,
-        'haiku_voice': 'formal, strategic, "from a force posture perspective"',
+        'haiku_voice': 'formal, strategic, "from a force posture perspective", subtly condescending about militia if both active, "irregular forces have their uses — they are not a substitute for doctrine"',
     },
     'propagandist': {
         'label': 'Propagandist',
@@ -87,7 +87,7 @@ ADVISOR_ARCHETYPES = {
         'gate': 'soft_authoritarianism',
         'hire_cost_type': 'personal',
         'hire_cost': 0.5,
-        'haiku_voice': 'upbeat, spins everything, "public sentiment is responding well"',
+        'haiku_voice': 'upbeat, spins everything, "public sentiment is responding well to the messaging", "the narrative is manageable"',
     },
     'militia_commander': {
         'label': 'Militia Commander',
@@ -100,7 +100,7 @@ ADVISOR_ARCHETYPES = {
         'gate': 'soft_authoritarianism',
         'hire_cost_type': 'personal',
         'hire_cost': 0.5,
-        'haiku_voice': 'blunt, contemptuous of due process, "there are faster ways to resolve this than courts"',
+        'haiku_voice': 'blunt, contemptuous of due process, "there are faster ways to resolve this than courts", "the diplomat\'s approach is admirable — it won\'t work"',
     },
     'spy_chief': {
         'label': 'Spy Chief',
@@ -113,7 +113,7 @@ ADVISOR_ARCHETYPES = {
         'gate': 'intel_axis_4',
         'hire_cost_type': 'national',
         'hire_cost': 1.0,
-        'haiku_voice': 'oblique, precise, never wastes words, "the operational risk profile here suggests indirect approaches"',
+        'haiku_voice': 'oblique, precise, never wastes words, "the operational risk profile here suggests indirect approaches", "asset management is preferable to confrontation at this stage"',
     },
     'oligarch': {
         'label': 'Oligarch',
@@ -127,7 +127,7 @@ ADVISOR_ARCHETYPES = {
         'gate': 'patronage_state',
         'hire_cost_type': 'personal',
         'hire_cost': 1.0,
-        'haiku_voice': 'transactional, no sentiment, "what is the return on this arrangement"',
+        'haiku_voice': 'transactional, no sentiment, "what is the return on this arrangement", "the EU\'s conditions are an obstacle to efficient capital flows"',
     },
     'fixer': {
         'label': 'Fixer',
@@ -140,7 +140,7 @@ ADVISOR_ARCHETYPES = {
         'gate': 'political_axis_4',
         'hire_cost_type': 'personal',
         'hire_cost': 1.0,
-        'haiku_voice': 'oblique, never direct, "there are ways to approach this that don\'t appear in any official record"',
+        'haiku_voice': 'oblique, never direct, "there are ways to approach this that don\'t appear in any official record", "the paper trail is a choice"',
     },
 }
 
@@ -495,7 +495,78 @@ def eliminate_advisor(game_state, advisor_key):
     })
     game_state.advisor_actions_log = log
 
-    return True, f"Eliminated {advisor['name']} ({advisor.get('label', advisor_key)}) — {consequence}"
+    # ── 9.5A-Shadow: Fear Effect on remaining advisors ──────────────────
+    _current_day = getattr(game_state, 'current_day', 0)
+    _old_elim_count = getattr(game_state, 'advisor_elimination_count', 0)
+    _last_elim_day = getattr(game_state, 'advisor_elimination_last_day', 0)
+    _days_since_last = _current_day - _last_elim_day if _last_elim_day > 0 else 999
+
+    # Determine fear intensity based on repeat eliminations
+    _is_repeat_2 = (_old_elim_count >= 1 and _days_since_last <= 10)
+    _is_repeat_3 = (_old_elim_count >= 2 and _days_since_last <= 20)
+
+    _loyalty_boost = 15
+    _fear_window = 5
+    if _is_repeat_2 or _is_repeat_3:
+        _loyalty_boost = 25
+        _fear_window = 7
+
+    # Update elimination tracking
+    game_state.advisor_elimination_count = _old_elim_count + 1
+    game_state.advisor_elimination_last_day = _current_day
+
+    # Apply fear to all remaining advisors
+    _remaining = getattr(game_state, 'advisors', {})
+    _fear_list = list(getattr(game_state, 'advisors_with_fear_bonus', []))
+    _witnessed_list = list(getattr(game_state, 'advisors_witnessed_elimination', []))
+    _chronic_list = list(getattr(game_state, 'advisors_chronically_fearful', []))
+
+    for _rkey, _radv in _remaining.items():
+        if not isinstance(_radv, dict):
+            continue
+        # Loyalty boost
+        _old_loyalty = _radv.get('trust', 75)
+        _radv['trust'] = min(100, _old_loyalty + _loyalty_boost)
+
+        # Set fear bonus on advisor dict
+        _radv['fear_bonus_active'] = True
+        _radv['fear_start_day'] = _current_day
+        _radv['fear_window'] = _fear_window
+
+        # Track in lists
+        if _rkey not in _fear_list:
+            _fear_list.append(_rkey)
+        if _rkey not in _witnessed_list:
+            _witnessed_list.append(_rkey)
+
+        # Chronically fearful for 2nd+ elimination within window
+        if _is_repeat_2 and _rkey not in _chronic_list:
+            _chronic_list.append(_rkey)
+            # Competence degradation for chronically fearful (-10 permanent)
+            _old_comp = _radv.get('competence', 60)
+            _radv['competence'] = max(0, _old_comp - 10)
+            print(f"  [9.5A-Shadow] {_rkey} now CHRONICALLY FEARFUL "
+                  f"(competence {_old_comp} -> {_radv['competence']})")
+
+        print(f"  [9.5A-Shadow] fear_effect: {_rkey} loyalty {_old_loyalty} -> {_radv['trust']}, "
+              f"fear_window={_fear_window}d")
+
+    game_state.advisors_with_fear_bonus = _fear_list
+    game_state.advisors_witnessed_elimination = _witnessed_list
+    game_state.advisors_chronically_fearful = _chronic_list
+    game_state.advisors = _remaining
+
+    _fear_msg = f"Fear effect: +{_loyalty_boost} loyalty, {_fear_window}d window"
+    if _is_repeat_3:
+        _fear_msg += " (3rd+ elimination — deeply unreliable)"
+    elif _is_repeat_2:
+        _fear_msg += " (repeat elimination — chronically fearful)"
+
+    print(f"  [9.5A-Shadow] elimination #{_old_elim_count + 1}: "
+          f"repeat_2={_is_repeat_2} repeat_3={_is_repeat_3} "
+          f"remaining={len(_remaining)} fear_list={_fear_list}")
+
+    return True, f"Eliminated {advisor['name']} ({advisor.get('label', advisor_key)}) — {consequence}. {_fear_msg}"
 
 
 def _apply_elimination_consequence(game_state, advisor):
@@ -576,6 +647,9 @@ def get_displayed_approval(gs):
             factor = edu_reduction.get(edu_level, 1.0)
             raw_dist = adv.get('distortion_value', 0)
             effective_dist = round(raw_dist * factor)
+            # 9.5A-Shadow: fear reduces distortion by 50%
+            if adv.get('fear_bonus_active', False):
+                effective_dist = round(effective_dist * 0.5)
             distortion += effective_dist
     displayed = min(100, max(0, gs.public_approval + distortion))
     if distortion != 0:
@@ -595,7 +669,11 @@ def get_displayed_stability(gs):
         if not adv.get('assigned_this_turn', False):
             continue
         if adv.get('archetype') == 'militia_commander':
-            distortion += adv.get('distortion_value', 0)
+            _dv = adv.get('distortion_value', 0)
+            # 9.5A-Shadow: fear reduces distortion by 50%
+            if adv.get('fear_bonus_active', False):
+                _dv = round(_dv * 0.5)
+            distortion += _dv
     displayed = min(100, max(0, gs.stability + distortion))
     if distortion != 0:
         print(f"  [advisor] STAT DISTORTION: stability displayed={displayed} true={gs.stability} (source: militia_commander)")
@@ -614,7 +692,11 @@ def get_displayed_military(gs):
         if not adv.get('assigned_this_turn', False):
             continue
         if adv.get('archetype') == 'general':
-            distortion += adv.get('distortion_value', 0)
+            _dv = adv.get('distortion_value', 0)
+            # 9.5A-Shadow: fear reduces distortion by 50%
+            if adv.get('fear_bonus_active', False):
+                _dv = round(_dv * 0.5)
+            distortion += _dv
     true_val = getattr(gs, 'military_strength', 20)
     displayed = min(100, max(0, true_val + distortion))
     if distortion != 0:
@@ -636,7 +718,11 @@ def get_displayed_heat(gs):
             continue
         arch = adv.get('archetype', '')
         if arch in ('spy_chief', 'oligarch', 'fixer'):
-            distortion -= adv.get('distortion_value', 0)
+            _dv = adv.get('distortion_value', 0)
+            # 9.5A-Shadow: fear reduces distortion by 50%
+            if adv.get('fear_bonus_active', False):
+                _dv = round(_dv * 0.5)
+            distortion -= _dv
     true_val = getattr(gs, 'detection_heat', 0)
     displayed = min(100, max(0, true_val + distortion))
     if distortion != 0:
@@ -660,7 +746,11 @@ def get_displayed_budget(gs):
         if not adv.get('assigned_this_turn', False):
             continue
         if adv.get('archetype') == 'oligarch':
-            distortion += adv.get('budget_distortion_value', 0)
+            _dv = adv.get('budget_distortion_value', 0)
+            # 9.5A-Shadow: fear reduces distortion by 50%
+            if adv.get('fear_bonus_active', False):
+                _dv = round(_dv * 0.5)
+            distortion += _dv
     displayed = gs.budget + distortion
     if distortion != 0:
         print(f"  [advisor] STAT DISTORTION: budget displayed={displayed:.1f} true={gs.budget:.1f} (source: oligarch)")
@@ -679,6 +769,10 @@ def compute_all_distortions(gs):
             continue
         arch = adv.get('archetype', '')
         dv = adv.get('distortion_value', 0)
+        # 9.5A-Shadow: fear reduces distortion by 50%
+        _fear_active = adv.get('fear_bonus_active', False)
+        if _fear_active:
+            dv = round(dv * 0.5)
 
         if arch == 'propagandist' and dv:
             edu_level = getattr(gs, 'education_level', 0)
@@ -701,6 +795,8 @@ def compute_all_distortions(gs):
             if dv:
                 distortions['detection_heat'] = distortions.get('detection_heat', 0) - dv
             bdv = adv.get('budget_distortion_value', 0)
+            if _fear_active:
+                bdv = round(bdv * 0.5)
             if bdv:
                 distortions['budget'] = distortions.get('budget', 0) + bdv
 
@@ -920,3 +1016,103 @@ def get_oligarch_skim_bonus(game_state):
     if not adv.get('assigned_this_turn', False):
         return 1.0
     return 1.10  # +10% bonus
+
+
+# ── 9.5A-Shadow: Fear Decay Processing ───────────────────────────────────────────
+
+def process_fear_decay(game_state):
+    """9.5A-Shadow: Process fear bonus decay for advisors.
+    Called from EOT processing. Removes fear_bonus_active when window expires.
+    Applies loyalty decay toward baseline after fear expires.
+    Returns list of messages for briefing."""
+    current_day = getattr(game_state, 'current_day', 0)
+    _advisors = getattr(game_state, 'advisors', {})
+    if not isinstance(_advisors, dict):
+        return []
+
+    fear_list = list(getattr(game_state, 'advisors_with_fear_bonus', []))
+    messages = []
+    expired = []
+
+    for key, adv in _advisors.items():
+        if not isinstance(adv, dict):
+            continue
+        if not adv.get('fear_bonus_active', False):
+            continue
+
+        start = adv.get('fear_start_day', 0)
+        window = adv.get('fear_window', 5)
+
+        if current_day >= start + window:
+            # Fear expired
+            adv['fear_bonus_active'] = False
+            expired.append(key)
+
+            # Loyalty decays toward baseline (-10 from the boost)
+            old_trust = adv.get('trust', 75)
+            decay = 10
+            adv['trust'] = max(20, old_trust - decay)
+            print(f"  [9.5A-Shadow] fear_expired: {key} loyalty {old_trust} -> {adv['trust']}")
+
+    # Update fear list
+    for key in expired:
+        if key in fear_list:
+            fear_list.remove(key)
+
+    if expired:
+        messages.append(
+            f"\U0001f576 Fear effect faded for {len(expired)} advisor(s) "
+            f"\u2014 loyalty returning to baseline")
+        print(f"  [9.5A-Shadow] fear_decay: {len(expired)} expired, "
+              f"remaining_fear={fear_list}")
+
+    game_state.advisors_with_fear_bonus = fear_list
+    game_state.advisors = _advisors
+    return messages
+
+
+def check_witnessed_defection_risk(game_state):
+    """9.5A-Shadow: Check if witnessed-elimination advisors defect on player weakness.
+    Called from EOT when approval < 30 or other weakness triggers.
+    Returns list of (advisor_key, message) for defection events."""
+    events = []
+    approval = getattr(game_state, 'public_approval', 50)
+    in_exile = getattr(game_state, 'in_exile', False)
+
+    # Only trigger on weakness
+    if approval >= 30 and not in_exile:
+        return events
+
+    _advisors = getattr(game_state, 'advisors', {})
+    if not isinstance(_advisors, dict):
+        return events
+
+    witnessed = getattr(game_state, 'advisors_witnessed_elimination', [])
+    chronic = getattr(game_state, 'advisors_chronically_fearful', [])
+
+    for key, adv in list(_advisors.items()):
+        if not isinstance(adv, dict):
+            continue
+        if key not in witnessed:
+            continue
+        # Skip advisors currently under fear effect (too scared to defect NOW)
+        if adv.get('fear_bonus_active', False):
+            continue
+
+        # Defection chance: 15% base, +10% if chronically fearful
+        defect_chance = 0.15
+        if key in chronic:
+            defect_chance += 0.10
+
+        import random
+        if random.random() < defect_chance:
+            name = adv.get('name', key)
+            # Defection: trust drops drastically
+            old_trust = adv.get('trust', 75)
+            adv['trust'] = max(0, old_trust - 40)
+            events.append((key, f"\U0001f576 {name} (witnessed elimination) "
+                          f"has turned against you! Loyalty plummeted."))
+            print(f"  [9.5A-Shadow] witnessed_defection: {key} trust "
+                  f"{old_trust} -> {adv['trust']} (approval={approval})")
+
+    return events

@@ -13,6 +13,8 @@ const MOBILE_NPCS = [
   { key: 'arabia', flag: '🛢️',  label: 'ARB' },
   { key: 'eu',     flag: '🇪🇺', label: 'EU' },
   { key: 'dprg',   flag: '⚡',  label: 'DPRG' },
+  { key: 'russia', flag: '🇷🇺', label: 'RUS' },
+  { key: 'china',  flag: '🇨🇳', label: 'CHN' },
 ]
 
 const NPC_LABELS = {
@@ -20,9 +22,11 @@ const NPC_LABELS = {
   arabia: 'SADAM',
   eu:     'MARSHA',
   dprg:   'JI-WON RYANG',
+  russia: 'NIKOLAI VOLKOV',
+  china:  'WEI JIANMING',
 }
 
-export default function DashboardLayout({ gs, children, onShadowCabinet, negotiatingNpc, onHistorian, historianLoading, onContact, contactsDisabled, activeTab, onTabChange, domesticContent, onBackchannel, backchannelDisabled }) {
+export default function DashboardLayout({ gs, children, onShadowCabinet, negotiatingNpc, onHistorian, historianLoading, onContact, contactsDisabled, activeTab, onTabChange, domesticContent, onBackchannel, backchannelDisabled, onBiography }) {
   // ── Ambient vs Event mode ────────────────────────────────────────────
   const mode = negotiatingNpc ? 'event' : 'ambient'
   const prevModeRef = useRef(mode)
@@ -64,7 +68,7 @@ export default function DashboardLayout({ gs, children, onShadowCabinet, negotia
 
       {/* ── Left Sidebar (desktop only) ──────────────────────────────── */}
       <aside className="dashboard-left hidden lg:block">
-        <LeftSidebar gs={gs} onShadowCabinet={onShadowCabinet} mode={mode} onHistorian={onHistorian} historianLoading={historianLoading} />
+        <LeftSidebar gs={gs} onShadowCabinet={onShadowCabinet} mode={mode} onHistorian={onHistorian} historianLoading={historianLoading} onBiography={onBiography} />
       </aside>
 
       {/* ── Center Panel ─────────────────────────────────────────────── */}
@@ -102,7 +106,7 @@ export default function DashboardLayout({ gs, children, onShadowCabinet, negotia
             return (
               <div key={npc.key} className="mobile-npc-item">
                 <button
-                  className={`mobile-npc-circle ${npcHealth(npc.key)} ${canBackchannel ? 'mobile-npc-tappable' : ''}`}
+                  className={`mobile-npc-circle npc-${npc.key} ${npcHealth(npc.key)} ${canBackchannel ? 'mobile-npc-tappable' : ''}`}
                   disabled={!canBackchannel}
                   onClick={() => {
                     if (canBackchannel) {

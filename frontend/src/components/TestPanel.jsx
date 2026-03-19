@@ -22,9 +22,14 @@ export default function TestPanel({ sessionId, gs, onGsUpdate, onOpenCheatPanel,
       .catch(e => console.warn('[TEST] Failed to load snapshots:', e.message))
   }, [])
 
-  // Only render if user has is_test=true in Clerk public metadata
-  const isTest = user?.publicMetadata?.is_test === true
-  if (!isTest) return null
+  // Render for test accounts, ?cheat=true URL param, or dev_mode localStorage
+  const searchParams = new URLSearchParams(window.location.search)
+  const showDevPanel =
+    user?.publicMetadata?.is_test === true ||
+    searchParams.get('cheat') === 'true' ||
+    localStorage.getItem('dev_mode') === 'true'
+  if (!showDevPanel) return null
+  console.log('[dev] TestPanel rendered via auth gate bypass')
 
   console.log('[TEST] Test panel rendered for test account')
 

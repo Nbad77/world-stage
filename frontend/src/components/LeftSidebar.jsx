@@ -18,7 +18,7 @@ const POWER_BASE_POSITIONS = {
   'Elite-Captured': 90,
 }
 
-export default function LeftSidebar({ gs, onShadowCabinet, mode, onHistorian, historianLoading }) {
+export default function LeftSidebar({ gs, onShadowCabinet, mode, onHistorian, historianLoading, onBiography }) {
   if (!gs) return null
 
   // ── Regime identity ──────────────────────────────────────────────────
@@ -99,7 +99,7 @@ export default function LeftSidebar({ gs, onShadowCabinet, mode, onHistorian, hi
       <div className="ls-section-label">Financial</div>
 
       <div className="ls-stat-row">
-        <span className="ls-stat-label">Budget</span>
+        <span className="ls-stat-label">Treasury</span>
         <span className={`ls-stat-value ${budgetClass}`}>${gs.budget.toFixed(1)}B</span>
       </div>
 
@@ -308,6 +308,17 @@ export default function LeftSidebar({ gs, onShadowCabinet, mode, onHistorian, hi
       >
         {historianLoading ? '📜 Consulting…' : '📜 Historian\'s Assessment'}
       </button>
+
+      {/* ── 9B: Political Biography button ─────────────────────────────── */}
+      {onBiography && (
+        <button
+          className="ls-historian-btn ls-historian-active"
+          onClick={onBiography}
+          style={{ marginTop: '0.3rem' }}
+        >
+          📖 Political Biography
+        </button>
+      )}
 
       {/* ── Emergency tokens (placeholder) ───────────────────────────── */}
       <div className="ls-emergency-tokens">

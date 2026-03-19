@@ -26,6 +26,9 @@ import TestPanel from './TestPanel'
 import DashboardLayout from './DashboardLayout'
 import DomesticTab from './DomesticTab'
 import BriefingSummaryCard from './BriefingSummaryCard'
+import ExileDashboard from './ExileDashboard'
+import LeakCrisisModal from './LeakCrisisModal'
+import BiographyModal from './BiographyModal'
 
 /**
  * GameScreen manages the full turn lifecycle:
@@ -93,6 +96,9 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   const [intercepts, setIntercepts] = useState([])
   const [eotMessages, setEotMessages] = useState([])
 
+  // 8D: The Leak crisis modal
+  const [showLeakCrisis, setShowLeakCrisis] = useState(false)
+
   // Inject sub-choice
   const [injectOptions, setInjectOptions] = useState([])
 
@@ -125,6 +131,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   const [eraTransitionSuggestion, setEraTransitionSuggestion] = useState(null)
   const [historianModal, setHistorianModal] = useState(null) // { era, summary, isOnDemand }
   const [historianLoading, setHistorianLoading] = useState(false)
+  const [showBiography, setShowBiography] = useState(false)
 
   // Stage 4: Negotiation
   const [negotiatingNpc, setNegotiatingNpc] = useState(null)   // 'usa'|'arabia'|'eu'|'dprg'|null
@@ -139,6 +146,13 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
 
   // Session 7E: UN Summit modal state
   const [summitOpen, setSummitOpen] = useState(false)
+
+  // 8C: Exile state
+  const [exileMessages, setExileMessages] = useState([])
+  const [exileDialogue, setExileDialogue] = useState(null) // Fix E: AI-generated NPC dialogue from reach-out
+
+  // FIX C: Track in_exile transitions for post-return game load
+  const prevInExileRef = useRef(gs?.in_exile)
 
   const scrollRef = useRef(null)
 
@@ -172,6 +186,61 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0
   }, [phase])
+
+  // FIX C: Detect exile → active transition and fetch fresh turn data
+  useEffect(() => {
+    const wasInExile = prevInExileRef.current
+    const isInExile = gs?.in_exile
+    prevInExileRef.current = isInExile
+
+    if (wasInExile && !isInExile) {
+      console.log(`[FIXC] post-return state in_exile=${isInExile} restoration_active=${gs?.restoration_active} turn_button_enabled=${!!_nextTurnRef.current}`)
+      console.log('[FIXC] exile→active transition detected, fetching fresh turn data')
+      setLoading(true)
+      api.getGame(sessionId).then(data => {
+        setGs(data.game_state)
+        setDialogue(data.dialogue)
+        setOffers(data.offers)
+        setSkimOptions(data.skim_options || [])
+        setBlackmailActive(data.blackmail_active || false)
+        setConsequences([])
+        setSkimMessages([])
+        setEotMessages([])
+        setIntercepts([])
+        setExileMessages([])
+        setExileDialogue(null)
+        setBrigadeAvailable(false)
+        setBrigadeResult(null)
+        setAftermathResult(null)
+        setDrainProjection(null)
+        setIntelAllocated(false)
+        setElectionConseqStash(null)
+        setEraTransitionSuggestion(null)
+        setCurrentEvent(data.current_event || null)
+        setNegotiatingNpc(null)
+        setCounterOffers({})
+        setChatHistories({})
+        setPhase(PHASE.DIALOGUE)
+        // FIXC2: Populate _nextTurnRef so handleContinue has valid data after restoration
+        _nextTurnRef.current = {
+          dialogue: data.dialogue || data.next_dialogue,
+          offers: data.offers || data.next_offers,
+          skimOptions: data.skim_options || data.next_skim_options,
+          blackmailActive: data.blackmail_active || data.next_blackmail,
+          status: data.status,
+          ending: data.ending || null,
+          event: data.next_event || null,
+        }
+        console.log(`[FIXC2] _nextTurnRef populated after restoration status=${data.status} dialogue_lines=${data.dialogue?.length || 0}`)
+        console.log('[FIXC] fresh turn data loaded, phase=DIALOGUE, day:', data.game_state?.current_day ?? data.game_state?.current_turn)
+      }).catch(err => {
+        console.error('[FIXC] Failed to fetch post-return game data:', err)
+        setError('Failed to load post-return game data. Please refresh.')
+      }).finally(() => {
+        setLoading(false)
+      })
+    }
+  }, [gs?.in_exile, sessionId])
 
   // Domestic Affairs: Intel allocation gate removed
   useEffect(() => {
@@ -301,6 +370,17 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       setBrigadeAvailable(res.brigade_available || false)
       setBrigadeResult(null)
       setDrainProjection(res.drain_projection || null)
+
+      // 9.5A-Shadow: Auto-skip skim when persistent skim is active
+      const _skimOpts = res.skim_options || []
+      const _persistentSkim = _skimOpts.length === 1 && _skimOpts[0]?.skim_persistent
+      if (_persistentSkim && !(res.brigade_available)) {
+        // Auto-execute choice 1 (Proceed) without showing SkimPanel
+        console.log('[9.5A-Shadow] Persistent skim active, auto-skipping skim prompt')
+        _executeSkim(1)
+        return
+      }
+
       setPhase(PHASE.CONSEQUENCES)
 
     } catch (e) {
@@ -343,7 +423,14 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     clearError()
     try {
       const res = await api.intelAllocation(sessionId, allocation)
-      if (res.game_state) setGs(res.game_state)
+      // FIX B: Defer game state update for successful returns — modal must show result first
+      if (res.game_state) {
+        if (action === '9a_attempt_return' && res.success) {
+          console.log('[FIXB] deferring setGs — successful return, modal will apply on close')
+        } else {
+          setGs(res.game_state)
+        }
+      }
       setIntelAllocated(true)
     } catch (e) {
       setError(e.message)
@@ -365,7 +452,13 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       setSkimMessages(res.skim_messages || [])
       setCorruptionAlert(res.corruption_alert || null)
       setIntercepts(res.intercepts || [])
-      const eotMsgs = res.eot_effects || []
+      const rawEotMsgs = res.eot_effects || []
+      // 8D: Separate crisis objects from string messages
+      const eotMsgs = rawEotMsgs.filter(m => typeof m === 'string')
+      const crisisItems = rawEotMsgs.filter(m => typeof m === 'object' && m?.tag === 'CRISIS')
+      if (crisisItems.some(c => c.type === 'the_leak')) {
+        console.log('[leak] Crisis card detected in EOT effects')
+      }
       setEotMessages(eotMsgs)
       // fixes_18 Fix C: Pipe approval trace logs to browser console
       eotMsgs.filter(m => m.startsWith('[APPROVAL]')).forEach(m => console.log(m))
@@ -432,7 +525,9 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       setSkimMessages(res.inject_messages || [])
       setCorruptionAlert(null)
       setIntercepts([])
-      const eotMsgsInject = res.eot_effects || []
+      const rawEotInject = res.eot_effects || []
+      // 8D: Filter crisis objects from string messages
+      const eotMsgsInject = rawEotInject.filter(m => typeof m === 'string')
       setEotMessages(eotMsgsInject)
       // fixes_18 Fix C: Pipe approval trace logs to browser console
       eotMsgsInject.filter(m => m.startsWith('[APPROVAL]')).forEach(m => console.log(m))
@@ -504,6 +599,12 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
 
   // ── PHASE 2 → 0 (or ENDED): player hits "Next Day" ──────────────────────
   function handleContinue() {
+    console.log('[DEBUG handleContinue]',
+      'ref=', JSON.stringify(_nextTurnRef.current),
+      'loading=', loading,
+      'phase=', phase,
+      'gs_status=', gs?.status,
+      'in_exile=', gs?.in_exile)
     const next = _nextTurnRef.current
 
     if (ending) {
@@ -706,12 +807,16 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       return
     }
 
-    setNegotiatingNpc(npcKey)
+    // FIX 3: Do NOT open the panel yet — fetch the NPC's opening message first,
+    // then open the panel with the message already in chatHistories.
+    // Previously setNegotiatingNpc was called before the API call, causing
+    // NegotiationPanel to mount with empty initialMessages (useState only
+    // captures initial value on mount, ignoring subsequent prop changes).
     setLoading(true)
 
     try {
       const res = await api.negotiate(sessionId, npcKey, '[CONTACT]', [], null, true)
-      // Inject NPC opening message as first chat history entry
+      // Populate chat history FIRST
       setChatHistories(prev => ({
         ...prev,
         [npcKey]: {
@@ -721,6 +826,9 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         },
       }))
       if (res.game_state) setGs(res.game_state)
+      console.log('[contact] Auto-opening message fetched for', npcKey)
+      // NOW open the panel — initialMessages will include the NPC's opening
+      setNegotiatingNpc(npcKey)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -733,6 +841,54 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     if (!npcKey) return
     console.log('[BACKCHANNEL] Opening covert channel:', npcKey)
     setBackchannelNpc(npcKey)
+  }
+
+  // ── 8C: Exile action handler ────────────────────────────────────────────
+  async function handleExileAction(action, targetNpc = null, opType = null) {
+    setLoading(true)
+    setError(null)
+    try {
+      let res
+      // 9A: Route to new exile endpoints
+      if (action === '9a_wealth_action') {
+        const data = targetNpc // { action_key, target, offer }
+        res = await api.exileWealthAction(sessionId, data.action_key, data.target, data.offer)
+        // 9A: Add detection messages to exile feed
+        if (res.detected && res.detection_message) {
+          setExileMessages(prev => [`🔍 ${res.detection_message}`, ...prev].slice(0, 50))
+        }
+        if (res.successor_reaction) {
+          setExileMessages(prev => [`⚠️ ${res.successor_reaction}`, ...prev].slice(0, 50))
+        }
+      } else if (action === '9a_npc_backing') {
+        const data = targetNpc // { npc_id, tier }
+        res = await api.exileNpcBacking(sessionId, data.npc_id, data.tier)
+      } else if (action === '9a_attempt_return') {
+        res = await api.exileAttemptReturn(sessionId)
+      } else {
+        res = await api.exileAction(sessionId, action, targetNpc, opType)
+      }
+      if (res.game_state) setGs(res.game_state)
+      // Append any messages from the response to the exile feed
+      const newMsgs = res.messages || []
+      if (newMsgs.length > 0) {
+        setExileMessages(prev => [...newMsgs, ...prev].slice(0, 50))
+      }
+      // Fix E: Capture AI-generated NPC dialogue from reach-out
+      if (res.npc_dialogue) {
+        setExileDialogue({ npc: typeof targetNpc === 'string' ? targetNpc : null, text: res.npc_dialogue })
+      } else if (!['9a_wealth_action', '9a_npc_backing', '9a_attempt_return'].includes(action)) {
+        setExileDialogue(null)
+      }
+      console.log('[EXILE] Action completed:', action, targetNpc, opType)
+      return res // 9A: Return response for component-level handling
+    } catch (e) {
+      setError(e.message)
+      setExileMessages(prev => [`⚠ ${e.message}`, ...prev].slice(0, 50))
+      throw e // 9A: Re-throw for component error handling
+    } finally {
+      setLoading(false)
+    }
   }
 
   // ── FEATURE 1: Shadow Cabinet upgrade purchased → sync gs ────────────────
@@ -999,6 +1155,48 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     URL.revokeObjectURL(url)
   }
 
+  // ── Render: EXILE ─────────────────────────────────────────────────────────
+  if (gs?.in_exile) {
+    return (
+      <div className="app-container exile-mode">
+        <ExileDashboard
+          gs={gs}
+          sessionId={sessionId}
+          onExileAction={handleExileAction}
+          onGsUpdate={setGs}
+          loading={loading}
+          messages={exileMessages}
+          exileDialogue={exileDialogue}
+          onDismissDialogue={() => setExileDialogue(null)}
+        />
+
+        {/* Debug panel remains accessible during exile */}
+        {debugOpen && (
+          <DebugPanel
+            gs={gs}
+            sessionId={sessionId}
+            onClose={() => setDebugOpen(false)}
+            onGsUpdate={setGs}
+          />
+        )}
+        <button
+          className="dev-cheat-toggle"
+          onClick={() => setDebugOpen(prev => !prev)}
+          title="Toggle cheat panel"
+        >
+          DEV
+        </button>
+        <TestPanel
+          sessionId={sessionId}
+          gs={gs}
+          onGsUpdate={setGs}
+          onOpenCheatPanel={() => setDebugOpen(true)}
+          onSnapshotLoad={onSnapshotLoad}
+        />
+      </div>
+    )
+  }
+
   // ── Render: ENDED ────────────────────────────────────────────────────────
   if (phase === PHASE.ENDED) {
     // Session 4D: Alternate ending takes precedence if triggered
@@ -1019,6 +1217,16 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
           ) : (
             <EndingScreen ending={ending} gs={gs} onRestart={onRestart} onExportLog={handleExportDebugLog} />
           )}
+          {/* 9B: View Political Biography button */}
+          <div style={{ textAlign: 'center', margin: '1rem 0' }}>
+            <button
+              className="btn-secondary"
+              onClick={() => { console.log('[9B] opening biography from ending screen'); setShowBiography(true) }}
+              style={{ fontSize: '0.82rem', padding: '0.6rem 1.5rem' }}
+            >
+              VIEW POLITICAL BIOGRAPHY
+            </button>
+          </div>
           <div className="dev-export-footer">
             <button
               className="dev-export-btn"
@@ -1029,6 +1237,15 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
             </button>
           </div>
         </DashboardLayout>
+
+        {/* 9B: Biography Modal on ending screen */}
+        <BiographyModal
+          isOpen={showBiography}
+          onClose={() => setShowBiography(false)}
+          onPlayAgain={onRestart}
+          sessionId={sessionId}
+          isDraft={false}
+        />
       </div>
     )
   }
@@ -1044,7 +1261,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         />
       </div>
 
-      <DashboardLayout gs={gs} onShadowCabinet={() => setShadowCabinetOpen(true)} negotiatingNpc={negotiatingNpc} onHistorian={handleHistorianAssessment} historianLoading={historianLoading} onContact={phase === PHASE.DIALOGUE && !loading ? handlePlayerContact : null} contactsDisabled={loading || phase !== PHASE.DIALOGUE} activeTab={activeTab} onTabChange={setActiveTab} domesticContent={<DomesticTab gs={gs} sessionId={sessionId} onGsUpdate={setGs} />} onBackchannel={phase === PHASE.DIALOGUE ? handleOpenBackchannel : null} backchannelDisabled={loading || phase !== PHASE.DIALOGUE}>
+      <DashboardLayout gs={gs} onShadowCabinet={() => setShadowCabinetOpen(true)} negotiatingNpc={negotiatingNpc} onHistorian={handleHistorianAssessment} historianLoading={historianLoading} onBiography={() => { console.log('[9B] opening draft biography from sidebar'); setShowBiography(true) }} onContact={phase === PHASE.DIALOGUE && !loading ? handlePlayerContact : null} contactsDisabled={loading || phase !== PHASE.DIALOGUE} activeTab={activeTab} onTabChange={setActiveTab} domesticContent={<DomesticTab gs={gs} sessionId={sessionId} onGsUpdate={setGs} />} onBackchannel={phase === PHASE.DIALOGUE ? handleOpenBackchannel : null} backchannelDisabled={loading || phase !== PHASE.DIALOGUE}>
 
       {/* Session 7E: Summit replaces center panel content when open */}
       {summitOpen ? (
@@ -1290,6 +1507,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
                 sessionId={sessionId}
                 onElectionDone={handleElectionDone}
                 disabled={loading}
+                onGsUpdate={setGs}
               />
             ) : (
               <OffersPanel
@@ -1477,13 +1695,24 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
 
             {/* Intel allocation gate removed — now driven by Domestic Affairs Tab */}
 
-            <SkimPanel
-              skimOptions={skimOptions}
-              onSkim={handleSkim}
-              disabled={loading || brigadeLoading || (brigadeAvailable && !brigadeResult)}
-              drainProjection={drainProjection}
-              detectionHeat={gs?.detection_heat || 0}
-            />
+            {/* 9.5A-Shadow: Hide SkimPanel when persistent skim, show compact indicator */}
+            {skimOptions.length === 1 && skimOptions[0]?.skim_persistent ? (
+              <div className="skim-persistent-indicator" style={{
+                padding: '0.6rem', margin: '0.5rem 0', borderRadius: '6px',
+                background: 'rgba(200,168,75,0.1)', border: '1px solid rgba(200,168,75,0.3)',
+                color: '#c8a84b', textAlign: 'center', fontSize: '0.8rem'
+              }}>
+                {skimOptions[0].label}
+              </div>
+            ) : (
+              <SkimPanel
+                skimOptions={skimOptions}
+                onSkim={handleSkim}
+                disabled={loading || brigadeLoading || (brigadeAvailable && !brigadeResult)}
+                drainProjection={drainProjection}
+                detectionHeat={gs?.detection_heat || 0}
+              />
+            )}
           </>
         )}
 
@@ -1527,6 +1756,25 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
             )}
 
             <InterceptPanel intercepts={intercepts} />
+
+            {/* 8D: The Leak crisis card */}
+            {gs?.the_leak_fired && !gs?.the_leak_resolved && (
+              <div className="leak-crisis-card">
+                <div className="leak-crisis-card-header">
+                  <span className="leak-crisis-card-badge">\uD83D\uDD34 CRISIS</span>
+                  <span className="leak-crisis-card-title">THE LEAK</span>
+                </div>
+                <div className="leak-crisis-card-body">
+                  Classified documents reveal your back-channel with DPRG leadership. You must respond.
+                </div>
+                <button
+                  className="leak-crisis-card-btn"
+                  onClick={() => setShowLeakCrisis(true)}
+                >
+                  ADDRESS CRISIS
+                </button>
+              </div>
+            )}
 
             <EotPanel messages={eotMessages} />
 
@@ -1697,6 +1945,27 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         />
       )}
 
+      {/* 8D: The Leak crisis modal */}
+      {showLeakCrisis && (
+        <LeakCrisisModal
+          gs={gs}
+          sessionId={sessionId}
+          onResolve={(newGs) => {
+            setShowLeakCrisis(false)
+            if (newGs) setGs(newGs)
+          }}
+        />
+      )}
+
+      {/* 9B: Biography Modal — mid-game (draft) view */}
+      <BiographyModal
+        isOpen={showBiography}
+        onClose={() => setShowBiography(false)}
+        onPlayAgain={null}
+        sessionId={sessionId}
+        isDraft={true}
+      />
+
       {/* FEATURE 1: Shadow Cabinet drawer */}
       {shadowCabinetOpen && (
         <ShadowCabinet
@@ -1729,6 +1998,16 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
           onGsUpdate={setGs}
         />
       )}
+
+      {/* FIX 4: Persistent cheat panel toggle for automated testing (Comet etc.)
+          Always visible, no env gate, survives tab navigation. */}
+      <button
+        className="dev-cheat-toggle"
+        onClick={() => setDebugOpen(prev => !prev)}
+        title="Toggle cheat panel"
+      >
+        DEV
+      </button>
 
       {/* Test Panel — only renders for is_test=true accounts */}
       <TestPanel

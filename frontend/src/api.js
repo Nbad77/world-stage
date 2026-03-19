@@ -237,4 +237,76 @@ export const api = {
 
   /** GET /test/snapshot/{name} — get snapshot state_data by name */
   testGetSnapshot: (name) => request('GET', `/test/snapshot/${name}`),
+
+  // ── 8D: The Leak — crisis endpoint ────────────────────────────────────────────
+
+  /** POST /game/{id}/crisis/the_leak — body: { choice } */
+  resolveTheLeakCrisis: (id, choice) =>
+    request('POST', `/game/${id}/crisis/the_leak`, { choice }),
+
+  // ── 8C: Exile Sequence endpoints ──────────────────────────────────────────
+
+  /** POST /game/{id}/exile_action — body: { action, target_npc?, op_type? } */
+  exileAction: (id, action, target_npc = null, op_type = null) =>
+    request('POST', `/game/${id}/exile_action`, { action, target_npc, op_type }),
+
+  // ── 9A: Comeback Mechanics endpoints ──────────────────────────────────────
+
+  /** POST /game/{id}/exile/action — 9A wealth action */
+  exileWealthAction: (id, action_key, target = null, offer = null) =>
+    request('POST', `/game/${id}/exile/action`, { action_key, target, offer }),
+
+  /** POST /game/{id}/exile/npc-backing — 9A NPC backing tier */
+  exileNpcBacking: (id, npc_id, tier) =>
+    request('POST', `/game/${id}/exile/npc-backing`, { npc_id, tier }),
+
+  /** POST /game/{id}/exile/attempt-return — 9A return attempt */
+  exileAttemptReturn: (id) =>
+    request('POST', `/game/${id}/exile/attempt-return`),
+
+  // ── 9B: Political Biography ──────────────────────────────────────────────────────
+
+  /** GET /game/{id}/biography — 9B full political biography */
+  getBiography: (id) =>
+    request('GET', `/game/${id}/biography`),
+
+  // ── 9.5A: Commitment Model endpoints ──────────────────────────────────────────
+
+  /** POST /game/{id}/commitment/upgrade — upgrade a tier by 1 */
+  commitmentUpgrade: (id, tier_key) =>
+    request('POST', `/game/${id}/commitment/upgrade`, { tier_key }),
+
+  /** POST /game/{id}/commitment/downgrade — downgrade a tier by 1 */
+  commitmentDowngrade: (id, tier_key) =>
+    request('POST', `/game/${id}/commitment/downgrade`, { tier_key }),
+
+  /** POST /game/{id}/commitment/skim — set skim rate */
+  commitmentSetSkim: (id, skim_rate) =>
+    request('POST', `/game/${id}/commitment/skim`, { skim_rate }),
+
+  // ── 9.5A-Shadow: Shadow State endpoints ──────────────────────────────────
+
+  /** POST /game/{id}/shadow/upgrade — upgrade a shadow tier by 1 */
+  shadowUpgrade: (id, shadow_key) =>
+    request('POST', `/game/${id}/shadow/upgrade`, { shadow_key }),
+
+  /** POST /game/{id}/shadow/downgrade — downgrade a shadow tier by 1 */
+  shadowDowngrade: (id, shadow_key) =>
+    request('POST', `/game/${id}/shadow/downgrade`, { shadow_key }),
+
+  /** POST /game/{id}/shadow/skim — set extraction skim rate */
+  shadowSetSkim: (id, skim_rate) =>
+    request('POST', `/game/${id}/shadow/skim`, { skim_rate }),
+
+  /** POST /game/{id}/shadow/merger — merge surveillance or militia */
+  shadowMerger: (id, merger_key) =>
+    request('POST', `/game/${id}/shadow/merger`, { merger_key }),
+
+  /** POST /game/{id}/loyal/install — install loyal generals or intel chief */
+  loyalInstall: (id, role) =>
+    request('POST', `/game/${id}/loyal/install`, { role }),
+
+  /** POST /game/{id}/loyal/reverse — begin reversal of loyal leadership */
+  loyalReverse: (id, role) =>
+    request('POST', `/game/${id}/loyal/reverse`, { role }),
 }

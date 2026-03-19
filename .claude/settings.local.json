@@ -28,7 +28,9 @@
       "Bash(where railway)",
       "Bash(npx --yes @railway/cli logs --num 50)",
       "Bash(npx --yes @railway/cli logs -n 80)",
-      "Bash(npx --yes @railway/cli login)"
+      "Bash(npx --yes @railway/cli login)",
+      "Bash(npx acorn --ecma2022 --module --jsx src/components/GameScreen.jsx)",
+      "Bash(npx vite build --mode development)"
     ]
   }
 }

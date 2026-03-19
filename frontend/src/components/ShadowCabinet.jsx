@@ -105,6 +105,35 @@ const AXES = [
   },
 ]
 
+// 9.5A-Shadow: Only these axes appear in the POWER BASE drawer
+const POWER_BASE_AXES = ['media', 'judicial', 'domestic_surveillance', 'extraction', 'militia']
+
+// 9.5A-Shadow: domestic_surveillance axis definition (new axis)
+const DOMESTIC_SURVEILLANCE_DEF = {
+  id: 'domestic_surveillance',
+  label: 'Domestic Surveillance',
+  icon: '📷',
+  desc: 'Informant networks, wiretaps, digital monitoring.',
+  unlocks: [
+    { level: 3, label: 'Digital monitoring — basic threat detection' },
+    { level: 6, label: 'Pervasive surveillance — protest detection, dissident tracking' },
+    { level: 9, label: 'Total awareness — preemptive threat neutralization' },
+  ],
+}
+
+// 9.5A-Shadow: Militia / Loyalty Brigades axis definition
+const MILITIA_DEF = {
+  id: 'militia',
+  label: 'Militia / Loyalty Brigades',
+  icon: '⚔️',
+  desc: 'Personal armed forces, loyalty enforcers, regime protection.',
+  unlocks: [
+    { level: 3, label: 'Loyalty patrols — basic regime enforcement' },
+    { level: 6, label: 'Organized brigades — protest suppression, intimidation' },
+    { level: 9, label: 'Integrated force — parallel military structure' },
+  ],
+}
+
 const AXIS_COSTS = {
   military:      [1, 1, 2, 3, 3, 4, 5, 6, 7, 8],
   intelligence:  [1, 1, 2, 2, 3, 3, 4, 5, 6, 7],
@@ -113,6 +142,8 @@ const AXIS_COSTS = {
   judicial:      [1, 1, 2, 2, 3, 3, 4, 5, 6, 7],
   political:     [1, 1, 2, 2, 3, 3, 4, 5, 6, 7],
   extraction:    [1, 1, 1, 2, 2, 3, 3, 4, 5, 6],
+  domestic_surveillance: [1, 1, 2, 2, 3, 3, 4, 5, 6, 7],
+  militia:       [1, 1, 2, 2, 3, 3, 4, 5, 6, 7],
 }
 
 const AXIS_MAINTENANCE = {
@@ -123,9 +154,11 @@ const AXIS_MAINTENANCE = {
   judicial:      [4, 0.4],
   political:     [3, 0.3],
   extraction:    [3, 0.2],
+  domestic_surveillance: [3, 0.3],
+  militia:       [3, 0.3],
 }
 
-const AXIS_FLOORS = { military: 2, intelligence: 1, resource_dev: 0, media: 2, judicial: 2, political: 2, extraction: 1 }
+const AXIS_FLOORS = { military: 2, intelligence: 1, resource_dev: 0, media: 2, judicial: 2, political: 2, extraction: 1, domestic_surveillance: 0, militia: 0 }
 
 // ── Brigade Operations ──────────────────────────────────────────────────────
 
@@ -390,13 +423,29 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
   const [armsExportTarget, setArmsExportTarget] = useState('usa')
   const [offshoreAmount, setOffshoreAmount] = useState(5)
 
+  // 9.5A-Shadow: Skim rate state
+  const savedSkim = gs?.skim_rate ?? 0
+  const [skimRate, setSkimRate] = useState(savedSkim)
+  const [skimSaving, setSkimSaving] = useState(false)
+  const [skimFlash, setSkimFlash] = useState(null)
+
+  // 9.5C: Loyal leadership UI state
+  const [loyalLoading, setLoyalLoading] = useState(null)
+  const [loyalFlash, setLoyalFlash] = useState(null)
+
+  // Sync skim from gs
+  useEffect(() => {
+    setSkimRate(gs?.skim_rate ?? 0)
+  }, [gs?.skim_rate])
+
   const axes = gs?.cabinet_axes || { military: 0, intelligence: 0, resource_dev: 0, media: 0, judicial: 0, political: 0, extraction: 0 }
   const personalWealth = gs?.personal_wealth || 0
   const regimeType = gs?.state_identity?.regime_type || 'Managed Democracy'
   const powerBase = gs?.state_identity?.power_base || 'Mass-Dependent'
   // Session 6: Security split into Military + Intelligence
-  const militaryLevel = axes.military || 0
-  const intelligenceLevel = axes.intelligence || 0
+  // 9.5A-Shadow: Read from commitment tier fields
+  const militaryLevel = gs?.military_tier ?? (axes.military || 0)
+  const intelligenceLevel = gs?.intelligence_tier ?? (axes.intelligence || 0)
 
   // fixes_11 Fix 2: Check if a brigade operation was already deployed this turn
   const opsThisTurn = gs?.brigade_operations_this_turn || []
@@ -404,12 +453,48 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
   const deployedThisTurn = opsThisTurn.some(o => o.turn === currentTurn && o.operation !== 0)
 
   // ── Axis invest/defund handler ──────────────────────────────────────────
+  // 9.5A-Shadow: Skim rate handler
+  async function handleSkimApply() {
+    if (skimSaving) return
+    setSkimSaving(true)
+    setSkimFlash(null)
+    try {
+      const res = await api.shadowSetSkim(sessionId, skimRate)
+      if (res.success) {
+        if (res.game_state) onUpgradePurchased(res.game_state)
+        setSkimFlash(res.message || 'Skim rate updated')
+      } else {
+        setSkimFlash(res.error || 'Failed')
+      }
+      setTimeout(() => setSkimFlash(null), 3000)
+    } catch (e) {
+      setSkimFlash('Failed: ' + e.message)
+      setTimeout(() => setSkimFlash(null), 3000)
+    } finally {
+      setSkimSaving(false)
+    }
+  }
+
+
+  // 9.5C-FIX: Shadow axes route to /shadow/upgrade|downgrade, others to /cabinet_invest
+  const SHADOW_AXES = ['media', 'judicial', 'domestic_surveillance', 'extraction']
+  const MILITIA_AXIS = 'militia'
+
   async function handleAxisAction(axisId, direction) {
     setLoading(true)
     setError(null)
     setSuccessMsg(null)
+    const isShadow = SHADOW_AXES.includes(axisId) || axisId === MILITIA_AXIS
+    console.log('[POWER BASE] axis action:', { axisId, direction, endpoint: isShadow ? 'shadow' : 'cabinet' })
     try {
-      const res = await api.cabinetInvest(sessionId, axisId, direction)
+      let res
+      if (isShadow) {
+        res = direction === 'invest'
+          ? await api.shadowUpgrade(sessionId, axisId)
+          : await api.shadowDowngrade(sessionId, axisId)
+      } else {
+        res = await api.cabinetInvest(sessionId, axisId, direction)
+      }
       // Session 6: Console log for new axis changes
       if (axisId === 'military' || axisId === 'intelligence' || axisId === 'resource_dev') {
         console.log(`[${axisId.toUpperCase()}] ${direction}: ${res.message}`)
@@ -583,10 +668,9 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
   // ── Drawer tabs ─────────────────────────────────────────────────────────
   // fixes_11 Fix 3: Added ADVISORS as 4th drawer tab
   const drawerTabs = [
-    { id: 0, label: 'INFRASTRUCTURE', icon: '🏗️' },
+    { id: 0, label: 'POWER BASE', icon: '🕶️' },
     { id: 1, label: 'OPERATIONS', icon: '⚔️', locked: militaryLevel < 3 && intelligenceLevel < 3 },
     { id: 2, label: 'ADVISORS', icon: '🧠' },
-    { id: 3, label: 'FINANCE', icon: '🗄️' },
   ]
 
   return (
@@ -613,26 +697,22 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
           <div className="sc-wealth">${personalWealth.toFixed(1)}B personal funds</div>
         </div>
 
-        {/* fixes_21 Fix M: Budget allocation summary — compact persistent indicator */}
-        {gs?.budget_allocation && (
-          <div className="sc-budget-summary">
-            <span className="sc-budget-tag">
-              🔍 Intel {gs.budget_allocation.intelligence ?? 20}%
+        {/* 9.5A-Shadow: Personal wealth + shadow drain summary */}
+        <div className="sc-budget-summary">
+          <span className="sc-budget-tag" style={{ color: '#c8a84b' }}>
+            🏦 PW: ${personalWealth.toFixed(1)}B
+          </span>
+          {(gs?.total_daily_shadow_cost || 0) > 0 && (
+            <span className="sc-budget-tag" style={{ color: '#c8a84b' }}>
+              🕶️ Shadow: -${(gs?.total_daily_shadow_cost || 0).toFixed(1)}B/day
             </span>
-            <span className="sc-budget-tag">
-              ⚔️ Mil {gs.budget_allocation.military ?? 20}%
+          )}
+          {(gs?.skim_rate || 0) > 0 && (
+            <span className="sc-budget-tag" style={{ color: '#c8a84b' }}>
+              💰 Skim: {((gs?.skim_rate || 0) * 100).toFixed(0)}%
             </span>
-            <span className="sc-budget-tag">
-              🏥 Svc {gs.budget_allocation.public_services ?? 20}%
-            </span>
-            <span className="sc-budget-tag">
-              🏗️ Infra {gs.budget_allocation.infrastructure ?? 20}%
-            </span>
-            <span className="sc-budget-tag">
-              🎓 Edu {gs.budget_allocation.education ?? 20}%
-            </span>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Feedback messages */}
         {successMsg && <div className="sc-success">{successMsg}</div>}
@@ -659,18 +739,18 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
         ═══════════════════════════════════════════════════════════════════ */}
         {activeDrawer === 0 && (
           <div className="sc-drawer-content">
-            <div className="sc-drawer-header">INFRASTRUCTURE</div>
+            <div className="sc-drawer-header" style={{ color: '#c8a84b' }}>POWER BASE</div>
             <div className="sc-drawer-subtitle">
-              Structural investments in state power. Maintenance costs charged per turn.
+              Covert state power. All funded from personal wealth.
             </div>
-            {AXES.map(axis => {
+            {[...AXES.filter(a => POWER_BASE_AXES.includes(a.id)), DOMESTIC_SURVEILLANCE_DEF, MILITIA_DEF].map(axis => {
               const level = axes[axis.id] || 0
               const costs = AXIS_COSTS[axis.id] || []
               const nextCost = level < 10 ? costs[level] : null
-              // Session 6: Military always national; Intelligence 1-3 national, 4+ personal; everything else personal
-              const usesNational = (axis.id === 'military') || (axis.id === 'resource_dev') || (axis.id === 'intelligence' && level < 3)
-              const budgetSource = usesNational ? 'NATIONAL' : 'PERSONAL'
-              const availableFunds = usesNational ? (gs?.budget || 0) : personalWealth
+              // 9.5A-Shadow: All power base axes use personal wealth
+              const usesNational = false
+              const budgetSource = 'PERSONAL'
+              const availableFunds = personalWealth
               const canInvest = nextCost !== null && availableFunds >= nextCost
               const floor = AXIS_FLOORS[axis.id] || 1
               const canDefund = level > 0 && level > floor
@@ -737,6 +817,239 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
                 </div>
               )
             })}
+            {/* ══ SKIM RATE SLIDER ══ */}
+            <div className="sc-axis-track" style={{ borderTop: '1px solid rgba(200,168,75,0.3)', marginTop: '0.75rem', paddingTop: '0.75rem' }}>
+              <div className="sc-axis-header">
+                <span className="sc-axis-icon">💰</span>
+                <span className="sc-axis-label">Budget Diversion (Skim)</span>
+                <span className="sc-axis-level" style={{ color: skimRate > 0.10 ? '#ff6b6b' : '#c8a84b' }}>
+                  {(skimRate * 100).toFixed(0)}%
+                </span>
+              </div>
+              <div className="sc-axis-desc">
+                Divert national budget to personal wealth. Higher rates increase detection risk.
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0.5rem 0' }}>
+                <input
+                  type="range"
+                  min={0}
+                  max={0.50}
+                  step={0.01}
+                  value={skimRate}
+                  onChange={e => setSkimRate(parseFloat(e.target.value))}
+                  disabled={skimSaving}
+                  style={{ flex: 1, accentColor: '#c8a84b' }}
+                />
+                <span style={{ color: '#c8a84b', minWidth: '3rem', textAlign: 'right', fontSize: '0.85rem' }}>
+                  {(skimRate * 100).toFixed(0)}%
+                </span>
+              </div>
+              <div style={{ fontSize: '0.7rem', color: '#888', marginBottom: '0.3rem' }}>
+                {skimRate === 0 && 'No diversion. Clean governance.'}
+                {skimRate > 0 && skimRate <= 0.05 && 'Low diversion. Minimal detection risk.'}
+                {skimRate > 0.05 && skimRate <= 0.10 && '⚠️ Above 5%: generates detection heat each turn.'}
+                {skimRate > 0.10 && skimRate <= 0.20 && '⚠️⚠️ Above 10%: significant heat generation.'}
+                {skimRate > 0.20 && '🛑 Above 20%: extremely risky — rapid NPC detection.'}
+              </div>
+              {skimRate > 0 && (() => {
+                const grossRevenue = (gs?.last_gross_revenue > 0)
+                  ? gs.last_gross_revenue
+                  : (gs?.last_net_revenue > 0
+                    ? gs.last_net_revenue / (1 - (gs?.skim_rate || 0))
+                    : null)
+                const skimDollars = grossRevenue
+                  ? (grossRevenue * skimRate).toFixed(2)
+                  : '—'
+                console.log('[FIX] skim display:', {grossRevenue, skimRate, skimDollars, last_gross: gs?.last_gross_revenue})
+                return (
+                  <div style={{ fontSize: '0.75rem', color: '#c8a84b' }}>
+                    {skimDollars !== '—'
+                      ? `${(skimRate * 100).toFixed(0)}% — $${skimDollars}B/day`
+                      : `${(skimRate * 100).toFixed(0)}% — (play first turn to calculate)`}
+                  </div>
+                )
+              })()}
+              {Math.abs(skimRate - savedSkim) > 0.005 && (
+                <button
+                  className="sc-axis-btn sc-axis-btn-invest"
+                  onClick={handleSkimApply}
+                  disabled={skimSaving}
+                  style={{ marginTop: '0.4rem', width: '100%' }}
+                >
+                  {skimSaving ? 'Saving...' : 'Set Skim Rate'}
+                </button>
+              )}
+              {skimFlash && (
+                <div style={{ fontSize: '0.75rem', marginTop: '0.3rem', color: skimFlash.includes('Failed') ? '#ff6b6b' : '#50c878' }}>
+                  {skimFlash}
+                </div>
+              )}
+            </div>
+
+            {/* ══ 9.5C: LOYAL LEADERSHIP ══ */}
+            {(() => {
+              const polTier = gs?.political_tier ?? 0
+              const pw = gs?.personal_wealth ?? 0
+              const genInstalled = gs?.loyal_generals_installed ?? false
+              const genReversing = gs?.loyal_generals_reversing ?? false
+              const genReversalDay = gs?.loyal_generals_reversal_day ?? 0
+              const intelInstalled = gs?.loyal_intel_chief_installed ?? false
+              const intelReversing = gs?.loyal_intel_chief_reversing ?? false
+              const intelReversalDay = gs?.loyal_intel_chief_reversal_day ?? 0
+              const currentDay = gs?.current_day ?? 1
+              const eduTier = gs?.education_tier ?? gs?.education_level ?? 0
+
+              console.log('[9.5C] loyal leadership panel:', {
+                generals: genInstalled, intel: intelInstalled,
+                gen_reversing: genReversing, intel_reversing: intelReversing
+              })
+
+              const genDaysLeft = genReversing ? Math.max(0, 3 - (currentDay - genReversalDay)) : 0
+              const intelDaysLeft = intelReversing ? Math.max(0, 3 - (currentDay - intelReversalDay)) : 0
+
+              async function handleLoyalAction(role, action) {
+                const key = `${role === 'generals' ? 'gen' : 'intel'}_${action}`
+                setLoyalLoading(key)
+                setLoyalFlash(null)
+                try {
+                  const res = action === 'install'
+                    ? await api.loyalInstall(sessionId, role)
+                    : await api.loyalReverse(sessionId, role)
+                  if (res.success && res.game_state) onUpgradePurchased(res.game_state)
+                  setLoyalFlash(res.success ? 'Done' : (res.error || 'Failed'))
+                  setTimeout(() => setLoyalFlash(null), 3000)
+                } catch (e) {
+                  setLoyalFlash('Failed: ' + e.message)
+                  setTimeout(() => setLoyalFlash(null), 3000)
+                } finally {
+                  setLoyalLoading(null)
+                }
+              }
+
+              // Only show if political tier >= 2 (close to unlock) or any loyal installed
+              if (polTier < 2 && !genInstalled && !intelInstalled) return null
+
+              return (
+                <div style={{ marginTop: '1rem', borderTop: '1px solid rgba(200,168,75,0.2)', paddingTop: '0.8rem' }}>
+                  <div style={{ color: '#c8a84b', fontWeight: 700, fontSize: '0.78rem', marginBottom: '0.5rem', letterSpacing: '0.5px' }}>
+                    LOYAL LEADERSHIP
+                  </div>
+
+                  {/* ── Loyal Generals Card ── */}
+                  <div style={{ background: 'rgba(15,25,35,0.6)', border: '1px solid rgba(200,168,75,0.15)', borderRadius: '6px', padding: '0.6rem', marginBottom: '0.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                      <span style={{ fontWeight: 600, fontSize: '0.8rem' }}>⚔️ Loyal Generals</span>
+                      <span style={{
+                        fontSize: '0.65rem', padding: '1px 6px', borderRadius: '3px',
+                        background: genReversing ? 'rgba(150,150,150,0.2)' : genInstalled ? 'rgba(251,191,36,0.15)' : 'rgba(150,150,150,0.1)',
+                        color: genReversing ? '#999' : genInstalled ? '#fbbf24' : '#666',
+                      }}>
+                        {genReversing ? `REVERSING (${genDaysLeft}d)` : genInstalled ? 'INSTALLED' : 'NOT INSTALLED'}
+                      </span>
+                    </div>
+
+                    {!genInstalled && !genReversing && (
+                      <>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginBottom: '0.3rem' }}>
+                          Install politically reliable generals. Coup risk -30%. Military capability reduced.
+                        </div>
+                        <div style={{ fontSize: '0.65rem', color: '#888', marginBottom: '0.3rem' }}>
+                          Requires: Political T3+ · $3B personal
+                        </div>
+                        <button
+                          className="sc-axis-btn sc-axis-btn-invest"
+                          style={{ width: '100%', fontSize: '0.72rem' }}
+                          disabled={polTier < 3 || pw < 3.0 || !!loyalLoading}
+                          onClick={() => handleLoyalAction('generals', 'install')}
+                        >
+                          {loyalLoading === 'gen_install' ? 'Installing...' : 'INSTALL — $3B'}
+                        </button>
+                      </>
+                    )}
+
+                    {genInstalled && !genReversing && (
+                      <>
+                        <div style={{ fontSize: '0.7rem', lineHeight: 1.5 }}>
+                          <div style={{ color: '#4ade80' }}>✓ Coup amplifier -30%</div>
+                          <div style={{ color: '#fbbf24' }}>⚠ Military cap reduced</div>
+                          <div style={{ color: '#fbbf24' }}>⚠ Decay rate +10%</div>
+                        </div>
+                        <button
+                          className="sc-axis-btn sc-axis-btn-defund"
+                          style={{ width: '100%', fontSize: '0.72rem', marginTop: '0.3rem' }}
+                          disabled={pw < 2.0 || !!loyalLoading}
+                          onClick={() => handleLoyalAction('generals', 'reverse')}
+                        >
+                          {loyalLoading === 'gen_reverse' ? 'Reversing...' : 'REVERSE — $2B · 3-day transition'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  {/* ── Loyal Intel Chief Card ── */}
+                  <div style={{ background: 'rgba(15,25,35,0.6)', border: '1px solid rgba(200,168,75,0.15)', borderRadius: '6px', padding: '0.6rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                      <span style={{ fontWeight: 600, fontSize: '0.8rem' }}>🕵️ Loyal Intel Chief</span>
+                      <span style={{
+                        fontSize: '0.65rem', padding: '1px 6px', borderRadius: '3px',
+                        background: intelReversing ? 'rgba(150,150,150,0.2)' : intelInstalled ? 'rgba(251,191,36,0.15)' : 'rgba(150,150,150,0.1)',
+                        color: intelReversing ? '#999' : intelInstalled ? '#fbbf24' : '#666',
+                      }}>
+                        {intelReversing ? `REVERSING (${intelDaysLeft}d)` : intelInstalled ? 'INSTALLED' : 'NOT INSTALLED'}
+                      </span>
+                    </div>
+
+                    {!intelInstalled && !intelReversing && (
+                      <>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginBottom: '0.3rem' }}>
+                          Install a trusted ally as intel chief. Coup protection +20%. Intercept quality may be... optimistic.
+                        </div>
+                        <div style={{ fontSize: '0.65rem', color: '#888', marginBottom: '0.3rem' }}>
+                          Requires: Political T3+ · $2.5B personal
+                        </div>
+                        <button
+                          className="sc-axis-btn sc-axis-btn-invest"
+                          style={{ width: '100%', fontSize: '0.72rem' }}
+                          disabled={polTier < 3 || pw < 2.5 || !!loyalLoading}
+                          onClick={() => handleLoyalAction('intel_chief', 'install')}
+                        >
+                          {loyalLoading === 'intel_install' ? 'Installing...' : 'INSTALL — $2.5B'}
+                        </button>
+                      </>
+                    )}
+
+                    {intelInstalled && !intelReversing && (
+                      <>
+                        <div style={{ fontSize: '0.7rem', lineHeight: 1.5 }}>
+                          <div style={{ color: '#4ade80' }}>✓ Coup/defection protection +20%</div>
+                          <div style={{ color: '#fbbf24' }}>⚠ Intel reliability uncertain</div>
+                          <div style={{ color: '#fbbf24' }}>⚠ Detection risk on ops +15%</div>
+                          {eduTier >= 2 && (
+                            <div style={{ color: '#f87171' }}>⚠ Coup warnings suppressed</div>
+                          )}
+                        </div>
+                        <button
+                          className="sc-axis-btn sc-axis-btn-defund"
+                          style={{ width: '100%', fontSize: '0.72rem', marginTop: '0.3rem' }}
+                          disabled={pw < 2.0 || !!loyalLoading}
+                          onClick={() => handleLoyalAction('intel_chief', 'reverse')}
+                        >
+                          {loyalLoading === 'intel_reverse' ? 'Reversing...' : 'REVERSE — $2B · 3-day transition'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  {loyalFlash && (
+                    <div style={{ fontSize: '0.72rem', marginTop: '0.3rem', textAlign: 'center',
+                      color: loyalFlash.includes('Failed') ? '#ff6b6b' : '#50c878' }}>
+                      {loyalFlash}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
           </div>
         )}
 
@@ -1332,174 +1645,6 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
           />
         )}
 
-        {/* ═══════════════════════════════════════════════════════════════════
-            DRAWER 4 — FINANCE (fixes_14 Fix K: renamed from SPECIAL)
-        ═══════════════════════════════════════════════════════════════════ */}
-        {activeDrawer === 3 && (
-          <div className="sc-drawer-content">
-            <div className="sc-drawer-header">FINANCE</div>
-            <div className="sc-drawer-subtitle">
-              Ministry actions, intelligence, tax policy, and one-time purchases.
-            </div>
-
-            {/* Intelligence Apparatus status */}
-            {gs?.corruption_upgrades?.intelligence_apparatus && (
-              <div className="sc-special-section">
-                <div className="sc-section-label">🕵️ Foreign Intel Network</div>
-                <div className="sc-regime-block" style={{ fontSize: '0.78rem' }}>
-                  <div style={{ marginBottom: '0.3rem' }}>
-                    <span style={{ fontWeight: 600 }}>Status:</span>{' '}
-                    <span style={{ color: 'var(--accent)' }}>ACTIVE</span>
-                  </div>
-                  <div style={{ marginBottom: '0.3rem' }}>
-                    <span style={{ fontWeight: 600 }}>Budget:</span>{' '}
-                    {(() => {
-                      const labels = { none: 'No Funding ($0)', maintenance: 'Maintenance ($0.5B/turn)', active: 'Active Operations ($1B/turn)', expansion: 'Expansion ($2B/turn)' }
-                      return labels[gs?.intel_budget_allocation] || gs?.intel_budget_allocation || 'Unknown'
-                    })()}
-                  </div>
-                  <div style={{ marginBottom: '0.3rem' }}>
-                    <span style={{ fontWeight: 600 }}>Effective tier:</span>{' '}
-                    {gs?.intel_apparatus_tier ?? 1}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Tax Levers */}
-            <div className="sc-special-section">
-              <div className="sc-section-label">📊 Tax Policy</div>
-              <div className="sc-tax-levers">
-                {(() => {
-                  // fixes_13 Fix 28: Dynamic tax caps based on Judicial/Political axes
-                  const judicial = gs?.cabinet_axes?.judicial || 0
-                  const political = gs?.cabinet_axes?.political || 0
-                  let incomeCap = 0.50, corpCap = 0.40, resCap = 0.60
-                  if (judicial >= 5) resCap = 0.75
-                  if (political >= 7) incomeCap = 0.65
-                  if (judicial >= 8 && political >= 8) {
-                    incomeCap = 0.85; corpCap = 0.85; resCap = 0.85
-                  }
-                  const taxDefs = [
-                    { id: 'income_tax', label: 'Income Tax', max: incomeCap },
-                    { id: 'corporate_tax', label: 'Corporate Tax', max: corpCap },
-                    { id: 'resource_tax', label: 'Resource Tax', max: resCap },
-                  ]
-                  return taxDefs.map(tax => {
-                    const currentRate = gs?.tax_rates?.[tax.id] ?? 0.20
-                    const capLabel = tax.max > 0.60 ? ` (cap: ${(tax.max*100).toFixed(0)}%)` : ''
-                    return (
-                      <div key={tax.id} className="sc-tax-row">
-                        <span className="sc-tax-label">{tax.label}{capLabel && <span className="sc-tax-cap-hint">{capLabel}</span>}</span>
-                        <input
-                          type="range"
-                          className="sc-tax-slider"
-                          min={0}
-                          max={tax.max}
-                          step={0.05}
-                          value={currentRate}
-                          onChange={e => handleTaxChange(tax.id, parseFloat(e.target.value))}
-                          disabled={loading}
-                        />
-                        <span className="sc-tax-value">{(currentRate * 100).toFixed(0)}%</span>
-                      </div>
-                    )
-                  })
-                })()}
-              </div>
-              <div className="sc-tax-note">
-                Higher taxes = more revenue, lower approval. Changes take effect next turn.
-              </div>
-            </div>
-
-            {/* Revenue Streams display */}
-            {gs?.revenue_streams && (
-              <div className="sc-special-section">
-                <div className="sc-section-label">💵 Revenue Streams</div>
-                <div className="sc-revenue-grid">
-                  {Object.entries(gs.revenue_streams).filter(([, v]) => v > 0).map(([key, val]) => (
-                    <div key={key} className="sc-revenue-item">
-                      <span className="sc-revenue-label">{key.replace(/_/g, ' ')}</span>
-                      <span className="sc-revenue-val">${val.toFixed(1)}B</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* GDP display */}
-            {gs?.gdp_base && (
-              <div className="sc-special-section">
-                <div className="sc-section-label">📈 GDP: ${gs.gdp_base.toFixed(1)}B</div>
-                <div className="sc-tax-note">Growth rate: {((gs.gdp_growth_rate || 0.02) * 100).toFixed(1)}%</div>
-              </div>
-            )}
-
-            {/* fixes_13 Fix 17: Debt Infrastructure Deal removed */}
-
-            {/* fixes_15 Fix B: Bond Financing Redesign */}
-            <div className="sc-special-section">
-              <div className="sc-section-label">🏦 Debt Instruments</div>
-              {/* Small Bond: $5B, 20% interest, no penalty, once per turn */}
-              <div style={{ marginBottom: '0.5rem' }}>
-                <button
-                  className="sc-purchase-btn"
-                  style={{ width: '100%', fontSize: '0.75rem', padding: '0.4rem' }}
-                  onClick={async () => {
-                    if (loading) return
-                    setLoading(true)
-                    try {
-                      const res = await api.issueBonds(sessionId, 5)
-                      if (res.game_state && onUpgradePurchased) onUpgradePurchased(res.game_state)
-                      if (res.changes) setSuccessMsg(res.changes.join(', '))
-                    } catch (e) {
-                      setError(e.message)
-                    } finally {
-                      setLoading(false)
-                    }
-                  }}
-                  disabled={loading}
-                >
-                  $5B Bond (+$5B now, $2B/turn × 3 repayment)
-                </button>
-                <div className="sc-tax-note" style={{ fontSize: '0.65rem', opacity: 0.7 }}>
-                  Routine sovereign debt. Markets expect this. No diplomatic signal.
-                </div>
-              </div>
-              {/* Large Bond: $10B, 30% interest, -5 all NPCs, budget < $20B, once per game */}
-              <div>
-                <button
-                  className={`sc-purchase-btn ${(gs?.large_bond_used || (gs?.budget || 0) >= 20) ? 'sc-axis-btn-disabled' : ''}`}
-                  style={{ width: '100%', fontSize: '0.75rem', padding: '0.4rem' }}
-                  onClick={async () => {
-                    if (loading) return
-                    setLoading(true)
-                    try {
-                      const res = await api.issueBonds(sessionId, 10)
-                      if (res.game_state && onUpgradePurchased) onUpgradePurchased(res.game_state)
-                      if (res.changes) setSuccessMsg(res.changes.join(', '))
-                    } catch (e) {
-                      setError(e.message)
-                    } finally {
-                      setLoading(false)
-                    }
-                  }}
-                  disabled={loading || gs?.large_bond_used || (gs?.budget || 0) >= 20}
-                >
-                  $10B Emergency Bond (+$10B now, ~$4.3B/turn × 3, ALL NPCs -5)
-                </button>
-                <div className="sc-tax-note" style={{ fontSize: '0.65rem', opacity: 0.7 }}>
-                  {gs?.large_bond_used
-                    ? 'International creditors will not extend further emergency credit.'
-                    : (gs?.budget || 0) >= 20
-                      ? 'Emergency financing only available under fiscal stress (budget below $20B).'
-                      : 'Emergency credit facility. Creditors will notice — and so will everyone else.'
-                  }
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Extraction-only disclaimer — scoped to Infrastructure drawer */}
         {activeDrawer === 0 && (
