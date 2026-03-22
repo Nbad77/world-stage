@@ -1593,6 +1593,8 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
             })}
 
             {/* Abandon moved into Shadow Cabinet drawer (with confirmation) */}
+            </>}
+            {/* End 10B-2 activeTab !== 'foreign' gate */}
           </>
         )}
 
@@ -1858,9 +1860,6 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
             Consulting advisors…
           </div>
         )}
-
-            </>}
-            {/* End 10B-2 activeTab !== 'foreign' gate */}
 
       </div>
       )}
