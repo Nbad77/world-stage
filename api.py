@@ -8401,3 +8401,223 @@ async def get_morning_briefing(session_id: str, user: User = Depends(get_optiona
         "intel_level": intel_level,
         "game_state": gs.serialize(),
     }
+
+
+@app.post("/game/{session_id}/briefing/event-dialogue")
+async def get_event_dialogue(session_id: str, request: Request, user: User = Depends(get_optional_user)):
+    """10B-2: Generates NPC communiqués specific to a world event.
+    Called when player enters an event. Cached per event_id."""
+    _verify_game_ownership(session_id, user)
+    body = await request.json()
+    event_id = body.get("event_id")
+    if not event_id:
+        raise HTTPException(status_code=400, detail="event_id required")
+
+    gs = _load_gs(session_id)
+
+    # Check cache
+    event_dialogues = getattr(gs, 'event_dialogues', {})
+    if event_id in event_dialogues:
+        return {"dialogues": event_dialogues[event_id], "cached": True}
+
+    # Find event
+    target_event = None
+    for evt in gs.daily_events:
+        if evt.get("id") == event_id:
+            target_event = evt
+            break
+    if not target_event:
+        raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
+
+    import asyncio
+    from npc_engine import generate_event_dialogue
+    dialogues = await asyncio.to_thread(generate_event_dialogue, gs, target_event)
+
+    # Cache in game state
+    if not hasattr(gs, 'event_dialogues') or not isinstance(gs.event_dialogues, dict):
+        gs.event_dialogues = {}
+    gs.event_dialogues[event_id] = dialogues
+    _save_gs(session_id, gs)
+
+    print(f"  [10B-2] Event dialogue for {event_id}: {len(dialogues)} NPCs")
+    return {"dialogues": dialogues, "cached": False}
+
+
+@app.post("/game/{session_id}/briefing/advisor-event-analysis")
+async def get_advisor_event_analysis(session_id: str, request: Request, user: User = Depends(get_optional_user)):
+    """10B-2: Generates advisor analyses for a specific world event.
+    Uses the advisors assigned today."""
+    _verify_game_ownership(session_id, user)
+    body = await request.json()
+    event_id = body.get("event_id")
+    if not event_id:
+        raise HTTPException(status_code=400, detail="event_id required")
+
+    gs = _load_gs(session_id)
+
+    # Find event
+    target_event = None
+    for evt in gs.daily_events:
+        if evt.get("id") == event_id:
+            target_event = evt
+            break
+    if not target_event:
+        raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
+
+    assigned = getattr(gs, 'advisor_assigned_today', [])
+    if not assigned:
+        return {"analyses": [], "message": "No advisors assigned today"}
+
+    import asyncio
+    from npc_engine import generate_advisor_event_analysis
+    analyses = await asyncio.to_thread(generate_advisor_event_analysis, gs, target_event)
+
+    return {"analyses": analyses}
+
+
+@app.post("/game/{session_id}/briefing/declaration")
+async def issue_declaration(session_id: str, request: Request, user: User = Depends(get_optional_user)):
+    """10B-2: Player issues a public declaration.
+    GM interprets intent and generates relational consequences."""
+    _verify_game_ownership(session_id, user)
+    body = await request.json()
+    declaration_text = body.get("declaration_text", "").strip()
+    if not declaration_text:
+        raise HTTPException(status_code=400, detail="declaration_text required")
+
+    gs = _load_gs(session_id)
+
+    declarations_available = getattr(gs, 'declarations_available', 0)
+    declaration_used_today = getattr(gs, 'declaration_used_today', False)
+
+    if declarations_available < 1:
+        raise HTTPException(status_code=400, detail="Declarations not yet available")
+    if declaration_used_today:
+        raise HTTPException(status_code=400, detail="Declaration already issued today")
+
+    import asyncio
+    from npc_engine import generate_declaration_consequences
+    consequences = await asyncio.to_thread(generate_declaration_consequences, gs, declaration_text)
+
+    # Apply NPC reaction deltas
+    for npc_id, delta in consequences.get("npc_reactions", {}).items():
+        if npc_id in gs.relations:
+            gs.relations[npc_id] = max(0, min(100, gs.relations[npc_id] + delta))
+
+    # Apply soft power delta
+    sp_delta = consequences.get("soft_power_delta", 0)
+    if hasattr(gs, 'soft_power_score'):
+        gs.soft_power_score = max(0, min(100, gs.soft_power_score + sp_delta))
+
+    # Generate world event if flagged
+    if consequences.get("generates_world_event") and consequences.get("world_event_hint"):
+        import random, string
+        new_event = {
+            "id": "evt_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=6)),
+            "title": "Response to Declaration",
+            "summary": consequences["world_event_hint"],
+            "severity": "moderate",
+            "category": "diplomatic",
+            "applicable_npcs": [npc for npc, d in consequences.get("npc_reactions", {}).items() if abs(d) >= 5],
+            "required": False,
+            "resolved": False,
+            "resolution": None,
+            "escalated_from_communique": False,
+            "era": getattr(gs, 'current_era', 1),
+            "day": getattr(gs, 'current_turn', 1),
+        }
+        gs.daily_events.append(new_event)
+
+    # Mark declaration used
+    gs.declaration_used_today = True
+    gs.todays_declaration = declaration_text
+
+    # Store in history
+    if not hasattr(gs, 'declaration_history') or not isinstance(gs.declaration_history, list):
+        gs.declaration_history = []
+    gs.declaration_history.append({
+        "day": getattr(gs, 'current_turn', 1),
+        "era": getattr(gs, 'current_era', 1),
+        "text": declaration_text,
+        "consequences": consequences,
+    })
+
+    _save_gs(session_id, gs)
+
+    print(f"  [10B-2] Declaration issued: {consequences.get('interpretation', 'noted')}")
+    return {
+        "consequences": consequences,
+        "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/intel/get-npc-intel")
+async def get_npc_intel(session_id: str, request: Request, user: User = Depends(get_optional_user)):
+    """10B-2: Runs an intelligence intercept on a specific NPC.
+    Costs personal_wealth. Has detection risk."""
+    _verify_game_ownership(session_id, user)
+    body = await request.json()
+    target_npc = body.get("target_npc")
+    if not target_npc:
+        raise HTTPException(status_code=400, detail="target_npc required")
+
+    gs = _load_gs(session_id)
+
+    intel_tier = getattr(gs, 'intelligence_tier', 0)
+    if intel_tier < 1:
+        raise HTTPException(status_code=400, detail="Intel tier too low — requires Intel Tier 1")
+
+    INTEL_COST = 1.5
+    if gs.personal_wealth < INTEL_COST:
+        raise HTTPException(status_code=400, detail=f"Insufficient personal wealth (need ${INTEL_COST}B)")
+
+    # Deduct cost
+    gs.personal_wealth -= INTEL_COST
+
+    # Detection roll: 10% base
+    import random
+    detected = random.random() < 0.10
+
+    if detected and target_npc in gs.relations:
+        gs.relations[target_npc] = max(0, gs.relations[target_npc] - 5)
+        print(f"  [10B-2] Intel detected by {target_npc}! Relations -5")
+
+    # Track intel ops
+    if not hasattr(gs, 'intel_ops_today') or not isinstance(gs.intel_ops_today, list):
+        gs.intel_ops_today = []
+    gs.intel_ops_today.append({"target": target_npc, "detected": detected})
+
+    # Generate intel
+    import asyncio
+    from npc_engine import generate_targeted_intercept
+    intel_text = await asyncio.to_thread(generate_targeted_intercept, gs, target_npc)
+
+    _save_gs(session_id, gs)
+
+    return {
+        "intel_text": intel_text,
+        "detected": detected,
+        "cost": INTEL_COST,
+        "remaining_wealth": round(gs.personal_wealth, 1),
+        "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/briefing/cables")
+async def get_diplomatic_cables(session_id: str, user: User = Depends(get_optional_user)):
+    """10B-2: Generate or return cached diplomatic cables for all NPCs."""
+    _verify_game_ownership(session_id, user)
+    gs = _load_gs(session_id)
+
+    if getattr(gs, 'cables_generated_today', False) and getattr(gs, 'diplomatic_cables', {}):
+        return {"cables": gs.diplomatic_cables, "cached": True}
+
+    import asyncio
+    from npc_engine import generate_diplomatic_cables
+    cables = await asyncio.to_thread(generate_diplomatic_cables, gs)
+
+    gs.diplomatic_cables = cables
+    gs.cables_generated_today = True
+    _save_gs(session_id, gs)
+
+    return {"cables": cables, "cached": False}

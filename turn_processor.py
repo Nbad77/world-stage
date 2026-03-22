@@ -5670,6 +5670,11 @@ def apply_end_of_turn_effects(game_state):
     game_state.morning_briefing_read = False
     game_state.declaration_used_today = False
     game_state.daily_events = []
+    # 10B-2 daily resets (declaration_history and diplomatic_cables persist)
+    game_state.todays_declaration = ""
+    game_state.event_dialogues = {}
+    game_state.cables_generated_today = False
+    game_state.intel_ops_today = []
 
     # Unlock declarations at day 5
     if game_state.current_turn >= 5 and getattr(game_state, 'declarations_available', 0) == 0:

@@ -795,6 +795,14 @@ class GameState:
         # Declaration gating (10B-2 will use these)
         self.declarations_available = 0         # 0 until day 5, then 1/day
         self.declaration_used_today = False
+        self.todays_declaration = ""
+        self.declaration_history = []  # {day, era, text, consequences}
+
+        # 10B-2: Event dialogue cache, diplomatic cables, intel ops
+        self.event_dialogues = {}       # {event_id: [{npc_id, message}]}
+        self.diplomatic_cables = {}     # {npc_id: cable_text}
+        self.cables_generated_today = False
+        self.intel_ops_today = []       # [{target, detected}]
 
         print(f"[10B-1] Daily briefing fields initialized")
 
@@ -1577,6 +1585,13 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'morning_briefing_read': getattr(self, 'morning_briefing_read', False),
             'declarations_available': getattr(self, 'declarations_available', 0),
             'declaration_used_today': getattr(self, 'declaration_used_today', False),
+            # 10B-2: Event dialogue, cables, declarations, intel
+            'todays_declaration': getattr(self, 'todays_declaration', ''),
+            'declaration_history': getattr(self, 'declaration_history', []),
+            'event_dialogues': getattr(self, 'event_dialogues', {}),
+            'diplomatic_cables': getattr(self, 'diplomatic_cables', {}),
+            'cables_generated_today': getattr(self, 'cables_generated_today', False),
+            'intel_ops_today': getattr(self, 'intel_ops_today', []),
         }
 
     @classmethod
@@ -2058,6 +2073,13 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.morning_briefing_read = data.get('morning_briefing_read', False)
         gs.declarations_available = data.get('declarations_available', 0)
         gs.declaration_used_today = data.get('declaration_used_today', False)
+        # 10B-2: Event dialogue, cables, declarations, intel
+        gs.todays_declaration = data.get('todays_declaration', '')
+        gs.declaration_history = data.get('declaration_history', [])
+        gs.event_dialogues = data.get('event_dialogues', {})
+        gs.diplomatic_cables = data.get('diplomatic_cables', {})
+        gs.cables_generated_today = data.get('cables_generated_today', False)
+        gs.intel_ops_today = data.get('intel_ops_today', [])
         if 'daily_events' not in data:
             print("  [game_state] 10B-1 BRIEFING FIELDS MIGRATED: added defaults to old save")
         if 'ops_legitimate_this_turn' not in data:

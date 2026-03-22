@@ -5167,6 +5167,373 @@ def generate_targeted_intercept(game_state, npc_id: str) -> str:
         return f"[INTERCEPT] Signal intelligence on {_npc_label}: communications intercepted but analysis inconclusive. Target appears to be recalibrating their diplomatic approach."
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 10B-2: Event-specific NPC Dialogue & Advisor Event Analysis
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_EVENT_NPC_PROMPTS = {
+    'usa': USA_SYSTEM_PROMPT,
+    'arabia': SADAM_SYSTEM_PROMPT,
+    'eu': EU_SYSTEM_PROMPT,
+    'dprg': JIWON_SYSTEM_PROMPT,
+    'russia': VOLKOV_SYSTEM_PROMPT,
+    'china': WEI_SYSTEM_PROMPT,
+}
+
+_EVENT_NPC_NAMES = {
+    'usa': 'Bill Hartwell', 'arabia': 'Sadam', 'eu': 'Marsha',
+    'dprg': 'Ji-won Ryang', 'russia': 'Nikolai Volkov', 'china': 'Wei Jianming',
+}
+
+
+def generate_event_dialogue(game_state, event: dict) -> list:
+    """10B-2: Generate NPC communiqués specific to a world event.
+    Runs parallel Haiku calls for each applicable NPC.
+    Returns list of {npc_id, npc_name, message, event_context}."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import threading
+
+    applicable = event.get("applicable_npcs", [])
+    if not applicable:
+        return []
+
+    event_title = event.get("title", "Unknown Event")
+    event_summary = event.get("summary", "")
+    event_severity = event.get("severity", "moderate")
+    event_category = event.get("category", "diplomatic")
+
+    context = _build_context(game_state)
+    results = []
+    lock = threading.Lock()
+
+    def _call_event_npc(npc_id):
+        system = _EVENT_NPC_PROMPTS.get(npc_id)
+        if not system:
+            return None
+        npc_label = _EVENT_NPC_NAMES.get(npc_id, npc_id)
+
+        user_prompt = (
+            f"Current game state:\n{json.dumps(context, indent=2)}\n\n"
+            f"WORLD EVENT: {event_title}\n"
+            f"Severity: {event_severity} | Category: {event_category}\n"
+            f"Details: {event_summary}\n\n"
+            f"This event directly affects your interests. Generate your official "
+            f"communiqué to Europa's leader about this specific event. "
+            f"Address them directly. Be specific about what you want them to do "
+            f"regarding this situation. 2-4 sentences."
+        )
+
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            return {
+                "npc_id": npc_id,
+                "npc_name": npc_label,
+                "message": f"{npc_label} has issued a formal statement regarding {event_title}.",
+                "event_context": event_title,
+            }
+
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=api_key)
+            response = client.messages.create(
+                model=MODEL,
+                max_tokens=250,
+                temperature=TEMPERATURE,
+                system=system,
+                messages=[{"role": "user", "content": user_prompt}]
+            )
+            with lock:
+                _token_log["calls"] += 1
+                _token_log["input_tokens"] += response.usage.input_tokens
+                _token_log["output_tokens"] += response.usage.output_tokens
+
+            raw = response.content[0].text.strip()
+            msg = re.sub(r'\*[^*]+\*', '', raw).strip()
+            msg = msg.replace('**', '').replace('*', '').strip()
+            print(f"  [10B-2] Event dialogue generated for {npc_id}: {event_title}")
+            return {
+                "npc_id": npc_id,
+                "npc_name": npc_label,
+                "message": msg,
+                "event_context": event_title,
+            }
+        except Exception as e:
+            print(f"  [10B-2] Event dialogue failed for {npc_id}: {e}")
+            return {
+                "npc_id": npc_id,
+                "npc_name": npc_label,
+                "message": f"{npc_label} has communicated concerns regarding {event_title} through diplomatic channels.",
+                "event_context": event_title,
+            }
+
+    with ThreadPoolExecutor(max_workers=len(applicable)) as executor:
+        futures = {executor.submit(_call_event_npc, npc_id): npc_id for npc_id in applicable}
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                results.append(result)
+
+    return results
+
+
+def generate_advisor_event_analysis(game_state, event: dict) -> list:
+    """10B-2: Generate advisor analyses for a specific world event.
+    Only analyses for advisors assigned today. Parallel Haiku calls.
+    Returns list of {advisor_type, advisor_name, analysis_text}."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import threading
+
+    assigned = getattr(game_state, 'advisor_assigned_today', [])
+    advisors = getattr(game_state, 'advisors', {})
+    if not assigned or not advisors:
+        return []
+
+    event_title = event.get("title", "Unknown Event")
+    event_summary = event.get("summary", "")
+    event_severity = event.get("severity", "moderate")
+    event_category = event.get("category", "diplomatic")
+
+    context = _build_context(game_state)
+    results = []
+    lock = threading.Lock()
+
+    def _call_advisor(advisor_key):
+        advisor = advisors.get(advisor_key, {})
+        if not advisor:
+            return None
+        archetype = advisor.get('archetype', 'unknown')
+        name = advisor.get('name', 'Advisor')
+
+        sys_prompt = _ADVISOR_SYSTEM_PROMPTS.get(archetype, (
+            f"You are {name}, an advisor to the leader of Europa in a "
+            f"fictional geopolitical simulation. Provide analysis in character."
+        ))
+
+        user_prompt = (
+            f"Current situation:\n{json.dumps(context, indent=2)}\n\n"
+            f"WORLD EVENT: {event_title}\n"
+            f"Severity: {event_severity} | Category: {event_category}\n"
+            f"Details: {event_summary}\n\n"
+            f"Provide your brief assessment of this event from your perspective "
+            f"as {name} ({archetype}). What should the leader know? "
+            f"What do you recommend? 2-3 sentences max."
+        )
+
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            return {
+                "advisor_type": archetype,
+                "advisor_name": name,
+                "analysis_text": f"{name} is reviewing the situation.",
+            }
+
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=api_key)
+            response = client.messages.create(
+                model=MODEL,
+                max_tokens=200,
+                temperature=0.7,
+                system=sys_prompt,
+                messages=[{"role": "user", "content": user_prompt}]
+            )
+            with lock:
+                _token_log["calls"] += 1
+                _token_log["input_tokens"] += response.usage.input_tokens
+                _token_log["output_tokens"] += response.usage.output_tokens
+
+            raw = response.content[0].text.strip()
+            text = raw.replace('**', '').replace('*', '').strip()
+            print(f"  [10B-2] Advisor event analysis for {advisor_key}: {event_title}")
+            return {
+                "advisor_type": archetype,
+                "advisor_name": name,
+                "analysis_text": text,
+            }
+        except Exception as e:
+            print(f"  [10B-2] Advisor analysis failed for {advisor_key}: {e}")
+            return {
+                "advisor_type": archetype,
+                "advisor_name": name,
+                "analysis_text": f"{name} is still assessing the implications of this development.",
+            }
+
+    with ThreadPoolExecutor(max_workers=len(assigned)) as executor:
+        futures = {executor.submit(_call_advisor, key): key for key in assigned}
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                results.append(result)
+
+    return results
+
+
+def generate_diplomatic_cables(game_state) -> dict:
+    """10B-2: Generate ambient diplomatic cables for all NPCs.
+    One-line current position summaries. Returns {npc_id: cable_text}."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import threading
+
+    npc_ids = ['usa', 'arabia', 'eu', 'dprg', 'russia', 'china']
+    context = _build_context(game_state)
+    cables = {}
+    lock = threading.Lock()
+
+    def _gen_cable(npc_id):
+        npc_label = _EVENT_NPC_NAMES.get(npc_id, npc_id)
+        rel = (game_state.relations or {}).get(npc_id, 50)
+
+        if rel >= 70:
+            temp = "warm"
+        elif rel >= 50:
+            temp = "cordial"
+        elif rel >= 30:
+            temp = "cool"
+        else:
+            temp = "hostile"
+
+        system = _EVENT_NPC_PROMPTS.get(npc_id)
+        if not system:
+            return npc_id, f"{npc_label}: No cable available."
+
+        user_prompt = (
+            f"Game state:\n{json.dumps(context, indent=2)}\n\n"
+            f"Generate a 1-2 sentence diplomatic cable summary of your current "
+            f"position toward Europa. Tone: {temp}. This is an ambient status update, "
+            f"not tied to any specific event. Be specific and in character."
+        )
+
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            return npc_id, f"{npc_label} maintains a {temp} diplomatic posture toward Europa."
+
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=api_key)
+            response = client.messages.create(
+                model=MODEL,
+                max_tokens=100,
+                temperature=0.7,
+                system=system,
+                messages=[{"role": "user", "content": user_prompt}]
+            )
+            with lock:
+                _token_log["calls"] += 1
+                _token_log["input_tokens"] += response.usage.input_tokens
+                _token_log["output_tokens"] += response.usage.output_tokens
+
+            raw = response.content[0].text.strip()
+            text = raw.replace('**', '').replace('*', '').strip()
+            return npc_id, text
+        except Exception:
+            return npc_id, f"{npc_label} maintains a {temp} diplomatic posture toward Europa."
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = [executor.submit(_gen_cable, nid) for nid in npc_ids]
+        for future in as_completed(futures):
+            npc_id, text = future.result()
+            cables[npc_id] = text
+
+    print(f"  [10B-2] Diplomatic cables generated for {len(cables)} NPCs")
+    return cables
+
+
+def generate_declaration_consequences(game_state, declaration_text: str) -> dict:
+    """10B-2: GM interprets a player declaration and generates consequences.
+    Returns dict with interpretation, npc_reactions, soft_power_delta, etc."""
+
+    context = _build_context(game_state)
+
+    system_prompt = (
+        "You are a geopolitical consequences engine. A head of state has issued "
+        "a public declaration. Determine the diplomatic consequences based on the "
+        "content and current game state.\n\n"
+        "Return ONLY a JSON object. No preamble.\n"
+        '{\n'
+        '  "interpretation": "one sentence: what the declaration signals",\n'
+        '  "npc_reactions": {\n'
+        '    "usa": delta,\n'
+        '    "arabia": delta,\n'
+        '    "eu": delta,\n'
+        '    "russia": delta,\n'
+        '    "china": delta,\n'
+        '    "dprg": delta\n'
+        '  },\n'
+        '  "soft_power_delta": integer,\n'
+        '  "generates_world_event": boolean,\n'
+        '  "world_event_hint": "one sentence if generates_world_event is true"\n'
+        '}\n\n'
+        "Each NPC reaction delta is an integer from -15 to +15.\n"
+        "soft_power_delta is an integer from -5 to +5.\n"
+        "generates_world_event should be true only for provocative or major declarations."
+    )
+
+    regime = getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy')
+    era = getattr(game_state, 'current_era', 1)
+    rels = {k: round(v, 1) for k, v in (game_state.relations or {}).items()}
+
+    user_prompt = (
+        f"DECLARATION TEXT: \"{declaration_text}\"\n\n"
+        f"Current NPC relations: {json.dumps(rels)}\n"
+        f"Regime type: {regime}\n"
+        f"Era: {era}\n"
+        f"Current game state:\n{json.dumps(context, indent=2)}\n\n"
+        f"Determine consequences. Return ONLY JSON."
+    )
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return {
+            "interpretation": "The declaration has been noted by the international community.",
+            "npc_reactions": {"usa": 0, "arabia": 0, "eu": 0, "russia": 0, "china": 0, "dprg": 0},
+            "soft_power_delta": 0,
+            "generates_world_event": False,
+            "world_event_hint": "",
+        }
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=300,
+            temperature=0.6,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}]
+        )
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
+
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            raw = "\n".join(lines)
+
+        result = json.loads(raw)
+        # Clamp values
+        for npc_id in result.get("npc_reactions", {}):
+            result["npc_reactions"][npc_id] = max(-15, min(15, int(result["npc_reactions"][npc_id])))
+        result["soft_power_delta"] = max(-5, min(5, int(result.get("soft_power_delta", 0))))
+        result.setdefault("generates_world_event", False)
+        result.setdefault("world_event_hint", "")
+        result.setdefault("interpretation", "The declaration was noted.")
+
+        print(f"  [10B-2] Declaration consequences: {result['interpretation']}")
+        return result
+
+    except Exception as e:
+        print(f"  [10B-2] Declaration consequences failed: {e}")
+        return {
+            "interpretation": "The declaration has been noted by the international community.",
+            "npc_reactions": {"usa": 0, "arabia": 0, "eu": 0, "russia": 0, "china": 0, "dprg": 0},
+            "soft_power_delta": 0,
+            "generates_world_event": False,
+            "world_event_hint": "",
+        }
+
+
 def generate_loyalty_assessment(game_state, advisor_id: str) -> str:
     """10C: Generate a loyalty assessment report for an advisor.
     Brief Haiku call (max_tokens=150)."""

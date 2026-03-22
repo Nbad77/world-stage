@@ -417,4 +417,26 @@ export const api = {
   /** POST /game/{id}/briefing/morning — get morning intelligence briefing */
   briefingMorning: (id) =>
     request('POST', `/game/${id}/briefing/morning`),
+
+  // ── 10B-2: Event screen, declarations, intel ───────────────────────────────
+
+  /** POST /game/{id}/briefing/event-dialogue — NPC communiqués for event */
+  briefingEventDialogue: (id, event_id) =>
+    request('POST', `/game/${id}/briefing/event-dialogue`, { event_id }),
+
+  /** POST /game/{id}/briefing/advisor-event-analysis — advisor takes on event */
+  briefingAdvisorEventAnalysis: (id, event_id) =>
+    request('POST', `/game/${id}/briefing/advisor-event-analysis`, { event_id }),
+
+  /** POST /game/{id}/briefing/declaration — issue a public declaration */
+  briefingDeclaration: (id, declaration_text) =>
+    request('POST', `/game/${id}/briefing/declaration`, { declaration_text }),
+
+  /** POST /game/{id}/intel/get-npc-intel — intelligence intercept on NPC */
+  intelGetNpc: (id, target_npc) =>
+    request('POST', `/game/${id}/intel/get-npc-intel`, { target_npc }),
+
+  /** POST /game/{id}/briefing/cables — diplomatic cables for all NPCs */
+  briefingCables: (id) =>
+    request('POST', `/game/${id}/briefing/cables`),
 }

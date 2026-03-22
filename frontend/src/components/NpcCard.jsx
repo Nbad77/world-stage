@@ -32,7 +32,10 @@ function riskTier(risk) {
   return              { label: 'CRITICAL', color: '#ef5350' }
 }
 
-export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWarning, isPlaceholder, color, onContact, contactDisabled, onBackchannel, backchannelDisabled, gs }) {
+const MIN_INTEL_TIER = 1
+const INTEL_COST = 1.5
+
+export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWarning, isPlaceholder, color, onContact, contactDisabled, onBackchannel, backchannelDisabled, onGetIntel, intelLoading, cable, gs }) {
   // Determine health tier
   const healthClass = isPlaceholder ? 'placeholder'
     : relation >= 60 ? 'health-good'
@@ -120,6 +123,29 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
               </button>
             )
           })()}
+          {/* 10B-2: GET INTEL button */}
+          {onGetIntel && gs && (() => {
+            const intelGated = (gs.intelligence_tier ?? 0) < MIN_INTEL_TIER
+            return (
+              <button
+                className={`npc-intel-btn ${intelGated ? 'locked' : ''}`}
+                onClick={() => onGetIntel(npcKey)}
+                disabled={intelGated || intelLoading}
+              >
+                {intelGated
+                  ? `🔒 INTEL — Requires Intel Tier ${MIN_INTEL_TIER}`
+                  : intelLoading
+                    ? '📡 INTERCEPTING...'
+                    : `📡 GET INTEL — $${INTEL_COST}B`}
+              </button>
+            )
+          })()}
+          {/* 10B-2: Diplomatic cable teaser */}
+          {cable && (
+            <div className="npc-cable-teaser">
+              <span className="npc-cable-text">{cable}</span>
+            </div>
+          )}
         </>
       )}
     </div>

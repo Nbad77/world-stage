@@ -9,6 +9,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '../api'
 
+// ── NPC display info for event communiqués ─────────────────────────────────
+const NPC_DISPLAY = {
+  usa:    { flag: '\u{1F1FA}\u{1F1F8}', name: 'Bill Hartwell',   color: '#1a3a5c' },
+  arabia: { flag: '\u{1F1F8}\u{1F1E6}', name: 'Sadam',           color: '#2d5a1e' },
+  eu:     { flag: '\u{1F1EA}\u{1F1FA}', name: 'Marsha',          color: '#1a3a6b' },
+  dprg:   { flag: '\u{1F1F0}\u{1F1F5}', name: 'Ji-won Ryang',    color: '#5a1a1a' },
+  russia: { flag: '\u{1F1F7}\u{1F1FA}', name: 'Nikolai Volkov',  color: '#3a1a4a' },
+  china:  { flag: '\u{1F1E8}\u{1F1F3}', name: 'Wei Jianming',    color: '#8b4513' },
+}
+
 // ── Severity styling ────────────────────────────────────────────────────────
 const SEVERITY_COLORS = {
   routine:  { bg: 'rgba(74,158,255,0.08)', border: '#4a9eff', text: '#4a9eff' },
@@ -80,6 +90,44 @@ function EventCard({ event, onClick }) {
   )
 }
 
+// ── Default event choices by category (until GM generates custom ones) ──────
+function _getDefaultChoices(event) {
+  const cat = event.category || 'diplomatic'
+  const sev = event.severity || 'moderate'
+
+  if (cat === 'military') return [
+    'Deploy forces to secure the border',
+    'Seek diplomatic de-escalation',
+    'Request international mediation',
+    'Monitor but take no action',
+  ]
+  if (cat === 'economic') return [
+    'Negotiate favorable trade terms',
+    'Impose retaliatory tariffs',
+    'Seek international economic partnership',
+    'Accept short-term costs for stability',
+  ]
+  if (cat === 'crisis') return [
+    'Declare a state of emergency',
+    'Address the nation publicly',
+    'Convene an emergency cabinet meeting',
+    'Seek international assistance',
+  ]
+  if (cat === 'domestic') return [
+    'Address citizens\' concerns directly',
+    'Implement policy reforms',
+    'Suppress dissent through security forces',
+    'Defer to local authorities',
+  ]
+  // diplomatic default
+  return [
+    'Engage in direct negotiations',
+    'Issue a formal diplomatic response',
+    'Build a coalition of allies',
+    'Maintain strategic ambiguity',
+  ]
+}
+
 // ── Main BriefingScreen ─────────────────────────────────────────────────────
 export default function BriefingScreen({
   gameState,
@@ -106,6 +154,22 @@ export default function BriefingScreen({
   const [eventsLoading, setEventsLoading] = useState(false)
   const [resolving, setResolving] = useState(false)
   const lastDayRef = useRef(null)
+
+  // 10B-2: Event screen state
+  const [eventDialogues, setEventDialogues] = useState([])
+  const [eventDialoguesLoading, setEventDialoguesLoading] = useState(false)
+  const [advisorAnalyses, setAdvisorAnalyses] = useState([])
+  const [advisorAnalysesLoading, setAdvisorAnalysesLoading] = useState(false)
+  const [advisorDrawerOpen, setAdvisorDrawerOpen] = useState(false)
+  const [advisorAnalysesReady, setAdvisorAnalysesReady] = useState(false)
+  const [eventScreenTransition, setEventScreenTransition] = useState(false)
+
+  // 10B-2: Declarations
+  const [declarationText, setDeclarationText] = useState('')
+  const [declarationLoading, setDeclarationLoading] = useState(false)
+  const [todaysDeclaration, setTodaysDeclaration] = useState('')
+  const declarationsAvailable = (gameState?.declarations_available ?? 0) >= 1
+  const declarationUsedToday = gameState?.declaration_used_today ?? false
 
   // Derive intel level label
   const intelTier = gameState?.intelligence_tier ?? 1
@@ -191,7 +255,34 @@ export default function BriefingScreen({
   function handleOpenEvent(event) {
     if (event.resolved) return
     setActiveEvent(event)
+    setEventDialogues([])
+    setAdvisorAnalyses([])
+    setAdvisorDrawerOpen(false)
+    setAdvisorAnalysesReady(false)
+    setEventScreenTransition(true)
     setBriefingState('event_active')
+
+    // Fetch event-specific NPC dialogues
+    if (event.applicable_npcs?.length > 0) {
+      setEventDialoguesLoading(true)
+      api.briefingEventDialogue(sessionId, event.id)
+        .then(res => setEventDialogues(res.dialogues || []))
+        .catch(e => console.error('[10B-2] Event dialogue fetch failed:', e))
+        .finally(() => setEventDialoguesLoading(false))
+    }
+
+    // Fetch advisor analyses in background
+    setAdvisorAnalysesLoading(true)
+    api.briefingAdvisorEventAnalysis(sessionId, event.id)
+      .then(res => {
+        setAdvisorAnalyses(res.analyses || [])
+        if (res.analyses?.length > 0) setAdvisorAnalysesReady(true)
+      })
+      .catch(e => console.error('[10B-2] Advisor analysis fetch failed:', e))
+      .finally(() => setAdvisorAnalysesLoading(false))
+
+    // Trigger CSS transition
+    setTimeout(() => setEventScreenTransition(false), 50)
   }
 
   async function handleResolveEvent(resolution) {
@@ -223,8 +314,26 @@ export default function BriefingScreen({
     }
   }
 
+  async function handleDeclaration() {
+    if (!declarationText.trim() || declarationLoading) return
+    setDeclarationLoading(true)
+    try {
+      const result = await api.briefingDeclaration(sessionId, declarationText.trim())
+      setTodaysDeclaration(declarationText.trim())
+      setDeclarationText('')
+      if (result.game_state && onGsUpdate) onGsUpdate(result.game_state)
+    } catch (e) {
+      console.error('[10B-2] Declaration failed:', e)
+    } finally {
+      setDeclarationLoading(false)
+    }
+  }
+
   function returnToBriefing() {
     setActiveEvent(null)
+    setEventDialogues([])
+    setAdvisorAnalyses([])
+    setAdvisorDrawerOpen(false)
     const canEnd = dayStatus.events_resolved >= dayStatus.events_required
     setBriefingState(canEnd ? 'free_action' : 'hub')
   }
@@ -248,64 +357,129 @@ export default function BriefingScreen({
     )
   }
 
-  // ── Render: Event Active ─────────────────────────────────────────────────
+  // ── Render: Event Active (10B-2 redesign) ───────────────────────────────
   if (briefingState === 'event_active' && activeEvent) {
     const sev = SEVERITY_COLORS[activeEvent.severity] || SEVERITY_COLORS.moderate
+    const catIcon = CATEGORY_ICONS[activeEvent.category] || ''
+
+    // Build choice list: use event.choices if available, else generate from category
+    const eventChoices = activeEvent.choices?.length > 0
+      ? activeEvent.choices
+      : _getDefaultChoices(activeEvent)
+
     return (
-      <div className="briefing-event-active">
-        <div className="briefing-event-active-header">
+      <div className={`briefing-event-screen ${eventScreenTransition ? 'entering' : 'entered'}`}>
+        {/* Header */}
+        <div className="briefing-event-screen-header">
           <button className="briefing-back-btn" onClick={returnToBriefing}>
-            {'\u2190'} Briefing
+            {'\u2190'} BRIEFING
           </button>
-          <div className="briefing-event-title-block">
+          {/* Advisor drawer tab */}
+          <button
+            className={`briefing-advisor-drawer-tab ${advisorDrawerOpen ? 'open' : ''}`}
+            onClick={() => setAdvisorDrawerOpen(!advisorDrawerOpen)}
+          >
+            ADVISORS {advisorDrawerOpen ? '\u25BC' : '\u25B2'}
+            {advisorAnalysesReady && !advisorDrawerOpen && (
+              <span className="advisor-ready-dot">{'\u25CF'}</span>
+            )}
+          </button>
+        </div>
+
+        {/* Event title block */}
+        <div className="briefing-event-title-block">
+          <div className="briefing-event-meta">
             <span
               className="briefing-severity-badge"
               style={{ color: sev.text, borderColor: sev.border }}
             >
               {activeEvent.severity.toUpperCase()}
             </span>
-            <h2 className="briefing-event-active-title">{activeEvent.title}</h2>
-            <p className="briefing-event-active-summary">{activeEvent.summary}</p>
+            <span className="briefing-event-category">{catIcon} {activeEvent.category?.toUpperCase()}</span>
           </div>
+          <h2 className="briefing-event-active-title">{activeEvent.title}</h2>
+          <p className="briefing-event-active-summary">{activeEvent.summary}</p>
         </div>
 
-        {/* Quick resolution options */}
+        <div className="briefing-event-divider" />
+
+        {/* NPC Communiqués */}
+        <div className="briefing-event-communiques">
+          {eventDialoguesLoading && (
+            <div className="briefing-communiques-loading">
+              <div className="briefing-skeleton" style={{ height: '80px', marginBottom: '0.75rem' }} />
+              <div className="briefing-skeleton" style={{ height: '80px' }} />
+              <p className="briefing-loading-text">Receiving diplomatic communiqués...</p>
+            </div>
+          )}
+          {!eventDialoguesLoading && eventDialogues.map(d => {
+            const npcInfo = NPC_DISPLAY[d.npc_id] || { flag: '\u{1F310}', name: d.npc_name, color: '#333' }
+            return (
+              <div key={d.npc_id} className="briefing-event-npc-card">
+                <div className="briefing-event-npc-header">
+                  <span className="briefing-event-npc-flag" style={{ background: npcInfo.color }}>
+                    {npcInfo.flag}
+                  </span>
+                  <span className="briefing-event-npc-name">{d.npc_name}</span>
+                </div>
+                <p className="briefing-event-npc-message">{d.message}</p>
+              </div>
+            )
+          })}
+          {!eventDialoguesLoading && eventDialogues.length === 0 && (
+            <p style={{ color: 'var(--muted)', fontStyle: 'italic', fontSize: '0.85rem' }}>
+              No diplomatic communiqués received for this event.
+            </p>
+          )}
+        </div>
+
+        <div className="briefing-event-divider" />
+
+        {/* Your Move — real choices */}
         <div className="briefing-event-choices">
-          <p style={{ color: 'var(--muted)', marginBottom: '0.5rem', fontSize: '0.85rem' }}>
-            How do you respond?
-          </p>
-          <button
-            className="briefing-choice-btn"
-            onClick={() => handleResolveEvent('Engage diplomatically')}
-            disabled={resolving}
-          >
-            Engage diplomatically
-          </button>
-          <button
-            className="briefing-choice-btn"
-            onClick={() => handleResolveEvent('Take a firm stance')}
-            disabled={resolving}
-          >
-            Take a firm stance
-          </button>
-          <button
-            className="briefing-choice-btn"
-            onClick={() => handleResolveEvent('Defer to advisors')}
-            disabled={resolving}
-          >
-            Defer to advisors
-          </button>
-          <button
-            className="briefing-choice-btn briefing-choice-ignore"
-            onClick={() => handleResolveEvent('Ignore')}
-            disabled={resolving}
-          >
-            Ignore this event
-          </button>
+          <p className="briefing-choices-label">YOUR MOVE</p>
+          {eventChoices.map((choice, i) => (
+            <button
+              key={i}
+              className="briefing-choice-btn"
+              onClick={() => handleResolveEvent(choice)}
+              disabled={resolving}
+            >
+              <span className="briefing-choice-letter">{String.fromCharCode(65 + i)}</span>
+              {choice}
+            </button>
+          ))}
         </div>
 
-        {/* Show existing diplomatic content below */}
-        {existingDiplomaticContent}
+        {/* Optional events can go back without resolving */}
+        {!activeEvent.required && (
+          <button className="briefing-back-link" onClick={returnToBriefing}>
+            {'\u2190'} Back to Briefing
+          </button>
+        )}
+
+        {/* Advisor Drawer (slides up) */}
+        {advisorDrawerOpen && (
+          <div className="briefing-advisor-drawer">
+            <div className="briefing-advisor-drawer-content">
+              {advisorAnalysesLoading && (
+                <p className="briefing-loading-text">Advisors analyzing situation...</p>
+              )}
+              {!advisorAnalysesLoading && advisorAnalyses.length === 0 && (
+                <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+                  No advisors assigned today. Assign advisors from the Domestic tab.
+                </p>
+              )}
+              {advisorAnalyses.map((a, i) => (
+                <div key={i} className="briefing-advisor-analysis-card">
+                  <div className="briefing-advisor-analysis-name">{a.advisor_name}</div>
+                  <div className="briefing-advisor-analysis-type">{a.advisor_type}</div>
+                  <p className="briefing-advisor-analysis-text">{a.analysis_text}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -373,6 +547,46 @@ export default function BriefingScreen({
       {morningBriefingOpen && morningBriefing && morningBriefing !== '(already read)' && (
         <div className="briefing-morning-text">
           {morningBriefing}
+        </div>
+      )}
+
+      {/* 10B-2: Declaration panel */}
+      {declarationsAvailable && !declarationUsedToday && (
+        <div className="declaration-panel">
+          <div className="declaration-header">
+            <span className="declaration-label">ISSUE A DECLARATION</span>
+            <span className="declaration-hint">
+              Public statements carry diplomatic weight.
+            </span>
+          </div>
+          <textarea
+            className="declaration-input"
+            placeholder="State your government's position..."
+            value={declarationText}
+            onChange={e => setDeclarationText(e.target.value)}
+            maxLength={280}
+            rows={3}
+          />
+          <button
+            className="btn-declaration"
+            onClick={handleDeclaration}
+            disabled={!declarationText.trim() || declarationLoading}
+          >
+            {declarationLoading ? 'Issuing...' : 'Issue Declaration \u2192'}
+          </button>
+        </div>
+      )}
+      {declarationUsedToday && (
+        <div className="declaration-used">
+          <span>Declaration issued today</span>
+          <span className="declaration-text-preview">
+            {todaysDeclaration || gameState?.todays_declaration || ''}
+          </span>
+        </div>
+      )}
+      {!declarationsAvailable && (
+        <div className="declaration-locked">
+          Declarations unlock on Day 5
         </div>
       )}
 
