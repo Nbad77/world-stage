@@ -895,42 +895,14 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     }
   }
 
-  // Model C: Direct contact for relations >= 40 or crisis
-  async function handleDirectContact(npcKey) {
-    if (!npcKey || contactLoading[npcKey]) return
-    const rel = gs?.relations?.[npcKey] ?? 50
-    const isCrisis = (
-      (npcKey === 'usa' && gs?.usa_sanctions_active) ||
-      (npcKey === 'arabia' && gs?.arabia_embargo_active) ||
-      (npcKey === 'russia' && (gs?.volkov_trap_stage ?? 0) > 0) ||
-      rel < 15
-    )
-
-    // If relations >= 40 or crisis, use Model C direct contact
-    // which generates tone-appropriate dialogue
-    if (rel >= 40 || isCrisis) {
-      setContactLoading(prev => ({ ...prev, [npcKey]: true }))
-      try {
-        const res = await api.directContact(sessionId, npcKey)
-        setContactResults(prev => ({
-          ...prev,
-          [npcKey]: {
-            text: res.dialogue,
-            type: res.tone_tier,
-          },
-        }))
-        // Also open negotiation panel via existing flow
-        handlePlayerContact(npcKey)
-      } catch (e) {
-        // Fall back to existing negotiate flow
-        handlePlayerContact(npcKey)
-      } finally {
-        setContactLoading(prev => ({ ...prev, [npcKey]: false }))
-      }
-    } else {
-      // Should not reach here — NpcCard handles gating
-      handleContactRequest(npcKey)
-    }
+  // Model C: Direct contact — opens NegotiationPanel (existing conversation modal)
+  // The negotiate endpoint already has relationship-gated tone framing (Session 7B Step 3).
+  // For relations >= 40 or crisis: opens full conversation modal via handlePlayerContact.
+  // For relations < 40: NpcCard routes to handleContactRequest instead (terse ack, no modal).
+  function handleDirectContact(npcKey) {
+    if (!npcKey) return
+    // handlePlayerContact opens the NegotiationPanel — the existing multi-turn modal
+    handlePlayerContact(npcKey)
   }
 
   // Session 7D Step 2: Open backchannel modal
