@@ -92,14 +92,6 @@ export default function RightSidebar({ gs, onContact, negotiatingNpc, contactsDi
 
   return (
     <div className="right-sidebar">
-      {/* Intelligence intercept badge */}
-      <div className="rs-intel-badge">
-        🔍 Intelligence Intercepts
-        <span style={{ marginLeft: 'auto', opacity: 0.5 }}>
-          {(gs.intelligence_tier ?? 0) >= 1 ? `Tier ${gs.intelligence_tier}` : '—'}
-        </span>
-      </div>
-
       <div className="rs-header">Diplomatic Relations</div>
 
       {/* Active NPC cards */}

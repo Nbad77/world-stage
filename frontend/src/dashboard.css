@@ -33,7 +33,7 @@
 @media (min-width: 1024px) {
   .dashboard-shell {
     display: grid;
-    grid-template-columns: 260px 1fr 420px;
+    grid-template-columns: 260px 1fr 460px;
     height: 100vh;
     overflow: hidden;
   }
@@ -580,27 +580,26 @@
   margin-top: 0.15rem;
 }
 
-/* ── Session 7B Step 3: Contact button ─────────────────────────────────── */
+/* ── Contact button — styled consistently with Backchannel ────────────── */
 .npc-contact-btn {
   display: block;
   width: 100%;
-  margin-top: 0.4rem;
-  padding: 0.3rem 0;
-  background: transparent;
-  border: 1px solid var(--ws-chrome);
+  padding: 0.3rem 0.5rem;
+  background: rgba(212, 175, 55, 0.1);
+  border: 1px solid rgba(212, 175, 55, 0.3);
   border-radius: 4px;
   color: var(--ws-gold);
   font-family: var(--mono);
-  font-size: 0.62rem;
+  font-size: 0.6rem;
   font-weight: 600;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.15s, border-color 0.15s;
 }
 .npc-contact-btn:hover:not(:disabled) {
-  background: var(--ws-chrome);
-  color: var(--ws-bg);
+  background: rgba(212, 175, 55, 0.2);
+  border-color: rgba(212, 175, 55, 0.5);
 }
 .npc-contact-btn:disabled {
   opacity: 0.3;
@@ -2119,24 +2118,33 @@
   transition: all 0.2s ease;
   position: relative;
 }
-.npc-cable-area.clickable {
-  cursor: pointer;
-}
-.npc-cable-area.clickable:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-left-color: var(--ws-gold);
-}
 .npc-cable-area.expanded {
   background: rgba(255, 255, 255, 0.04);
   border-left-color: var(--ws-gold);
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  line-height: 1.6;
 }
 .npc-cable-text {
   font-style: italic;
 }
-.npc-cable-toggle {
-  font-size: 0.6rem;
-  margin-left: 4px;
-  opacity: 0.5;
+.npc-cable-toggle-link {
+  display: block;
+  margin-top: 4px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--ws-gold);
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+.npc-cable-toggle-link:hover {
+  opacity: 1;
 }
 
 /* 10B-2: Action buttons container */

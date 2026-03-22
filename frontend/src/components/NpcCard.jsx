@@ -79,10 +79,10 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
   // Urgent state
   const urgent = getUrgentState(npcKey, gs)
 
-  // Cable display
+  // Cable display — teaser at 120 chars, sentence-aware truncation
   const cableText = cable || ''
-  const cableTeaser = cableText.length > 100 ? cableText.slice(0, 97) + '...' : cableText
-  const showExpandToggle = cableText.length > 100
+  const showExpandToggle = cableText.length > 120
+  const cableTeaser = showExpandToggle ? cableText.slice(0, 117) + '...' : cableText
 
   return (
     <div className={`npc-card ${healthClass} ${urgent ? 'npc-card-urgent' : ''}`}>
@@ -123,17 +123,19 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
             {statusText} ({Math.round(relation)})
           </div>
 
-          {/* Diplomatic cable — clickable to expand */}
+          {/* Diplomatic cable — expand/collapse with Read more link */}
           {cableText && (
-            <div
-              className={`npc-cable-area ${cableExpanded ? 'expanded' : ''} ${showExpandToggle ? 'clickable' : ''}`}
-              onClick={() => showExpandToggle && setCableExpanded(!cableExpanded)}
-            >
+            <div className={`npc-cable-area ${cableExpanded ? 'expanded' : ''}`}>
               <span className="npc-cable-text">
                 {cableExpanded ? cableText : cableTeaser}
               </span>
               {showExpandToggle && (
-                <span className="npc-cable-toggle">{cableExpanded ? '▲' : '▼'}</span>
+                <button
+                  className="npc-cable-toggle-link"
+                  onClick={(e) => { e.stopPropagation(); setCableExpanded(!cableExpanded) }}
+                >
+                  {cableExpanded ? 'Show less ▲' : 'Read more ▼'}
+                </button>
               )}
             </div>
           )}
