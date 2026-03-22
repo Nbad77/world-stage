@@ -8467,7 +8467,9 @@ async def get_event_dialogue(session_id: str, request: Request, user: User = Dep
     gs.event_dialogues[event_id] = dialogues
     _save_gs(session_id, gs)
 
-    print(f"  [10B-2] Event dialogue for {event_id}: {len(dialogues)} NPCs")
+    print(f"  [10B-2] Event dialogue for {event_id}: {len(dialogues)} NPCs "
+          f"applicable={target_event.get('applicable_npcs', [])} "
+          f"npc_ids={[d.get('npc_id') for d in dialogues]}")
     return {"dialogues": dialogues, "cached": False}
 
 
@@ -8596,11 +8598,11 @@ async def get_npc_intel(session_id: str, request: Request, user: User = Depends(
         raise HTTPException(status_code=400, detail="Intel tier too low — requires Intel Tier 1")
 
     INTEL_COST = 1.5
-    if gs.personal_wealth < INTEL_COST:
-        raise HTTPException(status_code=400, detail=f"Insufficient personal wealth (need ${INTEL_COST}B)")
+    if (gs.budget or 0) < INTEL_COST:
+        raise HTTPException(status_code=400, detail=f"Insufficient budget (need ${INTEL_COST}B)")
 
-    # Deduct cost
-    gs.personal_wealth -= INTEL_COST
+    # Deduct cost from national budget — intel is a state function
+    gs.budget = round((gs.budget or 0) - INTEL_COST, 1)
 
     # Detection roll: 10% base
     import random

@@ -188,12 +188,12 @@ class TestAdvisorEventAnalysis:
 class TestGetNpcIntel:
 
     def test_get_intel_costs_wealth(self):
-        """Intel deducts $1.5B from personal_wealth."""
-        gs = make_gs(personal_wealth=10.0, intelligence_tier=2)
-        initial = gs.personal_wealth
+        """Intel deducts $1.5B from national budget."""
+        gs = make_gs(budget=50.0, intelligence_tier=2)
+        initial = gs.budget
         cost = 1.5
-        gs.personal_wealth -= cost
-        assert gs.personal_wealth == pytest.approx(initial - cost)
+        gs.budget = round(gs.budget - cost, 1)
+        assert gs.budget == pytest.approx(initial - cost)
 
     def test_get_intel_gated_tier(self):
         """Intel blocked below intel tier 1."""

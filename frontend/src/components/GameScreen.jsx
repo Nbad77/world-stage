@@ -1284,7 +1284,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         />
       </div>
 
-      <DashboardLayout gs={gs} onShadowCabinet={() => setShadowCabinetOpen(true)} negotiatingNpc={negotiatingNpc} onHistorian={handleHistorianAssessment} historianLoading={historianLoading} onBiography={() => { console.log('[9B] opening draft biography from sidebar'); setShowBiography(true) }} onContact={phase === PHASE.DIALOGUE && !loading ? handlePlayerContact : null} contactsDisabled={loading || phase !== PHASE.DIALOGUE} activeTab={activeTab} onTabChange={setActiveTab} domesticContent={<DomesticTab gs={gs} sessionId={sessionId} onGsUpdate={setGs} />} onBackchannel={phase === PHASE.DIALOGUE ? handleOpenBackchannel : null} backchannelDisabled={loading || phase !== PHASE.DIALOGUE} onGetIntel={handleGetIntel} intelLoading={intelLoading}>
+      <DashboardLayout gs={gs} onShadowCabinet={() => setShadowCabinetOpen(true)} negotiatingNpc={negotiatingNpc} onHistorian={handleHistorianAssessment} historianLoading={historianLoading} onBiography={() => { console.log('[9B] opening draft biography from sidebar'); setShowBiography(true) }} onContact={phase === PHASE.DIALOGUE && !loading ? handlePlayerContact : null} contactsDisabled={loading || phase !== PHASE.DIALOGUE} activeTab={activeTab} onTabChange={setActiveTab} domesticContent={<DomesticTab gs={gs} sessionId={sessionId} onGsUpdate={setGs} />} onBackchannel={phase === PHASE.DIALOGUE ? handleOpenBackchannel : null} backchannelDisabled={loading || phase !== PHASE.DIALOGUE} onGetIntel={handleGetIntel} intelLoading={intelLoading} dialogue={dialogue}>
 
       {/* Session 7E: Summit replaces center panel content when open */}
       {summitOpen ? (
@@ -1362,19 +1362,14 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               currentEra={gs?.current_era ?? 1}
               onEndDay={() => _executeSkim(1)}
               onEventResolved={async (evt, res) => {
+                // BriefingScreen already called resolve-event and got consequences.
+                // We just refresh gs to sync GameScreen state.
                 console.log('[BRIEFING] Event resolved:', evt.id, res)
                 try {
-                  // 1. Resolve the event on the backend
-                  await api.briefingResolveEvent(sessionId, evt.id, res)
-                  // 2. Refresh game state
                   const data = await api.getGame(sessionId)
                   setGs(data.game_state)
-                  // 3. Check day status for end-day readiness
-                  const status = await api.briefingDayStatus(sessionId)
-                  console.log('[BRIEFING] Day status after event resolve:', status)
                 } catch (err) {
-                  console.error('[BRIEFING] Event resolution failed:', err)
-                  setError('Event resolution failed: ' + (err.message || err))
+                  console.error('[BRIEFING] gs refresh after event resolve failed:', err)
                 }
               }}
               onGsUpdate={setGs}

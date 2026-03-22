@@ -15,11 +15,37 @@ const NPC_LIST = [
   { key: 'china',  label: 'Wei Jianming',     flag: '🇨🇳', subtitle: 'China',               color: 'var(--china)' },
 ]
 
-export default function RightSidebar({ gs, onContact, negotiatingNpc, contactsDisabled, onBackchannel, backchannelDisabled, onGetIntel, intelLoading }) {
+// Parse daily communiqué text into a short cable teaser
+function _extractCableFromDialogue(raw) {
+  if (!raw) return null
+  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean)
+  // Skip separator lines and headers, get first substantive line
+  const textLines = lines.filter(l => !l.match(/^─+$/) && !l.match(/^[A-Z\s]+:$/))
+  if (textLines.length === 0) return null
+  // Take first 2 sentences max, truncate to ~120 chars
+  const text = textLines.join(' ')
+  if (text.length <= 120) return text
+  return text.slice(0, 117) + '...'
+}
+
+// NPC_ORDER matches dialogue array indices
+const NPC_DIALOGUE_INDEX = { usa: 0, arabia: 1, eu: 2, dprg: 3, russia: 4, china: 5 }
+
+export default function RightSidebar({ gs, onContact, negotiatingNpc, contactsDisabled, onBackchannel, backchannelDisabled, onGetIntel, intelLoading, dialogue }) {
   if (!gs) return null
 
   const rel = gs.relations || {}
-  const cables = gs.diplomatic_cables || {}
+  const apiCables = gs.diplomatic_cables || {}
+
+  // FIX 6: Build cables from diplomatic_cables or fallback to daily dialogue
+  const cables = {}
+  for (const npc of NPC_LIST) {
+    if (apiCables[npc.key]) {
+      cables[npc.key] = apiCables[npc.key]
+    } else if (dialogue && dialogue[NPC_DIALOGUE_INDEX[npc.key]]) {
+      cables[npc.key] = _extractCableFromDialogue(dialogue[NPC_DIALOGUE_INDEX[npc.key]])
+    }
+  }
 
   return (
     <div className="right-sidebar">

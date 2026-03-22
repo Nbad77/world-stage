@@ -232,6 +232,40 @@ export default function BriefingScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // FIX 3: Auto-generate morning briefing on mount / day change
+  useEffect(() => {
+    if (!sessionId || morningBriefing || morningBriefingLoading) return
+    setMorningBriefingLoading(true)
+    api.briefingMorning(sessionId)
+      .then(result => {
+        setMorningBriefing(result.briefing_text)
+        setMorningBriefingOpen(true)
+        if (result.game_state && onGsUpdate) onGsUpdate(result.game_state)
+      })
+      .catch(e => {
+        console.error('[BRIEFING] Auto morning briefing failed:', e)
+        setMorningBriefing('Intelligence services were unable to compile a briefing at this time.')
+        setMorningBriefingOpen(true)
+      })
+      .finally(() => setMorningBriefingLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, currentDay])
+
+  // FIX 4: Fetch diplomatic cables on day start — backend caches in gs
+  useEffect(() => {
+    if (!sessionId) return
+    if (gameState?.cables_generated_today && gameState?.diplomatic_cables &&
+        Object.keys(gameState.diplomatic_cables).length > 0) return
+    api.briefingCables(sessionId)
+      .then(async () => {
+        // Cables are now saved in backend gs — refresh to pick them up
+        const data = await api.getGame(sessionId)
+        if (data.game_state && onGsUpdate) onGsUpdate(data.game_state)
+      })
+      .catch(e => console.error('[10B-2] Cable fetch failed:', e))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, currentDay])
+
   // ── Handlers ─────────────────────────────────────────────────────────────
   async function handleMorningBriefing() {
     if (morningBriefing && morningBriefing !== '(already read)') {
@@ -301,6 +335,7 @@ export default function BriefingScreen({
         can_end_day: result.can_end_day,
       })
       setActiveEvent({ ...activeEvent, resolved: true, resolution })
+      console.log('[10B-2] Resolution consequences:', result.consequences)
       setResolutionConsequences(result.consequences || null)
       setBriefingState('event_summary')
       if (result.game_state && onGsUpdate) {

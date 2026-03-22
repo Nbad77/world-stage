@@ -136,7 +136,7 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
                   ? `🔒 INTEL — Requires Intel Tier ${MIN_INTEL_TIER}`
                   : intelLoading
                     ? '📡 INTERCEPTING...'
-                    : `📡 GET INTEL — $${INTEL_COST}B`}
+                    : `📡 GET INTEL — $${INTEL_COST}B budget`}
               </button>
             )
           })()}
