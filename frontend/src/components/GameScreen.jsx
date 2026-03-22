@@ -371,12 +371,11 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       setBrigadeResult(null)
       setDrainProjection(res.drain_projection || null)
 
-      // 9.5A-Shadow: Auto-skip skim when persistent skim is active
-      const _skimOpts = res.skim_options || []
-      const _persistentSkim = _skimOpts.length === 1 && _skimOpts[0]?.skim_persistent
-      if (_persistentSkim && !(res.brigade_available)) {
-        // Auto-execute choice 1 (Proceed) without showing SkimPanel
-        console.log('[9.5A-Shadow] Persistent skim active, auto-skipping skim prompt')
+      // 9.5A-Shadow: Always auto-skip skim prompt — skim rate is set via
+      // persistent slider in Shadow Cabinet POWER BASE drawer, not per-turn.
+      // Legacy per-turn skim prompt removed. Auto-submit choice 1 to trigger EOT.
+      if (!(res.brigade_available)) {
+        console.log('[9.5A-Shadow] Auto-skipping skim prompt (persistent skim slider in Cabinet)')
         _executeSkim(1)
         return
       }
@@ -1695,23 +1694,16 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
 
             {/* Intel allocation gate removed — now driven by Domestic Affairs Tab */}
 
-            {/* 9.5A-Shadow: Hide SkimPanel when persistent skim, show compact indicator */}
-            {skimOptions.length === 1 && skimOptions[0]?.skim_persistent ? (
-              <div className="skim-persistent-indicator" style={{
-                padding: '0.6rem', margin: '0.5rem 0', borderRadius: '6px',
-                background: 'rgba(200,168,75,0.1)', border: '1px solid rgba(200,168,75,0.3)',
-                color: '#c8a84b', textAlign: 'center', fontSize: '0.8rem'
-              }}>
-                {skimOptions[0].label}
-              </div>
-            ) : (
-              <SkimPanel
-                skimOptions={skimOptions}
-                onSkim={handleSkim}
-                disabled={loading || brigadeLoading || (brigadeAvailable && !brigadeResult)}
-                drainProjection={drainProjection}
-                detectionHeat={gs?.detection_heat || 0}
-              />
+            {/* 9.5A-Shadow: Skim prompt removed — persistent skim slider in Cabinet.
+                After brigade deploys, auto-submit skim choice 1 to trigger EOT. */}
+            {brigadeResult && !loading && (
+              <button
+                className="btn-primary"
+                style={{ marginTop: '0.5rem', width: '100%' }}
+                onClick={() => _executeSkim(1)}
+              >
+                Continue to End of Day →
+              </button>
             )}
           </>
         )}
