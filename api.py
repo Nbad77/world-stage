@@ -8458,7 +8458,11 @@ async def get_event_dialogue(session_id: str, request: Request, user: User = Dep
         raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
 
     import asyncio
-    from npc_engine import generate_event_dialogue
+    from npc_engine import generate_event_dialogue, _client as _npc_client
+    print(f"  [10B-2] Event dialogue request: event_id={event_id} "
+          f"applicable_npcs={target_event.get('applicable_npcs', [])} "
+          f"_client_exists={_npc_client is not None} "
+          f"api_key_set={bool(os.getenv('ANTHROPIC_API_KEY'))}")
     dialogues = await asyncio.to_thread(generate_event_dialogue, gs, target_event)
 
     # Cache in game state

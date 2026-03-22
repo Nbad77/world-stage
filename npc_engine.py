@@ -31,6 +31,14 @@ _ENV_PATH = Path(__file__).parent / ".env"
 _override_env = not bool(os.getenv("ANTHROPIC_API_KEY"))
 load_dotenv(dotenv_path=_ENV_PATH, override=_override_env)
 
+# ─── Module-level Anthropic client (NEVER revert to per-function instantiation)
+import anthropic as _anthropic_mod
+_client = _anthropic_mod.Anthropic(
+    api_key=os.getenv("ANTHROPIC_API_KEY"),
+    timeout=30.0,
+    max_retries=0,
+)
+
 # ─── NPC System Prompts ────────────────────────────────────────────────────────
 
 USA_SYSTEM_PROMPT = """
@@ -5224,62 +5232,6 @@ def generate_event_dialogue(game_state, event: dict) -> list:
             f"regarding this situation. 2-4 sentences."
         )
 
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            # Rich fallback communiqués by NPC and category
-            _fallback_msgs = {
-                "usa": {
-                    "diplomatic": f"Europa, we expect you to uphold the international order on this matter. The United States is watching your response to {event_title} closely.",
-                    "economic": f"This situation around {event_title} has implications for transatlantic trade. We urge Europa to coordinate with us on an economic response.",
-                    "military": f"The Pentagon has noted developments regarding {event_title}. We stand ready to assist Europa, but expect a proportional response.",
-                    "crisis": f"This crisis demands immediate action, Europa. The United States is prepared to support you on {event_title}, but we need to see leadership.",
-                    "domestic": f"We trust Europa will handle {event_title} in a manner consistent with democratic values. The world is watching.",
-                },
-                "arabia": {
-                    "diplomatic": f"Europa, the matter of {event_title} touches upon the stability of our region. We expect consultation before any action.",
-                    "economic": f"Regarding {event_title} — oil markets are sensitive. Any disruption will be felt at the pump. Choose wisely, Europa.",
-                    "military": f"We counsel restraint on {event_title}. Military escalation in our neighborhood serves no one's interests.",
-                    "crisis": f"This crisis around {event_title} threatens regional stability. Arabia stands ready to mediate, if Europa shows good faith.",
-                    "domestic": f"Internal matters are sovereign, but {event_title} has implications beyond your borders. We are watching.",
-                },
-                "eu": {
-                    "diplomatic": f"Europa, the Commission urges a coordinated European response to {event_title}. Unilateral action would be counterproductive.",
-                    "economic": f"The single market implications of {event_title} are significant. We propose a joint EU-Europa economic framework.",
-                    "military": f"Military options regarding {event_title} should only be considered within a multilateral framework. The EU favors dialogue.",
-                    "crisis": f"This crisis demands European solidarity. We stand with Europa on {event_title}, but insist on proportional measures.",
-                    "domestic": f"The Commission notes developments around {event_title}. We trust Europa's democratic institutions to handle this appropriately.",
-                },
-                "dprg": {
-                    "diplomatic": f"The Democratic People's Republic observes {event_title} with interest. Europa should know that we respect strength, not appeasement.",
-                    "economic": f"Regarding {event_title} — the DPRG has survived far worse economic pressures. Do not expect us to be swayed by market concerns.",
-                    "military": f"Our military stands eternal vigilance. {event_title} reminds us why the DPRG maintains its deterrent capability.",
-                    "crisis": f"Crisis is the natural state of imperialism. {event_title} merely confirms what the DPRG has always known.",
-                    "domestic": f"How Europa handles {event_title} internally is of no concern to us. We focus on our own sovereign path.",
-                },
-                "russia": {
-                    "diplomatic": f"Europa, let us be frank about {event_title}. Russia has interests here that will not be ignored. I suggest we talk.",
-                    "economic": f"The economic dimensions of {event_title} are complex. Russia controls key resources that factor into this equation.",
-                    "military": f"Regarding {event_title} — Russia will not tolerate NATO expansion disguised as crisis response. Choose your allies carefully.",
-                    "crisis": f"This crisis around {event_title} could escalate. Russia proposes a pragmatic solution, but we need Europa to be realistic.",
-                    "domestic": f"Internal affairs are sovereign, Europa. But remember — {event_title} has echoes beyond your borders that concern Moscow.",
-                },
-                "china": {
-                    "diplomatic": f"China views {event_title} through the lens of mutual respect and non-interference. We hope Europa will consider the broader picture.",
-                    "economic": f"The Belt and Road initiative offers alternatives regarding {event_title}. China is prepared to discuss economic cooperation.",
-                    "military": f"China advocates for peaceful resolution of {event_title}. Military escalation serves no one's long-term interests.",
-                    "crisis": f"In times of crisis like {event_title}, China believes in collective security. We are open to multilateral solutions.",
-                    "domestic": f"China respects Europa's sovereignty on {event_title}. We hope for stability, which benefits all parties.",
-                },
-            }
-            npc_msgs = _fallback_msgs.get(npc_id, {})
-            msg = npc_msgs.get(event_category, f"{npc_label} has communicated a formal position regarding {event_title}.")
-            return {
-                "npc_id": npc_id,
-                "npc_name": npc_label,
-                "message": msg,
-                "event_context": event_title,
-            }
-
         try:
             response = _client.messages.create(
                 model=MODEL,
@@ -5449,10 +5401,6 @@ def generate_diplomatic_cables(game_state) -> dict:
             f"not tied to any specific event. Be specific and in character."
         )
 
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            return npc_id, f"{npc_label} maintains a {temp} diplomatic posture toward Europa."
-
         try:
             response = _client.messages.create(
                 model=MODEL,
@@ -5589,19 +5537,6 @@ def generate_event_resolution_consequences(game_state, event: dict, resolution: 
     event_severity = event.get("severity", "moderate")
     event_category = event.get("category", "diplomatic")
 
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        # Deterministic fallback for tests
-        sev_mult = {"routine": 1, "moderate": 2, "urgent": 3, "critical": 4}.get(event_severity, 2)
-        return {
-            "interpretation": f"Europa's response to {event_title} has been noted.",
-            "npc_reactions": {"usa": sev_mult, "eu": sev_mult, "arabia": -sev_mult,
-                              "russia": -sev_mult, "china": 0, "dprg": 0},
-            "stability_delta": -sev_mult if event_category == "crisis" else sev_mult,
-            "budget_delta": -sev_mult * 0.5 if event_category == "economic" else 0,
-            "flags": [],
-        }
-
     system_prompt = (
         "You are a geopolitical consequences engine. A head of state has responded "
         "to a world event. Determine the consequences based on the response, event, "
@@ -5665,11 +5600,14 @@ def generate_event_resolution_consequences(game_state, event: dict, resolution: 
 
     except Exception as e:
         print(f"  [10B-2] Event resolution consequences failed: {e}")
+        # Deterministic fallback — severity-based consequences
+        sev_mult = {"routine": 1, "moderate": 2, "urgent": 3, "critical": 4}.get(event_severity, 2)
         return {
-            "interpretation": f"Europa's response to {event_title} has been noted.",
-            "npc_reactions": {"usa": 0, "arabia": 0, "eu": 0, "russia": 0, "china": 0, "dprg": 0},
-            "stability_delta": 0,
-            "budget_delta": 0,
+            "interpretation": f"Europa's response to {event_title} has been noted by the international community.",
+            "npc_reactions": {"usa": sev_mult, "eu": sev_mult, "arabia": -sev_mult,
+                              "russia": -sev_mult, "china": 0, "dprg": 0},
+            "stability_delta": -sev_mult if event_category == "crisis" else sev_mult,
+            "budget_delta": -sev_mult * 0.5 if event_category == "economic" else 0,
             "flags": [],
         }
 
