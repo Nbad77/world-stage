@@ -780,6 +780,24 @@ class GameState:
         self.the_leak_followup_fired = False   # True once follow-up consequences fire
         self.scapegoat_used = False            # True once blame-a-minister has been used
 
+        # 10B-1: Daily Briefing System
+        self.daily_events = []                 # List of world event dicts for today
+        self.events_resolved_today = 0         # Resets each EOT
+        self.events_required_today = 3         # Tunable constant
+        self.day_events_generated = False       # Prevents re-generation within same day
+
+        # Communiqué escalation tracking
+        self.communique_days_without_response = {}  # {npc_id: int} — increments each EOT
+
+        # Morning briefing
+        self.morning_briefing_read = False      # Resets each day
+
+        # Declaration gating (10B-2 will use these)
+        self.declarations_available = 0         # 0 until day 5, then 1/day
+        self.declaration_used_today = False
+
+        print(f"[10B-1] Daily briefing fields initialized")
+
     def record_action(self, choice_type, npc_target=None):
         """
         Record player action with full context
@@ -1550,6 +1568,15 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'journalist_elimination_discovery_day': getattr(self, 'journalist_elimination_discovery_day', 0),
             'operations_log': getattr(self, 'operations_log', []),
             'force_projection_modifiers': getattr(self, 'force_projection_modifiers', {}),
+            # 10B-1: Daily Briefing System
+            'daily_events': getattr(self, 'daily_events', []),
+            'events_resolved_today': getattr(self, 'events_resolved_today', 0),
+            'events_required_today': getattr(self, 'events_required_today', 3),
+            'day_events_generated': getattr(self, 'day_events_generated', False),
+            'communique_days_without_response': getattr(self, 'communique_days_without_response', {}),
+            'morning_briefing_read': getattr(self, 'morning_briefing_read', False),
+            'declarations_available': getattr(self, 'declarations_available', 0),
+            'declaration_used_today': getattr(self, 'declaration_used_today', False),
         }
 
     @classmethod
@@ -2022,6 +2049,17 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.journalist_elimination_discovery_day = data.get('journalist_elimination_discovery_day', 0)
         gs.operations_log = data.get('operations_log', [])
         gs.force_projection_modifiers = data.get('force_projection_modifiers', {})
+        # 10B-1: Daily Briefing System
+        gs.daily_events = data.get('daily_events', [])
+        gs.events_resolved_today = data.get('events_resolved_today', 0)
+        gs.events_required_today = data.get('events_required_today', 3)
+        gs.day_events_generated = data.get('day_events_generated', False)
+        gs.communique_days_without_response = data.get('communique_days_without_response', {})
+        gs.morning_briefing_read = data.get('morning_briefing_read', False)
+        gs.declarations_available = data.get('declarations_available', 0)
+        gs.declaration_used_today = data.get('declaration_used_today', False)
+        if 'daily_events' not in data:
+            print("  [game_state] 10B-1 BRIEFING FIELDS MIGRATED: added defaults to old save")
         if 'ops_legitimate_this_turn' not in data:
             print("  [game_state] 10C OPERATIONS FIELDS MIGRATED: added defaults to old save")
         if 'media_tier' not in data:

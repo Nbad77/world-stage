@@ -399,4 +399,22 @@ export const api = {
   /** POST /game/{id}/operations/asset-exfiltration */
   opsAssetExfiltration: (id) =>
     request('POST', `/game/${id}/operations/asset-exfiltration`, {}),
+
+  // ── 10B-1: Daily Briefing endpoints ─────────────────────────────────────
+
+  /** POST /game/{id}/briefing/generate-events — generate or return daily events */
+  briefingGenerateEvents: (id) =>
+    request('POST', `/game/${id}/briefing/generate-events`),
+
+  /** POST /game/{id}/briefing/resolve-event — resolve a world event */
+  briefingResolveEvent: (id, event_id, resolution) =>
+    request('POST', `/game/${id}/briefing/resolve-event`, { event_id, resolution }),
+
+  /** GET /game/{id}/briefing/day-status — get day progress */
+  briefingDayStatus: (id) =>
+    request('GET', `/game/${id}/briefing/day-status`),
+
+  /** POST /game/{id}/briefing/morning — get morning intelligence briefing */
+  briefingMorning: (id) =>
+    request('POST', `/game/${id}/briefing/morning`),
 }

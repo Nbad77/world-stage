@@ -38,7 +38,9 @@
       "Bash(DATABASE_URL=sqlite:///test_diag.db python -m pytest tests/ -v -q --tb=no --ignore=tests/test_advisors.py --ignore=tests/test_session4d.py)",
       "Bash(python -c \":*)",
       "Bash(DATABASE_URL=sqlite:///test_final.db python -m pytest tests/ -v -q --tb=short --ignore=tests/test_advisors.py --ignore=tests/test_session4d.py)",
-      "Bash(DATABASE_URL=sqlite:///test_diag2.db python -m pytest tests/ -v -q --tb=no --ignore=tests/test_advisors.py --ignore=tests/test_session4d.py)"
+      "Bash(DATABASE_URL=sqlite:///test_diag2.db python -m pytest tests/ -v -q --tb=no --ignore=tests/test_advisors.py --ignore=tests/test_session4d.py)",
+      "Bash(where npx.cmd)",
+      "Bash(where node.exe)"
     ]
   }
 }

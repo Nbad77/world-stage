@@ -8268,3 +8268,136 @@ def post_asset_exfiltration(session_id: str):
     print(f"  [10C] Asset Exfiltration: recovered ${_recovery}B")
     _save_gs(session_id, gs)
     return {"success": True, "recovered": _recovery, "game_state": gs.serialize()}
+
+
+# ── 10B-1: Daily Briefing Endpoints ───────────────────────────────────────
+
+@app.post("/game/{session_id}/briefing/generate-events")
+async def generate_briefing_events(session_id: str, user: User = Depends(get_optional_user)):
+    """
+    Generates daily events if not already generated today.
+    Idempotent — returns existing events if already generated.
+    """
+    _verify_game_ownership(session_id, user)
+    gs = _load_gs(session_id)
+
+    if gs.day_events_generated:
+        return {
+            "events": gs.daily_events,
+            "already_generated": True,
+            "game_state": gs.serialize(),
+        }
+
+    import gm_engine
+    import asyncio
+    events = await asyncio.to_thread(gm_engine.generate_daily_events, gs)
+
+    gs.daily_events = events
+    gs.day_events_generated = True
+    _save_gs(session_id, gs)
+
+    return {
+        "events": events,
+        "already_generated": False,
+        "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/briefing/resolve-event")
+async def resolve_event(session_id: str, request: Request, user: User = Depends(get_optional_user)):
+    """Marks a world event as resolved with the player's choice."""
+    _verify_game_ownership(session_id, user)
+    body = await request.json()
+    event_id = body.get("event_id")
+    resolution = body.get("resolution")
+
+    if not event_id or not resolution:
+        raise HTTPException(status_code=400, detail="event_id and resolution required")
+
+    gs = _load_gs(session_id)
+
+    # Find and resolve event
+    target_event = None
+    for evt in gs.daily_events:
+        if evt.get("id") == event_id:
+            target_event = evt
+            break
+
+    if not target_event:
+        raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
+
+    if target_event.get("resolved"):
+        return {
+            "event": target_event,
+            "events_resolved": gs.events_resolved_today,
+            "events_required": gs.events_required_today,
+            "can_end_day": gs.events_resolved_today >= gs.events_required_today,
+            "already_resolved": True,
+        }
+
+    target_event["resolved"] = True
+    target_event["resolution"] = resolution
+
+    if target_event.get("required"):
+        gs.events_resolved_today += 1
+
+    can_end_day = gs.events_resolved_today >= gs.events_required_today
+
+    _save_gs(session_id, gs)
+
+    print(f"  [10B-1] Event {event_id} resolved: {resolution}. "
+          f"Progress: {gs.events_resolved_today}/{gs.events_required_today}")
+
+    return {
+        "event": target_event,
+        "events_resolved": gs.events_resolved_today,
+        "events_required": gs.events_required_today,
+        "can_end_day": can_end_day,
+        "game_state": gs.serialize(),
+    }
+
+
+@app.get("/game/{session_id}/briefing/day-status")
+async def get_day_status(session_id: str, user: User = Depends(get_optional_user)):
+    """Returns current day briefing status."""
+    _verify_game_ownership(session_id, user)
+    gs = _load_gs(session_id)
+
+    return {
+        "events_resolved": gs.events_resolved_today,
+        "events_required": gs.events_required_today,
+        "can_end_day": gs.events_resolved_today >= gs.events_required_today,
+        "events": gs.daily_events,
+        "day": getattr(gs, 'current_turn', 1),
+        "era": getattr(gs, 'current_era', 1),
+        "day_events_generated": gs.day_events_generated,
+        "morning_briefing_read": gs.morning_briefing_read,
+        "communique_days_without_response": gs.communique_days_without_response,
+    }
+
+
+@app.post("/game/{session_id}/briefing/morning")
+async def get_morning_briefing(session_id: str, user: User = Depends(get_optional_user)):
+    """
+    Returns intelligence summary scaled to intel_tier.
+    Called when player clicks the morning briefing card.
+    """
+    _verify_game_ownership(session_id, user)
+    gs = _load_gs(session_id)
+
+    # Determine intel level from intelligence_tier
+    intel_tier = getattr(gs, 'intelligence_tier', 1)
+    from npc_engine import INTEL_BRIEFING_TIERS, generate_morning_briefing
+    intel_level = INTEL_BRIEFING_TIERS.get(intel_tier, "vague")
+
+    import asyncio
+    briefing_text = await asyncio.to_thread(generate_morning_briefing, gs, intel_level)
+
+    gs.morning_briefing_read = True
+    _save_gs(session_id, gs)
+
+    return {
+        "briefing_text": briefing_text,
+        "intel_level": intel_level,
+        "game_state": gs.serialize(),
+    }

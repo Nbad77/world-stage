@@ -5229,3 +5229,135 @@ def generate_loyalty_assessment(game_state, advisor_id: str) -> str:
         print(f"  [10C] Loyalty assessment failed for {advisor_id}: {type(e).__name__}: {e}")
         _char = "reliable" if _loyalty >= 60 else "questionable" if _loyalty >= 40 else "suspect"
         return f"Your intelligence apparatus has compiled a profile. {_name}'s loyalty is {_char}."
+
+
+# ── 10B-1: Morning Intelligence Briefing ──────────────────────────────────
+
+INTEL_BRIEFING_TIERS = {
+    0: "vague",
+    1: "vague",
+    2: "partial",
+    3: "partial",
+    4: "specific",
+    5: "specific",
+    6: "actionable",
+}
+
+
+def generate_morning_briefing(gs, intel_level: str = "vague") -> str:
+    """
+    Generate a morning intelligence briefing scaled to intel_level.
+    Uses Haiku. Returns briefing text string.
+    """
+    import anthropic
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return _fallback_briefing(intel_level)
+
+    relations = gs.relations or {}
+    npc_map = {
+        "bill": "Bill (USA)", "marsha": "Marsha (EU)",
+        "sadam": "Sadam (Arabia)", "volkov": "Volkov (Russia)",
+        "wei": "Wei (China)", "ji_won": "Ji-won (DPRG)",
+    }
+    rel_summary = ", ".join(f"{v}: {relations.get(k, 50)}" for k, v in npc_map.items())
+
+    heat = getattr(gs, 'detection_heat', 0)
+    stability = gs.stability
+    approval = gs.public_approval
+
+    # Recent resolved events
+    daily = getattr(gs, 'daily_events', [])
+    resolved = [e for e in daily if e.get('resolved')][-3:]
+    recent_str = ""
+    if resolved:
+        recent_str = "Recent world events:\n" + "\n".join(
+            f"  - {e['title']}: {e.get('resolution', 'resolved')}" for e in resolved
+        )
+
+    level_instruction = {
+        "vague": (
+            "Give only general impressions. No specific numbers. "
+            "\"Western capitals appear to be monitoring...\" level of detail."
+        ),
+        "partial": (
+            "Give specific NPC names but not exact thresholds. "
+            "\"Bill's apparatus has noted...\" level of detail."
+        ),
+        "specific": (
+            "Give specific thresholds and approximate timelines. "
+            "Exact numbers are acceptable."
+        ),
+        "actionable": (
+            "Full intelligence picture. Specific days, "
+            "specific thresholds, specific NPC intentions."
+        ),
+    }.get(intel_level, "Give only general impressions.")
+
+    system_prompt = (
+        "You are Europa's intelligence service briefing the head of state. "
+        "Write in clinical intelligence report register. "
+        "2-3 short paragraphs. No bullet points. No headers. No markdown."
+    )
+
+    user_prompt = (
+        f"Generate a morning intelligence briefing.\n"
+        f"Intel level: {intel_level}\n\n"
+        f"Current state:\n"
+        f"  Stability: {stability}%, Approval: {approval}%\n"
+        f"  Budget: ${gs.budget:.1f}B, Detection heat: {heat}%\n"
+        f"  NPC relations: {rel_summary}\n"
+        f"{recent_str}\n\n"
+        f"{level_instruction}\n\n"
+        f"Write 2-3 short paragraphs. Intelligence report register. "
+        f"No bullet points. No headers."
+    )
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        with _token_log_lock:
+            pass  # just ensuring thread safety for the call
+
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=500,
+            temperature=0.6,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+
+        with _token_log_lock:
+            _token_log["calls"] += 1
+            _token_log["input_tokens"] += response.usage.input_tokens
+            _token_log["output_tokens"] += response.usage.output_tokens
+
+        text = response.content[0].text.strip()
+        print(f"  [10B-1] Morning briefing generated ({intel_level})")
+        return text
+
+    except Exception as e:
+        print(f"  [10B-1] Morning briefing failed: {e}")
+        return _fallback_briefing(intel_level)
+
+
+def _fallback_briefing(intel_level: str) -> str:
+    """Simple fallback when API unavailable."""
+    if intel_level in ("vague",):
+        return (
+            "Our sources indicate general activity among foreign capitals regarding Europa's "
+            "current trajectory. Western powers appear to be monitoring the situation closely, "
+            "while eastern partners continue to signal interest in deeper engagement."
+        )
+    elif intel_level in ("partial",):
+        return (
+            "Intelligence suggests Bill's apparatus has increased surveillance of Europa's "
+            "financial channels. Volkov's representatives have been making quiet inquiries "
+            "about partnership opportunities. Domestic sentiment remains within expected parameters."
+        )
+    else:
+        return (
+            "Signals intelligence confirms heightened activity across multiple diplomatic channels. "
+            "Our assets report concrete developments that may require your attention within the "
+            "coming days. A full assessment is available through your intelligence chief."
+        )

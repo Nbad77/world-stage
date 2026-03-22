@@ -5657,6 +5657,71 @@ def apply_end_of_turn_effects(game_state):
     if _gcb > 0:
         game_state._general_coup_boost_turns = _gcb - 1
 
+    # ──────────────────────────────────────────
+    # 10B-1: Daily briefing resets
+    # ──────────────────────────────────────────
+    game_state.events_resolved_today = 0
+    game_state.day_events_generated = False
+    game_state.morning_briefing_read = False
+    game_state.declaration_used_today = False
+    game_state.daily_events = []
+
+    # Unlock declarations at day 5
+    if game_state.current_turn >= 5 and getattr(game_state, 'declarations_available', 0) == 0:
+        game_state.declarations_available = 1
+
+    # Increment communiqué days without response for all NPCs
+    _all_npcs = ["bill", "marsha", "sadam", "volkov", "wei", "ji_won"]
+    _interacted = getattr(game_state, 'npcs_interacted_this_turn', set())
+    for _npc_id in _all_npcs:
+        if _npc_id not in game_state.communique_days_without_response:
+            game_state.communique_days_without_response[_npc_id] = 0
+        if _npc_id not in _interacted:
+            game_state.communique_days_without_response[_npc_id] += 1
+        else:
+            game_state.communique_days_without_response[_npc_id] = 0
+
+    # Communiqué escalation — ignored NPCs generate world events next day
+    _ESCALATION_THRESHOLD = 3  # days ignored → escalates to world event
+    _escalated_npcs = []
+    for _npc_id in _all_npcs:
+        _days = game_state.communique_days_without_response.get(_npc_id, 0)
+        if _days >= _ESCALATION_THRESHOLD:
+            _escalated_npcs.append(_npc_id)
+            # Create escalated event for next day's queue
+            import random, string
+            _evt_id = "evt_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
+            _npc_labels = {
+                "bill": "Washington", "marsha": "Brussels", "sadam": "Riyadh",
+                "volkov": "Moscow", "wei": "Beijing", "ji_won": "Pyongyang",
+            }
+            _city = _npc_labels.get(_npc_id, _npc_id.title())
+            _escalated_event = {
+                "id": _evt_id,
+                "title": f"{_city} Patience Exhausted",
+                "summary": (
+                    f"{_city} has grown frustrated by {_days} days of silence from Europa. "
+                    f"Diplomatic relations are deteriorating and concrete consequences may follow."
+                ),
+                "severity": "urgent",
+                "category": "diplomatic",
+                "applicable_npcs": [_npc_id],
+                "required": True,
+                "resolved": False,
+                "resolution": None,
+                "escalated_from_communique": True,
+                "era": getattr(game_state, 'current_era', 1),
+                "day": game_state.current_turn + 1,
+            }
+            game_state.daily_events.append(_escalated_event)
+            # Reset counter after escalation fires
+            game_state.communique_days_without_response[_npc_id] = 0
+
+    if _escalated_npcs:
+        print(f"[10B-1] Communiqué escalation fired for: {_escalated_npcs}")
+
+    print(f"[10B-1] Daily resets applied. Communiqué tracking: {game_state.communique_days_without_response}")
+
     return messages
 
 

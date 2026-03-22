@@ -3957,3 +3957,142 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .negotiation-panel { max-height: 80vh; }
   .shadow-cabinet-drawer { width: 96vw; }
 }
+
+/* ── 10B-1: Briefing Screen ────────────────────────────────────────────── */
+.briefing-hub { display: flex; flex-direction: column; gap: 0.75rem; }
+
+.briefing-morning-card {
+  display: flex; flex-direction: column; gap: 0.25rem;
+  background: rgba(74,158,255,0.06); border: 1px solid var(--accent);
+  border-radius: var(--radius); padding: 0.75rem 1rem;
+  cursor: pointer; text-align: left; color: var(--text);
+  font-family: var(--mono); transition: background 0.15s;
+}
+.briefing-morning-card:hover:not(:disabled) { background: rgba(74,158,255,0.12); }
+.briefing-morning-label { color: var(--accent); font-weight: 600; font-size: 0.85rem; }
+.briefing-morning-subtitle { color: var(--muted); font-size: 0.8rem; }
+.briefing-morning-read { color: var(--success); font-size: 0.8rem; }
+.briefing-morning-loading { color: var(--muted); font-size: 0.8rem; font-style: italic; }
+
+.briefing-morning-text {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1rem;
+  color: var(--text); font-size: 0.85rem; line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.briefing-day-progress {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.5rem 0.75rem; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  font-size: 0.8rem; color: var(--muted); font-family: var(--mono);
+}
+.briefing-progress-pips { display: flex; gap: 0.4rem; }
+.briefing-pip { color: var(--border); font-size: 0.9rem; }
+.briefing-pip.pip-filled { color: var(--accent); }
+
+.briefing-events-queue { display: flex; flex-direction: column; gap: 0.5rem; }
+
+.briefing-event-card {
+  display: flex; flex-direction: column; gap: 0.4rem;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 0.75rem 1rem; cursor: pointer; text-align: left;
+  color: var(--text); font-family: var(--mono);
+  transition: border-color 0.15s, background 0.15s;
+}
+.briefing-event-card:hover:not(:disabled) { border-color: var(--accent); }
+.briefing-event-card:disabled { cursor: default; }
+
+.briefing-event-card-header { display: flex; gap: 0.5rem; align-items: center; }
+.briefing-severity-badge {
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em;
+  border: 1px solid; border-radius: 3px; padding: 0.1rem 0.4rem;
+}
+.briefing-required-tag {
+  font-size: 0.65rem; color: var(--warning); font-weight: 600;
+  letter-spacing: 0.05em;
+}
+.briefing-resolved-tag {
+  font-size: 0.65rem; color: var(--success); font-weight: 600;
+}
+
+.briefing-event-title { font-weight: 600; font-size: 0.9rem; }
+.briefing-event-summary { font-size: 0.8rem; color: var(--muted); line-height: 1.4; }
+.briefing-event-npcs { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+.briefing-npc-chip {
+  font-size: 0.65rem; background: var(--surface2); color: var(--muted);
+  padding: 0.1rem 0.4rem; border-radius: 3px; border: 1px solid var(--border);
+}
+
+.briefing-end-day-btn {
+  width: 100%; padding: 0.75rem; margin-top: 0.5rem;
+  background: var(--accent); color: var(--bg); border: none;
+  border-radius: var(--radius); font-family: var(--mono);
+  font-weight: 700; font-size: 0.9rem; cursor: pointer;
+  transition: opacity 0.15s;
+}
+.briefing-end-day-btn:hover { opacity: 0.85; }
+
+/* Event Active state */
+.briefing-event-active { display: flex; flex-direction: column; gap: 0.75rem; }
+.briefing-event-active-header { display: flex; flex-direction: column; gap: 0.5rem; }
+.briefing-back-btn {
+  background: none; border: 1px solid var(--border); color: var(--accent);
+  padding: 0.4rem 0.8rem; border-radius: var(--radius); cursor: pointer;
+  font-family: var(--mono); font-size: 0.8rem; align-self: flex-start;
+  transition: border-color 0.15s;
+}
+.briefing-back-btn:hover { border-color: var(--accent); }
+
+.briefing-event-title-block { display: flex; flex-direction: column; gap: 0.3rem; }
+.briefing-event-active-title { font-size: 1.1rem; font-weight: 700; color: var(--text); }
+.briefing-event-active-summary { font-size: 0.85rem; color: var(--muted); line-height: 1.5; }
+
+.briefing-event-choices {
+  display: flex; flex-direction: column; gap: 0.4rem;
+  padding: 0.75rem; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius);
+}
+.briefing-choice-btn {
+  width: 100%; padding: 0.6rem 0.8rem; text-align: left;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--text);
+  font-family: var(--mono); font-size: 0.85rem; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.briefing-choice-btn:hover:not(:disabled) {
+  border-color: var(--accent); background: rgba(74,158,255,0.06);
+}
+.briefing-choice-btn:disabled { opacity: 0.5; cursor: wait; }
+.briefing-choice-ignore { color: var(--muted); }
+
+/* Event Summary state */
+.briefing-event-summary { display: flex; flex-direction: column; gap: 0.75rem; }
+.briefing-summary-title { color: var(--success); font-size: 1rem; font-weight: 700; }
+.briefing-resolved-event-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 0.75rem 1rem;
+}
+.briefing-resolution-text { color: var(--muted); font-size: 0.85rem; margin-top: 0.3rem; }
+.briefing-progress-inline { color: var(--accent); font-size: 0.85rem; font-family: var(--mono); }
+
+/* Free action header */
+.briefing-free-action-header {
+  background: rgba(76,175,110,0.08); border: 1px solid var(--success);
+  border-radius: var(--radius); padding: 0.75rem 1rem;
+}
+.briefing-phase-label { color: var(--success); font-weight: 700; font-size: 0.85rem; }
+
+/* Loading skeleton */
+.briefing-loading { display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem 0; }
+.briefing-loading-cards { display: flex; flex-direction: column; gap: 0.5rem; }
+.briefing-skeleton {
+  height: 80px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  animation: briefing-pulse 1.5s ease-in-out infinite;
+}
+@keyframes briefing-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+.briefing-loading-text { text-align: center; color: var(--muted); font-size: 0.85rem; }

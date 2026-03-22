@@ -26,6 +26,7 @@ import TestPanel from './TestPanel'
 import DashboardLayout from './DashboardLayout'
 import DomesticTab from './DomesticTab'
 import BriefingSummaryCard from './BriefingSummaryCard'
+import BriefingScreen from './BriefingScreen'
 import ExileDashboard from './ExileDashboard'
 import LeakCrisisModal from './LeakCrisisModal'
 import BiographyModal from './BiographyModal'
@@ -1330,8 +1331,16 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               </div>
             )}
 
-            {/* Session 7B Step 4: Briefing Summary Card */}
-            <BriefingSummaryCard gs={gs} currentEvent={currentEvent} intercepts={intercepts} />
+            {/* 10B-1: Daily Briefing Screen replaces old summary card */}
+            <BriefingScreen
+              gameState={gs}
+              sessionId={sessionId}
+              currentDay={gs?.current_turn ?? 1}
+              currentEra={gs?.current_era ?? 1}
+              onEndDay={handleContinue}
+              onEventResolved={(evt, res) => console.log('[BRIEFING] Event resolved:', evt.id, res)}
+              onGsUpdate={setGs}
+            />
 
             {/* Session 7E: Summit Pending Banner */}
             {gs?.summit_due && !summitOpen && (
