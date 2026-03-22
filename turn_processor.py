@@ -1852,7 +1852,7 @@ def process_intel_budget(game_state, allocation):
 ALTERNATE_ENDING_CONDITIONS = {
     "democratic": {
         "priority": 4,
-        "any_turn": False,
+        "any_turn": True,
         "conditions": {"eu_min": 80, "no_press_suppression": True, "approval_min": 65},
         "label": "Democratic Transition",
         "flavor": "Europa democratized under your watch — history will be kind.",
@@ -1861,7 +1861,7 @@ ALTERNATE_ENDING_CONDITIONS = {
     },
     "retirement": {
         "priority": 3,
-        "any_turn": False,
+        "any_turn": True,
         "conditions": {"stability_min": 60, "approval_min": 50, "wealth_min": 20},
         "label": "Voluntary Retirement",
         "flavor": "You left on your own terms — rarer than it sounds.",
@@ -1870,7 +1870,7 @@ ALTERNATE_ENDING_CONDITIONS = {
     },
     "restoration_legacy": {
         "priority": 3,
-        "any_turn": False,
+        "any_turn": True,
         "conditions": {"stability_min": 55, "approval_min": 45, "restoration_return": True},
         "label": "Restoration Legacy",
         "flavor": "Exiled and returned — Europa remembers both the fall and the climb back.",
@@ -1879,7 +1879,7 @@ ALTERNATE_ENDING_CONDITIONS = {
     },
     "capture": {
         "priority": 2,
-        "any_turn": False,
+        "any_turn": True,
         "conditions": {"wealth_min": 50, "capture_triad": True},
         "label": "State Capture Complete",
         "flavor": "You didn't lose power. You became the state.",
@@ -1900,8 +1900,8 @@ ALTERNATE_ENDING_CONDITIONS = {
 
 def check_alternate_endings(game_state):
     """Check all alternate ending conditions in priority order.
-    Returns ending_key or None. Checked each EOT after consequences."""
-    is_final_turn = game_state.current_turn >= 10
+    Returns ending_key or None. Checked each EOT after consequences.
+    10A: Turn-count gates removed — conditions are sufficient in open-world."""
 
     # Check in priority order (highest first)
     endings_by_priority = sorted(
@@ -1911,9 +1911,6 @@ def check_alternate_endings(game_state):
     )
 
     for key, ending in endings_by_priority:
-        # Skip turn-10-only endings if not final turn
-        if not ending['any_turn'] and not is_final_turn:
-            continue
 
         conds = ending['conditions']
         met = True

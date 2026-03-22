@@ -33,6 +33,16 @@ const FIELDS = [
   // 9C: Additional fields for ending testing
   { key: 'return_attempts',        label: 'Return Attempts',    min: 0, max: 10,  step: 1,  type: 'number', gsPath: (gs) => gs?.return_attempts ?? 0 },
   { key: 'restoration_active',     label: 'Restoration (0/1)',  min: 0, max: 1,   step: 1,  type: 'range',  gsPath: (gs) => gs?.restoration_active ? 1 : 0 },
+  // 10C: Axis tier controls
+  { key: '_sep_axes',              label: 'AXIS TIERS',         type: 'separator' },
+  { key: 'military_tier',         label: 'Military Tier',       min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.military_tier ?? 0 },
+  { key: 'intelligence_tier',     label: 'Intelligence Tier',   min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.intelligence_tier ?? 0 },
+  { key: 'diplomatic_tier',       label: 'Diplomatic Tier',     min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.diplomatic_tier ?? 0 },
+  { key: 'domestic_surveillance_tier', label: 'Surveillance Tier', min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.domestic_surveillance_tier ?? 0 },
+  { key: 'media_tier',            label: 'Media Tier',          min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.media_tier ?? 0 },
+  { key: 'judicial_tier',         label: 'Judicial Tier',       min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.judicial_tier ?? 0 },
+  { key: 'extraction_tier',       label: 'Extraction Tier',     min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.extraction_tier ?? 0 },
+  { key: 'militia_tier',          label: 'Militia Tier',        min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.militia_tier ?? 0 },
   // 9.5A: Ending trigger fields
   { key: '_sep_ending',            label: 'ENDING TRIGGERS',    type: 'separator' },
   { key: 'current_turn',          label: 'Current Turn',        min: 1, max: 20,  step: 1,  type: 'number', gsPath: (gs) => gs?.current_turn ?? 1 },
@@ -161,6 +171,62 @@ export default function DebugPanel({ gs, sessionId, onClose, onGsUpdate }) {
               )}
             </div>
           ))}
+        </div>
+
+        {/* FIX 4: Budget bankruptcy warning */}
+        {values.budget < 5 && (
+          <div style={{
+            background: 'rgba(255, 180, 0, 0.15)',
+            border: '1px solid rgba(255, 180, 0, 0.4)',
+            borderRadius: '4px',
+            padding: '0.5rem 0.75rem',
+            margin: '0.5rem 0',
+            fontSize: '0.7rem',
+            color: '#ffb400',
+          }}>
+            ⚠️ Budget below $5B will trigger bankruptcy exile on next EOT
+          </div>
+        )}
+
+        {/* FIX 1: Ending Triggered display */}
+        <div style={{
+          borderTop: '1px solid var(--border, #333)',
+          margin: '0.75rem 0',
+          paddingTop: '0.5rem',
+        }}>
+          <div style={{
+            fontSize: '0.65rem', letterSpacing: '0.1em',
+            textTransform: 'uppercase', color: 'var(--muted, #888)',
+            marginBottom: '0.25rem',
+          }}>
+            Ending Triggered
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{
+              fontFamily: 'monospace', fontSize: '0.8rem',
+              color: gs?.ending_triggered ? '#ff6b6b' : 'var(--muted, #666)',
+            }}>
+              {gs?.ending_triggered || 'None'}
+            </span>
+            {gs?.ending_triggered && (
+              <button
+                className="debug-cancel-btn"
+                style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem' }}
+                onClick={async () => {
+                  try {
+                    await api.debugSetState(sessionId, { ending_triggered: null })
+                    const freshData = await api.getGame(sessionId)
+                    if (freshData.game_state) onGsUpdate(freshData.game_state)
+                    setResult('Cleared ending_triggered.')
+                  } catch (e) {
+                    setResult(`Error: ${e.message}`)
+                  }
+                }}
+              >
+                Clear Ending
+              </button>
+            )}
+          </div>
         </div>
 
         {/* 9C: Quick-set buttons for testing new endings */}

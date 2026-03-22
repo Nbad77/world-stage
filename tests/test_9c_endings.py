@@ -89,8 +89,8 @@ class TestStateCaptureEnding:
         result = check_alternate_endings(gs)
         assert result != "capture"
 
-    def test_state_capture_fails_before_final_turn(self):
-        """Should not trigger before turn 10 (any_turn=False)."""
+    def test_state_capture_triggers_any_turn(self):
+        """10A: Turn-count gate removed — capture triggers when conditions met at any turn."""
         gs = make_ending_gs(
             personal_wealth=55,
             constitutional_revision_active=True,
@@ -99,7 +99,7 @@ class TestStateCaptureEnding:
             current_turn=5,
         )
         result = check_alternate_endings(gs)
-        assert result != "capture"
+        assert result == "capture"
 
 
 class TestMartyrdomEnding:
@@ -241,8 +241,8 @@ class TestRestorationLegacyEnding:
         result = check_alternate_endings(gs)
         assert result != "restoration_legacy"
 
-    def test_restoration_legacy_fails_before_final_turn(self):
-        """Should not trigger before final turn (any_turn=False)."""
+    def test_restoration_legacy_triggers_any_turn(self):
+        """10A: Turn-count gate removed — restoration legacy triggers at any turn."""
         gs = make_ending_gs(
             restoration_active=False,
             exile_day=15,
@@ -252,7 +252,7 @@ class TestRestorationLegacyEnding:
             public_approval=50,
         )
         result = check_alternate_endings(gs)
-        assert result != "restoration_legacy"
+        assert result == "restoration_legacy"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
