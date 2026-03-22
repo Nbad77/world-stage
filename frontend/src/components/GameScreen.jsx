@@ -128,8 +128,9 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   // Stage 4: World events
   const [currentEvent, setCurrentEvent] = useState(initialData.current_event || null)
 
-  // 10B-2: Intel loading state per NPC
+  // 10B-2: Intel loading state per NPC and results
   const [intelLoading, setIntelLoading] = useState({})
+  const [intelResults, setIntelResults] = useState({})
 
   // Session 7A Step 5: Era transition + Historian
   const [eraTransitionSuggestion, setEraTransitionSuggestion] = useState(null)
@@ -783,7 +784,15 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     try {
       const result = await api.intelGetNpc(sessionId, npcKey)
       console.log('[10B-2] Intel result for', npcKey, ':', result)
-      // Refresh gs to get updated personal_wealth and relations
+      // Store intel result for inline display
+      setIntelResults(prev => ({
+        ...prev,
+        [npcKey]: {
+          text: result.intel_text || 'No actionable intelligence obtained.',
+          detected: result.detected || false,
+        }
+      }))
+      // Refresh gs to get updated budget and relations
       const data = await api.getGame(sessionId)
       setGs(data.game_state)
       if (result.detected) {
@@ -1284,7 +1293,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         />
       </div>
 
-      <DashboardLayout gs={gs} onShadowCabinet={() => setShadowCabinetOpen(true)} negotiatingNpc={negotiatingNpc} onHistorian={handleHistorianAssessment} historianLoading={historianLoading} onBiography={() => { console.log('[9B] opening draft biography from sidebar'); setShowBiography(true) }} onContact={phase === PHASE.DIALOGUE && !loading ? handlePlayerContact : null} contactsDisabled={loading || phase !== PHASE.DIALOGUE} activeTab={activeTab} onTabChange={setActiveTab} domesticContent={<DomesticTab gs={gs} sessionId={sessionId} onGsUpdate={setGs} />} onBackchannel={phase === PHASE.DIALOGUE ? handleOpenBackchannel : null} backchannelDisabled={loading || phase !== PHASE.DIALOGUE} onGetIntel={handleGetIntel} intelLoading={intelLoading} dialogue={dialogue}>
+      <DashboardLayout gs={gs} onShadowCabinet={() => setShadowCabinetOpen(true)} negotiatingNpc={negotiatingNpc} onHistorian={handleHistorianAssessment} historianLoading={historianLoading} onBiography={() => { console.log('[9B] opening draft biography from sidebar'); setShowBiography(true) }} onContact={phase === PHASE.DIALOGUE && !loading ? handlePlayerContact : null} contactsDisabled={loading || phase !== PHASE.DIALOGUE} activeTab={activeTab} onTabChange={setActiveTab} domesticContent={<DomesticTab gs={gs} sessionId={sessionId} onGsUpdate={setGs} />} onBackchannel={phase === PHASE.DIALOGUE ? handleOpenBackchannel : null} backchannelDisabled={loading || phase !== PHASE.DIALOGUE} onGetIntel={handleGetIntel} intelLoading={intelLoading} intelResults={intelResults} dialogue={dialogue}>
 
       {/* Session 7E: Summit replaces center panel content when open */}
       {summitOpen ? (

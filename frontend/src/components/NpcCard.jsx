@@ -4,7 +4,9 @@
  * Border color reflects relationship health.
  * Session 7A Step 1.  Session 8A: All 6 NPCs are active (no passive concept).
  * Session 7D Step 2: Backchannel button with detection risk.
+ * Session 10B-2: Urgent badges, expandable cables, GET INTEL with inline result.
  */
+import { useState } from 'react'
 
 // Client-side detection risk calculator (mirrors npc_engine.calculate_detection_risk)
 const BASE_RISK = { usa: 0.25, arabia: 0.20, eu: 0.15, dprg: 0.10, russia: 0.20, china: 0.18 }
@@ -35,7 +37,22 @@ function riskTier(risk) {
 const MIN_INTEL_TIER = 1
 const INTEL_COST = 1.5
 
-export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWarning, isPlaceholder, color, onContact, contactDisabled, onBackchannel, backchannelDisabled, onGetIntel, intelLoading, cable, gs }) {
+// Detect urgent conditions per NPC
+function getUrgentState(npcKey, gs) {
+  if (!gs) return null
+  if (npcKey === 'usa' && gs.usa_sanctions_active) return { label: 'SANCTIONS', severity: 'high' }
+  if (npcKey === 'arabia' && gs.arabia_embargo_active) return { label: 'EMBARGO', severity: 'high' }
+  if (npcKey === 'russia' && gs.volkov_trap_stage > 0) return { label: 'VOLKOV TRAP', severity: 'critical' }
+  // Low relations = diplomatic crisis
+  const rel = (gs.relations || {})[npcKey] ?? 50
+  if (rel < 15) return { label: 'CRISIS', severity: 'critical' }
+  if (rel < 25) return { label: 'TENSION', severity: 'high' }
+  return null
+}
+
+export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWarning, isPlaceholder, color, onContact, contactDisabled, onBackchannel, backchannelDisabled, onGetIntel, intelLoading, intelResult, cable, gs }) {
+  const [cableExpanded, setCableExpanded] = useState(false)
+
   // Determine health tier
   const healthClass = isPlaceholder ? 'placeholder'
     : relation >= 60 ? 'health-good'
@@ -59,8 +76,16 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
   // Portrait background color
   const portraitBg = isPlaceholder ? '#1a1a1a' : (color || 'var(--ws-chrome)')
 
+  // Urgent state
+  const urgent = getUrgentState(npcKey, gs)
+
+  // Cable display
+  const cableText = cable || ''
+  const cableTeaser = cableText.length > 100 ? cableText.slice(0, 97) + '...' : cableText
+  const showExpandToggle = cableText.length > 100
+
   return (
-    <div className={`npc-card ${healthClass}`}>
+    <div className={`npc-card ${healthClass} ${urgent ? 'npc-card-urgent' : ''}`}>
       <div className="npc-card-header">
         <div
           className="npc-portrait"
@@ -68,7 +93,7 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
         >
           {flag}
         </div>
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div className="npc-card-name" style={isPlaceholder ? { color: '#555' } : {}}>
             {label}
           </div>
@@ -76,6 +101,12 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
             <div className="npc-card-subtitle">{subtitle}</div>
           )}
         </div>
+        {/* Urgent badge */}
+        {urgent && (
+          <span className={`npc-urgent-badge urgent-${urgent.severity}`}>
+            {urgent.label}
+          </span>
+        )}
       </div>
 
       {isPlaceholder ? (
@@ -91,59 +122,84 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
           <div className="npc-card-status">
             {statusText} ({Math.round(relation)})
           </div>
-          {hasWarning && (
-            <div className="npc-card-warning">
-              {npcKey === 'usa' ? '⚠ Sanctions active' : '⚠ Embargo active'}
+
+          {/* Diplomatic cable — clickable to expand */}
+          {cableText && (
+            <div
+              className={`npc-cable-area ${cableExpanded ? 'expanded' : ''} ${showExpandToggle ? 'clickable' : ''}`}
+              onClick={() => showExpandToggle && setCableExpanded(!cableExpanded)}
+            >
+              <span className="npc-cable-text">
+                {cableExpanded ? cableText : cableTeaser}
+              </span>
+              {showExpandToggle && (
+                <span className="npc-cable-toggle">{cableExpanded ? '▲' : '▼'}</span>
+              )}
             </div>
           )}
-          {/* Contact button — all NPCs */}
-          {onContact && (
-            <button
-              className="npc-contact-btn"
-              onClick={() => onContact(npcKey)}
-              disabled={contactDisabled}
-              title={contactDisabled ? 'Contact unavailable' : `Open diplomatic channel with ${label}`}
-            >
-              Contact
-            </button>
-          )}
-          {/* Session 7D: Backchannel button — all NPCs */}
-          {onBackchannel && gs && (() => {
-            const risk = calcDetectionRisk(npcKey, gs)
-            const tier = riskTier(risk)
-            return (
+
+          {/* Action buttons */}
+          <div className="npc-action-buttons">
+            {/* Contact button */}
+            {onContact && (
               <button
-                className="npc-backchannel-btn"
-                onClick={() => onBackchannel(npcKey)}
-                disabled={backchannelDisabled}
-                title={backchannelDisabled ? 'Backchannel unavailable' : `Open covert channel with ${label}`}
-                style={{ '--risk-color': tier.color }}
+                className="npc-contact-btn"
+                onClick={() => onContact(npcKey)}
+                disabled={contactDisabled}
+                title={contactDisabled ? 'Contact unavailable' : `Open diplomatic channel with ${label}`}
               >
-                🔒 BACKCHANNEL — <span className="backchannel-risk-label" style={{ color: tier.color }}>{tier.label}</span>
+                Contact
               </button>
-            )
-          })()}
-          {/* 10B-2: GET INTEL button */}
-          {onGetIntel && gs && (() => {
-            const intelGated = (gs.intelligence_tier ?? 0) < MIN_INTEL_TIER
-            return (
-              <button
-                className={`npc-intel-btn ${intelGated ? 'locked' : ''}`}
-                onClick={() => onGetIntel(npcKey)}
-                disabled={intelGated || intelLoading}
-              >
-                {intelGated
-                  ? `🔒 INTEL — Requires Intel Tier ${MIN_INTEL_TIER}`
-                  : intelLoading
-                    ? '📡 INTERCEPTING...'
-                    : `📡 GET INTEL — $${INTEL_COST}B budget`}
-              </button>
-            )
-          })()}
-          {/* 10B-2: Diplomatic cable teaser */}
-          <div className="npc-cable-teaser">
-            <span className="npc-cable-text">{cable || 'No recent communications.'}</span>
+            )}
+            {/* Backchannel button */}
+            {onBackchannel && gs && (() => {
+              const risk = calcDetectionRisk(npcKey, gs)
+              const tier = riskTier(risk)
+              return (
+                <button
+                  className="npc-backchannel-btn"
+                  onClick={() => onBackchannel(npcKey)}
+                  disabled={backchannelDisabled}
+                  title={backchannelDisabled ? 'Backchannel unavailable' : `Open covert channel with ${label}`}
+                  style={{ '--risk-color': tier.color }}
+                >
+                  🔒 BACKCHANNEL — <span className="backchannel-risk-label" style={{ color: tier.color }}>{tier.label}</span>
+                </button>
+              )
+            })()}
+            {/* GET INTEL button */}
+            {onGetIntel && gs && (() => {
+              const intelGated = (gs.intelligence_tier ?? 0) < MIN_INTEL_TIER
+              return (
+                <>
+                  <button
+                    className={`npc-intel-btn ${intelGated ? 'locked' : ''}`}
+                    onClick={() => onGetIntel(npcKey)}
+                    disabled={intelGated || intelLoading}
+                  >
+                    {intelGated
+                      ? `🔒 INTEL — Requires Intel Tier ${MIN_INTEL_TIER}`
+                      : intelLoading
+                        ? '📡 INTERCEPTING...'
+                        : `📡 GET INTEL — $${INTEL_COST}B`}
+                  </button>
+                  {!intelGated && (
+                    <div className="npc-intel-risk-text">Detection risk: 10%</div>
+                  )}
+                </>
+              )
+            })()}
           </div>
+
+          {/* Intel result inline */}
+          {intelResult && (
+            <div className={`npc-intel-result ${intelResult.detected ? 'detected' : ''}`}>
+              <div className="npc-intel-result-header">
+                {intelResult.detected ? '⚠ DETECTED — ' : '📡 '}Intel Report
+              </div>
+              <div className="npc-intel-result-text">{intelResult.text}</div>
+            </div>
+          )}
         </>
       )}
     </div>

@@ -33,7 +33,7 @@
 @media (min-width: 1024px) {
   .dashboard-shell {
     display: grid;
-    grid-template-columns: 260px 1fr 320px;
+    grid-template-columns: 260px 1fr 420px;
     height: 100vh;
     overflow: hidden;
   }
@@ -2074,17 +2074,117 @@
   background: transparent;
 }
 
-/* 10B-2: Diplomatic cable teaser */
-.npc-cable-teaser {
-  margin-top: 4px;
-  padding: 4px 8px;
+/* 10B-2: Urgent badge on NPC card */
+.npc-card-urgent {
+  border-color: var(--warning) !important;
+  box-shadow: 0 0 8px rgba(255, 183, 77, 0.15);
+}
+.npc-urgent-badge {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.npc-urgent-badge.urgent-high {
+  background: rgba(255, 183, 77, 0.15);
+  color: #ffb74d;
+  border: 1px solid rgba(255, 183, 77, 0.3);
+}
+.npc-urgent-badge.urgent-critical {
+  background: rgba(239, 83, 80, 0.15);
+  color: #ef5350;
+  border: 1px solid rgba(239, 83, 80, 0.3);
+  animation: urgentPulse 2s ease-in-out infinite;
+}
+@keyframes urgentPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* 10B-2: Diplomatic cable area — expandable */
+.npc-cable-area {
+  margin-top: 6px;
+  padding: 6px 10px;
   background: rgba(255, 255, 255, 0.03);
-  border-left: 2px solid var(--border);
-  font-size: 0.72rem;
+  border-left: 2px solid var(--ws-chrome);
+  font-size: 0.75rem;
   color: var(--muted);
-  line-height: 1.4;
+  line-height: 1.5;
+  border-radius: 0 4px 4px 0;
+  transition: all 0.2s ease;
+  position: relative;
+}
+.npc-cable-area.clickable {
+  cursor: pointer;
+}
+.npc-cable-area.clickable:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-left-color: var(--ws-gold);
+}
+.npc-cable-area.expanded {
+  background: rgba(255, 255, 255, 0.04);
+  border-left-color: var(--ws-gold);
 }
 .npc-cable-text {
+  font-style: italic;
+}
+.npc-cable-toggle {
+  font-size: 0.6rem;
+  margin-left: 4px;
+  opacity: 0.5;
+}
+
+/* 10B-2: Action buttons container */
+.npc-action-buttons {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* 10B-2: Intel detection risk small text */
+.npc-intel-risk-text {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  color: var(--muted);
+  text-align: center;
+  opacity: 0.6;
+  margin-top: 1px;
+}
+
+/* 10B-2: Intel result inline display */
+.npc-intel-result {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: rgba(74, 158, 255, 0.06);
+  border: 1px solid rgba(74, 158, 255, 0.15);
+  border-radius: 4px;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--text-secondary, #c8c8c8);
+}
+.npc-intel-result.detected {
+  background: rgba(239, 83, 80, 0.08);
+  border-color: rgba(239, 83, 80, 0.25);
+}
+.npc-intel-result-header {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #4a9eff;
+  margin-bottom: 4px;
+}
+.npc-intel-result.detected .npc-intel-result-header {
+  color: #ef5350;
+}
+.npc-intel-result-text {
   font-style: italic;
 }
 
