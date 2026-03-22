@@ -5201,10 +5201,23 @@ def generate_event_dialogue(game_state, event: dict) -> list:
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import threading
 
-    applicable = event.get("applicable_npcs", [])
-    if not applicable:
+    # NPC name keys → country keys used by _EVENT_NPC_PROMPTS
+    NPC_TO_COUNTRY = {
+        "bill": "usa",
+        "marsha": "eu",
+        "sadam": "arabia",
+        "ji_won": "dprg",
+        "volkov": "russia",
+        "wei": "china",
+    }
+
+    raw_applicable = event.get("applicable_npcs", [])
+    if not raw_applicable:
         # Every country has a position on world events — use all six NPCs
         applicable = ["usa", "arabia", "eu", "dprg", "russia", "china"]
+    else:
+        # Translate NPC names to country keys; pass through if already a country key
+        applicable = [NPC_TO_COUNTRY.get(npc, npc) for npc in raw_applicable]
 
     event_title = event.get("title", "Unknown Event")
     event_summary = event.get("summary", "")
