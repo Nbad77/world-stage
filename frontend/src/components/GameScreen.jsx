@@ -868,6 +868,71 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     }
   }
 
+  // Model C: Contact request for low-relations NPCs (< 40)
+  const [contactLoading, setContactLoading] = useState({})
+  const [contactResults, setContactResults] = useState({})
+
+  async function handleContactRequest(npcKey) {
+    if (!npcKey || contactLoading[npcKey]) return
+    setContactLoading(prev => ({ ...prev, [npcKey]: true }))
+    try {
+      const res = await api.contactRequest(sessionId, npcKey)
+      setContactResults(prev => ({
+        ...prev,
+        [npcKey]: {
+          text: res.acknowledgment,
+          gate_message: res.gate_message || null,
+          type: 'request',
+        },
+      }))
+      // Refresh gs to get contact_requested updated
+      const fresh = await api.getGame(sessionId)
+      if (fresh?.game_state) setGs(fresh.game_state)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setContactLoading(prev => ({ ...prev, [npcKey]: false }))
+    }
+  }
+
+  // Model C: Direct contact for relations >= 40 or crisis
+  async function handleDirectContact(npcKey) {
+    if (!npcKey || contactLoading[npcKey]) return
+    const rel = gs?.relations?.[npcKey] ?? 50
+    const isCrisis = (
+      (npcKey === 'usa' && gs?.usa_sanctions_active) ||
+      (npcKey === 'arabia' && gs?.arabia_embargo_active) ||
+      (npcKey === 'russia' && (gs?.volkov_trap_stage ?? 0) > 0) ||
+      rel < 15
+    )
+
+    // If relations >= 40 or crisis, use Model C direct contact
+    // which generates tone-appropriate dialogue
+    if (rel >= 40 || isCrisis) {
+      setContactLoading(prev => ({ ...prev, [npcKey]: true }))
+      try {
+        const res = await api.directContact(sessionId, npcKey)
+        setContactResults(prev => ({
+          ...prev,
+          [npcKey]: {
+            text: res.dialogue,
+            type: res.tone_tier,
+          },
+        }))
+        // Also open negotiation panel via existing flow
+        handlePlayerContact(npcKey)
+      } catch (e) {
+        // Fall back to existing negotiate flow
+        handlePlayerContact(npcKey)
+      } finally {
+        setContactLoading(prev => ({ ...prev, [npcKey]: false }))
+      }
+    } else {
+      // Should not reach here — NpcCard handles gating
+      handleContactRequest(npcKey)
+    }
+  }
+
   // Session 7D Step 2: Open backchannel modal
   function handleOpenBackchannel(npcKey) {
     if (!npcKey) return
@@ -1293,7 +1358,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         />
       </div>
 
-      <DashboardLayout gs={gs} onShadowCabinet={() => setShadowCabinetOpen(true)} negotiatingNpc={negotiatingNpc} onHistorian={handleHistorianAssessment} historianLoading={historianLoading} onBiography={() => { console.log('[9B] opening draft biography from sidebar'); setShowBiography(true) }} onContact={phase === PHASE.DIALOGUE && !loading ? handlePlayerContact : null} contactsDisabled={loading || phase !== PHASE.DIALOGUE} activeTab={activeTab} onTabChange={setActiveTab} domesticContent={<DomesticTab gs={gs} sessionId={sessionId} onGsUpdate={setGs} />} onBackchannel={phase === PHASE.DIALOGUE ? handleOpenBackchannel : null} backchannelDisabled={loading || phase !== PHASE.DIALOGUE} onGetIntel={handleGetIntel} intelLoading={intelLoading} intelResults={intelResults} dialogue={dialogue}>
+      <DashboardLayout gs={gs} onShadowCabinet={() => setShadowCabinetOpen(true)} negotiatingNpc={negotiatingNpc} onHistorian={handleHistorianAssessment} historianLoading={historianLoading} onBiography={() => { console.log('[9B] opening draft biography from sidebar'); setShowBiography(true) }} onContact={phase === PHASE.DIALOGUE && !loading ? handleDirectContact : null} onContactRequest={handleContactRequest} contactLoading={contactLoading} contactResults={contactResults} contactsDisabled={loading || phase !== PHASE.DIALOGUE} activeTab={activeTab} onTabChange={setActiveTab} domesticContent={<DomesticTab gs={gs} sessionId={sessionId} onGsUpdate={setGs} />} onBackchannel={phase === PHASE.DIALOGUE ? handleOpenBackchannel : null} backchannelDisabled={loading || phase !== PHASE.DIALOGUE} onGetIntel={handleGetIntel} intelLoading={intelLoading} intelResults={intelResults} dialogue={dialogue}>
 
       {/* Session 7E: Summit replaces center panel content when open */}
       {summitOpen ? (

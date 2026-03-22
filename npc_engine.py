@@ -1227,6 +1227,157 @@ def generate_contact_dialogue(game_state, npc_id, reason, tone='neutral'):
         return reason
 
 
+# ─── Model C Contact System ─────────────────────────────────────────────────
+
+_NPC_NAMES = {
+    'usa': 'Bill Hartwell', 'arabia': 'Sadam', 'eu': 'Marsha',
+    'dprg': 'Ji-won Ryang', 'russia': 'Nikolai Volkov', 'china': 'Wei Jianming'
+}
+
+_NPC_SYSTEM_MAP = {
+    'usa': USA_SYSTEM_PROMPT, 'arabia': SADAM_SYSTEM_PROMPT,
+    'eu': EU_SYSTEM_PROMPT, 'dprg': JIWON_SYSTEM_PROMPT,
+    'russia': VOLKOV_SYSTEM_PROMPT, 'china': WEI_SYSTEM_PROMPT,
+}
+
+
+def generate_contact_request_ack(game_state, npc_id):
+    """
+    Model C: Below-40 relations — NPC sends a terse diplomatic acknowledgment.
+    Returns a short formal acknowledgment in NPC voice (1-2 sentences).
+    """
+    npc_name = _NPC_NAMES.get(npc_id, npc_id)
+    rel = game_state.relations.get(npc_id, 50)
+    base_prompt = _NPC_SYSTEM_MAP.get(npc_id, f"You are {npc_name}.")
+
+    system = (
+        f"{base_prompt}\n\n"
+        f"CONTACT REQUEST MODE: Europa's President has requested a meeting but relations are low ({rel}/100). "
+        f"Write a VERY brief (1-2 sentences) formal, non-committal acknowledgment of receiving the request. "
+        f"Be terse and diplomatic. Do not agree to anything. Do not refuse outright. "
+        f"Stay in character. Plain text only, no markdown."
+    )
+    user_content = (
+        f"Relations: {rel}/100. Europa has requested a diplomatic meeting.\n"
+        f"Write your terse acknowledgment."
+    )
+
+    try:
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            return f"{npc_name} has received your diplomatic request and will be in touch."
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=MODEL, max_tokens=80, system=system,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        text = response.content[0].text.strip()
+        text = re.sub(r'\*[^*]+\*', '', text).strip()
+        text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+        _token_log["haiku_calls"] = _token_log.get("haiku_calls", 0) + 1
+        return text if text else f"{npc_name} has received your diplomatic request and will be in touch."
+    except Exception as e:
+        print(f"  [npc_engine] Contact request ack failed for {npc_id}: {e}")
+        return f"{npc_name} has received your diplomatic request and will be in touch."
+
+
+def generate_model_c_contact(game_state, npc_id):
+    """
+    Model C: Relationship-gated contact dialogue.
+    Generates tone-appropriate NPC response based on current relations.
+    40-54: professional/transactional
+    55-69: warmer, more candid
+    70-89: warm, volunteers information
+    90+: partner tone, direct and substantive
+    Crisis conditions always generate urgent tone regardless of relations.
+    """
+    npc_name = _NPC_NAMES.get(npc_id, npc_id)
+    rel = game_state.relations.get(npc_id, 50)
+    base_prompt = _NPC_SYSTEM_MAP.get(npc_id, f"You are {npc_name}.")
+
+    # Check crisis conditions — override tone
+    _crisis = False
+    if npc_id == 'usa' and getattr(game_state, 'usa_sanctions_active', False):
+        _crisis = True
+        tone_instruction = "URGENT: Sanctions are active. Be coercive and reference the ongoing situation."
+    elif npc_id == 'arabia' and getattr(game_state, 'arabia_embargo_active', False):
+        _crisis = True
+        tone_instruction = "URGENT: Embargo is active. Be cold and disappointed."
+    elif npc_id == 'russia' and getattr(game_state, 'volkov_trap_stage', 0) > 0:
+        _crisis = True
+        tone_instruction = "URGENT: The Volkov trap is active. Reference your strategic positioning."
+    elif rel < 15:
+        _crisis = True
+        tone_instruction = "CRISIS: Relations are critically low. Be direct about the gravity of the situation."
+    # TODO: modify gate by soft_power_score
+    elif rel >= 90:
+        tone_instruction = (
+            "PARTNER TONE: Address Europa's leader as a trusted partner. Be direct, less formal, "
+            "more substantive. Share real assessments, not diplomatic pleasantries."
+        )
+    elif rel >= 70:
+        tone_instruction = (
+            "WARM TONE: Relations are strong. Be noticeably warm and candid. "
+            "Volunteer information you might normally hold back. Be honest about your actual position."
+        )
+    elif rel >= 55:
+        tone_instruction = (
+            "CANDID TONE: Relations are positive. Be warmer than strictly professional. "
+            "Show some candor about your actual interests and concerns."
+        )
+    else:
+        tone_instruction = (
+            "PROFESSIONAL TONE: Relations are merely adequate. Be transactional and formal. "
+            "Stick to business. Don't volunteer extra information."
+        )
+
+    stability = getattr(game_state, 'stability', 50)
+    regime = getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy')
+
+    system = (
+        f"{base_prompt}\n\n"
+        f"DIRECT CONTACT MODE: Europa's President has opened a direct channel with you. "
+        f"{tone_instruction}\n"
+        f"Write 2-4 sentences responding to the contact. Stay in character. "
+        f"Reference something specific about the current state of affairs. "
+        f"Plain text only, no markdown, no asterisks."
+    )
+    user_content = (
+        f"Relations: {rel}/100. Europa stability: {stability}%. Regime: {regime}.\n"
+        f"Europa's President has initiated direct contact. Respond in character."
+    )
+
+    try:
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            # Fallback based on relation level
+            if rel >= 70:
+                return f"{npc_name} welcomes the contact and is ready to discuss matters of mutual interest."
+            elif rel >= 40:
+                return f"{npc_name} acknowledges the diplomatic channel and is prepared to listen."
+            else:
+                return f"{npc_name} receives the contact with measured formality."
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        _max_tok = 200 if _crisis else 150
+        response = client.messages.create(
+            model=MODEL, max_tokens=_max_tok, system=system,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        text = response.content[0].text.strip()
+        text = re.sub(r'\*[^*]+\*', '', text).strip()
+        text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+        text = re.sub(r'^#{1,4}\s+', '', text, flags=re.MULTILINE)
+        text = re.sub(r'^-{3,}$', '', text, flags=re.MULTILINE)
+        text = re.sub(r'\n{2,}', '\n', text).strip()
+        _token_log["haiku_calls"] = _token_log.get("haiku_calls", 0) + 1
+        return text if text else f"{npc_name} acknowledges the contact."
+    except Exception as e:
+        print(f"  [npc_engine] Model C contact failed for {npc_id}: {e}")
+        return f"{npc_name} acknowledges the diplomatic contact."
+
+
 def generate_intercept_comments(game_state, threshold_label):
     """
     Generate API-powered intercept messages when personal_wealth crosses a threshold.

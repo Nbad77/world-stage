@@ -50,7 +50,7 @@ function getUrgentState(npcKey, gs) {
   return null
 }
 
-export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWarning, isPlaceholder, color, onContact, contactDisabled, onBackchannel, backchannelDisabled, onGetIntel, intelLoading, intelResult, cable, gs }) {
+export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWarning, isPlaceholder, color, onContact, onContactRequest, contactDisabled, contactLoading, contactResult, onBackchannel, backchannelDisabled, onGetIntel, intelLoading, intelResult, cable, gs }) {
   const [cableExpanded, setCableExpanded] = useState(false)
 
   // Determine health tier
@@ -78,6 +78,17 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
 
   // Urgent state
   const urgent = getUrgentState(npcKey, gs)
+
+  // Model C: determine contact mode based on relations and crisis
+  const isCrisis = (
+    (npcKey === 'usa' && gs?.usa_sanctions_active) ||
+    (npcKey === 'arabia' && gs?.arabia_embargo_active) ||
+    (npcKey === 'russia' && (gs?.volkov_trap_stage ?? 0) > 0) ||
+    relation < 15
+  )
+  // TODO: modify gate by soft_power_score
+  const canDirectContact = relation >= 40 || isCrisis
+  const alreadyRequested = !!(gs?.contact_requested || {})[npcKey]
 
   // Cable display — teaser at 120 chars, sentence-aware truncation
   const cableText = cable || ''
@@ -142,16 +153,38 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
 
           {/* Action buttons */}
           <div className="npc-action-buttons">
-            {/* Contact button */}
-            {onContact && (
-              <button
-                className="npc-contact-btn"
-                onClick={() => onContact(npcKey)}
-                disabled={contactDisabled}
-                title={contactDisabled ? 'Contact unavailable' : `Open diplomatic channel with ${label}`}
-              >
-                Contact
-              </button>
+            {/* Model C: Contact / Request Meeting based on relations */}
+            {canDirectContact ? (
+              onContact && (
+                <button
+                  className={`npc-contact-btn ${isCrisis ? 'crisis' : ''}`}
+                  onClick={() => onContact(npcKey)}
+                  disabled={contactDisabled || contactLoading}
+                  title={contactDisabled ? 'Contact unavailable' : `Open diplomatic channel with ${label}`}
+                >
+                  {contactLoading ? 'Connecting...' : isCrisis ? '⚠ URGENT CONTACT' : 'CONTACT'}
+                </button>
+              )
+            ) : (
+              onContactRequest && (
+                <button
+                  className={`npc-contact-btn request-meeting ${alreadyRequested ? 'requested' : ''}`}
+                  onClick={() => !alreadyRequested && onContactRequest(npcKey)}
+                  disabled={contactDisabled || contactLoading || alreadyRequested}
+                  title={alreadyRequested ? 'Meeting already requested today' : `Request diplomatic meeting with ${label}`}
+                >
+                  {contactLoading ? 'Requesting...' : alreadyRequested ? '✓ Meeting Requested' : 'Request Meeting'}
+                </button>
+              )
+            )}
+            {/* Contact result inline */}
+            {contactResult && (
+              <div className={`npc-contact-result ${contactResult.type || ''}`}>
+                <div className="npc-contact-result-text">{contactResult.text}</div>
+                {contactResult.gate_message && (
+                  <div className="npc-contact-gate-msg">{contactResult.gate_message}</div>
+                )}
+              </div>
             )}
             {/* Backchannel button */}
             {onBackchannel && gs && (() => {

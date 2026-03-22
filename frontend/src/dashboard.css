@@ -605,6 +605,53 @@
   opacity: 0.3;
   cursor: not-allowed;
 }
+/* Model C: Crisis contact — red accent */
+.npc-contact-btn.crisis {
+  background: rgba(239, 83, 80, 0.15);
+  border-color: rgba(239, 83, 80, 0.4);
+  color: #ef5350;
+}
+.npc-contact-btn.crisis:hover:not(:disabled) {
+  background: rgba(239, 83, 80, 0.25);
+  border-color: rgba(239, 83, 80, 0.6);
+}
+/* Model C: Request Meeting — dimmer style for sub-40 relations */
+.npc-contact-btn.request-meeting {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.5);
+}
+.npc-contact-btn.request-meeting:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.7);
+}
+.npc-contact-btn.request-meeting.requested {
+  background: rgba(212, 175, 55, 0.08);
+  border-color: rgba(212, 175, 55, 0.2);
+  color: rgba(212, 175, 55, 0.5);
+}
+/* Contact result inline display */
+.npc-contact-result {
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-left: 2px solid var(--ws-gold);
+  border-radius: 0 4px 4px 0;
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+.npc-contact-result-text {
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.8);
+}
+.npc-contact-gate-msg {
+  margin-top: 3px;
+  font-size: 0.58rem;
+  color: rgba(255, 255, 255, 0.4);
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+}
 
 /* ── Placeholder cards (Russia, China) ─────────────────────────────────── */
 .npc-card-coming {

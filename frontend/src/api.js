@@ -439,4 +439,12 @@ export const api = {
   /** POST /game/{id}/briefing/cables — diplomatic cables for all NPCs */
   briefingCables: (id) =>
     request('POST', `/game/${id}/briefing/cables`),
+
+  /** POST /game/{id}/diplomacy/contact-request — low-relations meeting request */
+  contactRequest: (id, npc_id) =>
+    request('POST', `/game/${id}/diplomacy/contact-request`, { npc_id }),
+
+  /** POST /game/{id}/diplomacy/contact — direct contact (relations >= 40 or crisis) */
+  directContact: (id, npc_id) =>
+    request('POST', `/game/${id}/diplomacy/contact`, { npc_id }),
 }

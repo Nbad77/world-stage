@@ -8671,3 +8671,111 @@ async def get_diplomatic_cables(session_id: str, user: User = Depends(get_option
     _save_gs(session_id, fresh_gs)
 
     return {"cables": cables, "cached": False}
+
+
+# ─── Model C Contact System ─────────────────────────────────────────────────
+
+@app.post("/game/{session_id}/diplomacy/contact-request")
+async def diplomacy_contact_request(session_id: str, request: Request, user: User = Depends(get_optional_user)):
+    """
+    Model C: Player requests meeting with NPC when relations < 40.
+    Returns a terse NPC acknowledgment. Does not open negotiation.
+    """
+    _verify_game_ownership(session_id, user)
+    body = await request.json()
+    npc_id = body.get("npc_id")
+    if not npc_id:
+        raise HTTPException(400, "npc_id required")
+
+    gs = _load_gs(session_id)
+    rel = gs.relations.get(npc_id, 50)
+
+    # Only for below-40 relations (crisis conditions bypass this gate)
+    _crisis = (
+        (npc_id == 'usa' and getattr(gs, 'usa_sanctions_active', False)) or
+        (npc_id == 'arabia' and getattr(gs, 'arabia_embargo_active', False)) or
+        (npc_id == 'russia' and getattr(gs, 'volkov_trap_stage', 0) > 0) or
+        rel < 15
+    )
+    if rel >= 40 or _crisis:
+        raise HTTPException(400, "Use /diplomacy/contact for relations >= 40 or crisis conditions")
+
+    # Check if already requested today
+    contact_req = getattr(gs, 'contact_requested', {})
+    if npc_id in contact_req:
+        return {
+            "already_requested": True,
+            "acknowledgment": f"You have already requested a meeting with this leader today.",
+            "npc_id": npc_id,
+        }
+
+    import asyncio
+    from npc_engine import generate_contact_request_ack
+    ack = await asyncio.to_thread(generate_contact_request_ack, gs, npc_id)
+
+    # Record in game state
+    gs.contact_requested[npc_id] = getattr(gs, 'current_turn', 1)
+    _save_gs(session_id, gs)
+
+    print(f"  [Model C] Contact request from player to {npc_id} (relations={rel})")
+    return {
+        "already_requested": False,
+        "acknowledgment": ack,
+        "npc_id": npc_id,
+        "relations": rel,
+        "gate_message": "Direct dialogue requires relations above 40",
+    }
+
+
+@app.post("/game/{session_id}/diplomacy/contact")
+async def diplomacy_contact(session_id: str, request: Request, user: User = Depends(get_optional_user)):
+    """
+    Model C: Player initiates direct contact with NPC.
+    Requires relations >= 40, OR active crisis condition.
+    Generates relationship-gated dialogue in NPC voice.
+    """
+    _verify_game_ownership(session_id, user)
+    body = await request.json()
+    npc_id = body.get("npc_id")
+    if not npc_id:
+        raise HTTPException(400, "npc_id required")
+
+    gs = _load_gs(session_id)
+    rel = gs.relations.get(npc_id, 50)
+
+    # Crisis conditions always allow contact
+    _crisis = (
+        (npc_id == 'usa' and getattr(gs, 'usa_sanctions_active', False)) or
+        (npc_id == 'arabia' and getattr(gs, 'arabia_embargo_active', False)) or
+        (npc_id == 'russia' and getattr(gs, 'volkov_trap_stage', 0) > 0) or
+        rel < 15
+    )
+
+    # TODO: modify gate by soft_power_score
+    if rel < 40 and not _crisis:
+        raise HTTPException(403, f"Relations too low ({rel}/100). Use contact-request instead.")
+
+    import asyncio
+    from npc_engine import generate_model_c_contact
+    dialogue = await asyncio.to_thread(generate_model_c_contact, gs, npc_id)
+
+    # Determine tone tier for frontend display
+    if _crisis:
+        tone_tier = "crisis"
+    elif rel >= 90:
+        tone_tier = "partner"
+    elif rel >= 70:
+        tone_tier = "warm"
+    elif rel >= 55:
+        tone_tier = "candid"
+    else:
+        tone_tier = "professional"
+
+    print(f"  [Model C] Direct contact with {npc_id} (relations={rel}, tone={tone_tier})")
+    return {
+        "npc_id": npc_id,
+        "dialogue": dialogue,
+        "relations": rel,
+        "tone_tier": tone_tier,
+        "crisis": _crisis,
+    }

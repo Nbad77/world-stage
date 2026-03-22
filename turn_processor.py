@@ -5675,6 +5675,7 @@ def apply_end_of_turn_effects(game_state):
     game_state.event_dialogues = {}
     game_state.cables_generated_today = False
     game_state.intel_ops_today = []
+    game_state.contact_requested = {}  # Reset daily contact requests
 
     # Unlock declarations at day 5
     if game_state.current_turn >= 5 and getattr(game_state, 'declarations_available', 0) == 0:

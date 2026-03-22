@@ -804,6 +804,9 @@ class GameState:
         self.cables_generated_today = False
         self.intel_ops_today = []       # [{target, detected}]
 
+        # 10B-2 Model C: Contact request tracking for low-relations NPCs
+        self.contact_requested = {}     # {npc_id: day_requested}
+
         print(f"[10B-1] Daily briefing fields initialized")
 
     def record_action(self, choice_type, npc_target=None):
@@ -1592,6 +1595,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'diplomatic_cables': getattr(self, 'diplomatic_cables', {}),
             'cables_generated_today': getattr(self, 'cables_generated_today', False),
             'intel_ops_today': getattr(self, 'intel_ops_today', []),
+            'contact_requested': getattr(self, 'contact_requested', {}),
         }
 
     @classmethod
@@ -2080,6 +2084,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.diplomatic_cables = data.get('diplomatic_cables', {})
         gs.cables_generated_today = data.get('cables_generated_today', False)
         gs.intel_ops_today = data.get('intel_ops_today', [])
+        gs.contact_requested = data.get('contact_requested', {})
         if 'daily_events' not in data:
             print("  [game_state] 10B-1 BRIEFING FIELDS MIGRATED: added defaults to old save")
         if 'ops_legitimate_this_turn' not in data:
