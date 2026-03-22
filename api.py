@@ -8421,13 +8421,16 @@ async def get_morning_briefing(session_id: str, user: User = Depends(get_optiona
     import asyncio
     briefing_text = await asyncio.to_thread(generate_morning_briefing, gs, intel_level)
 
-    gs.morning_briefing_read = True
-    _save_gs(session_id, gs)
+    # Reload from DB before saving to avoid overwriting concurrent changes
+    # (e.g., generate-events may have saved daily_events while we were generating)
+    fresh_gs = _load_gs(session_id)
+    fresh_gs.morning_briefing_read = True
+    _save_gs(session_id, fresh_gs)
 
     return {
         "briefing_text": briefing_text,
         "intel_level": intel_level,
-        "game_state": gs.serialize(),
+        "game_state": fresh_gs.serialize(),
     }
 
 
@@ -8474,11 +8477,12 @@ async def get_event_dialogue(session_id: str, request: Request, user: User = Dep
           f"api_key_set={bool(os.getenv('ANTHROPIC_API_KEY'))}")
     dialogues = await asyncio.to_thread(generate_event_dialogue, gs, target_event)
 
-    # Cache in game state
-    if not hasattr(gs, 'event_dialogues') or not isinstance(gs.event_dialogues, dict):
-        gs.event_dialogues = {}
-    gs.event_dialogues[event_id] = dialogues
-    _save_gs(session_id, gs)
+    # Cache in game state — reload to avoid overwriting concurrent changes
+    fresh_gs = _load_gs(session_id)
+    if not hasattr(fresh_gs, 'event_dialogues') or not isinstance(fresh_gs.event_dialogues, dict):
+        fresh_gs.event_dialogues = {}
+    fresh_gs.event_dialogues[event_id] = dialogues
+    _save_gs(session_id, fresh_gs)
 
     print(f"  [10B-2] Event dialogue for {event_id}: {len(dialogues)} NPCs "
           f"applicable={target_event.get('applicable_npcs', [])} "
@@ -8659,8 +8663,11 @@ async def get_diplomatic_cables(session_id: str, user: User = Depends(get_option
     from npc_engine import generate_diplomatic_cables
     cables = await asyncio.to_thread(generate_diplomatic_cables, gs)
 
-    gs.diplomatic_cables = cables
-    gs.cables_generated_today = True
-    _save_gs(session_id, gs)
+    # Reload from DB before saving to avoid overwriting concurrent changes
+    # (e.g., generate-events may have saved daily_events while we were generating)
+    fresh_gs = _load_gs(session_id)
+    fresh_gs.diplomatic_cables = cables
+    fresh_gs.cables_generated_today = True
+    _save_gs(session_id, fresh_gs)
 
     return {"cables": cables, "cached": False}
