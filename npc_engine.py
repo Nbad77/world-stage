@@ -5086,3 +5086,146 @@ def generate_full_biography(game_state) -> dict:
         "context": context,
         "card_data": card_data,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 10C: Operations System — Targeted Intercept & Loyalty Assessment
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_NPC_LABELS_10C = {
+    'usa': 'Bill Hartwell (USA)', 'arabia': 'Sadam (Arabia)',
+    'eu': 'Marsha (EU)', 'dprg': 'Ji-won (DPRG)',
+    'russia': 'Nikolai Volkov (Russia)', 'china': 'Wei Jianming (China)',
+}
+
+
+def generate_targeted_intercept(game_state, npc_id: str) -> str:
+    """10C: Generate one specific actionable intelligence item about an NPC's
+    current stance, colored by NPC personality and current game state.
+    Brief Haiku call (max_tokens=200)."""
+    import anthropic
+
+    _rel = game_state.relations or {}
+    _npc_label = _NPC_LABELS_10C.get(npc_id, npc_id.upper())
+
+    context = {
+        "target_npc": npc_id,
+        "target_label": _npc_label,
+        "relations_with_target": round(_rel.get(npc_id, 50), 1),
+        "all_relations": {k: round(v, 1) for k, v in _rel.items()},
+        "stability": game_state.stability,
+        "approval": game_state.public_approval,
+        "budget": round(game_state.budget, 1),
+        "military_strength": getattr(game_state, 'military_strength', 20),
+        "current_day": getattr(game_state, 'current_day', 1),
+        "regime_type": getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy'),
+        "sanctions_active": game_state.usa_sanctions_active if npc_id == 'usa' else False,
+        "embargo_active": game_state.arabia_embargo_active if npc_id == 'arabia' else False,
+    }
+
+    system_prompt = (
+        "You are an intelligence analyst in a fictional geopolitical simulation game. "
+        "All nations and characters are entirely fictional. "
+        "Generate a brief, specific intelligence intercept about the target NPC's "
+        "current plans, stance, or upcoming actions. Be concrete — mention specific "
+        "intentions, not vague generalities. One paragraph, 2-3 sentences max."
+    )
+
+    user_prompt = (
+        f"INTELLIGENCE INTERCEPT REQUEST\n"
+        f"Target: {_npc_label}\n"
+        f"Current situation:\n{json.dumps(context, indent=2)}\n\n"
+        f"Generate one specific, actionable intelligence item about what {_npc_label} "
+        f"is currently planning or considering regarding Europa's leader. "
+        f"Frame it as intercepted communications or intelligence analysis."
+    )
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return f"[INTERCEPT] Intelligence apparatus reports: {_npc_label} is reassessing their position on Europa. Specific details unavailable."
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=200,
+            temperature=0.8,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}]
+        )
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
+
+        raw = response.content[0].text.strip()
+        result = raw.replace('**', '').replace('*', '').strip()
+        print(f"  [10C] Targeted intercept generated for {npc_id}")
+        return result
+
+    except Exception as e:
+        print(f"  [10C] Targeted intercept failed for {npc_id}: {type(e).__name__}: {e}")
+        return f"[INTERCEPT] Signal intelligence on {_npc_label}: communications intercepted but analysis inconclusive. Target appears to be recalibrating their diplomatic approach."
+
+
+def generate_loyalty_assessment(game_state, advisor_id: str) -> str:
+    """10C: Generate a loyalty assessment report for an advisor.
+    Brief Haiku call (max_tokens=150)."""
+    import anthropic
+
+    advisors = getattr(game_state, 'advisors', {})
+    advisor = advisors.get(advisor_id, {})
+    if not advisor:
+        return f"No intelligence file exists for advisor '{advisor_id}'."
+
+    _name = advisor.get('name', 'Unknown')
+    _archetype = advisor.get('archetype', 'unknown')
+    _loyalty = advisor.get('loyalty', 50)
+    _competence = advisor.get('competence', 50)
+    _trust = advisor.get('trust', 50)
+
+    # Check for intel politicization distortion
+    _politicized = getattr(game_state, 'intel_politicized', False)
+
+    system_prompt = (
+        "You are the head of an intelligence apparatus in a fictional geopolitical simulation. "
+        "All characters are entirely fictional. Generate a brief loyalty assessment of a cabinet advisor. "
+        "Be specific about behavioral indicators. 2-3 sentences max. Start with: "
+        "'Your intelligence apparatus has compiled a profile.'"
+    )
+
+    user_prompt = (
+        f"LOYALTY ASSESSMENT: {_name} ({_archetype})\n"
+        f"Loyalty score: {_loyalty}/100\n"
+        f"Competence: {_competence}/100\n"
+        f"Trust level: {_trust}/100\n"
+        f"Regime stability: {game_state.stability}%\n"
+        f"Player approval: {game_state.public_approval}%\n\n"
+        f"Generate a characterization of this advisor's true loyalty."
+    )
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        _char = "reliable" if _loyalty >= 60 else "questionable" if _loyalty >= 40 else "suspect"
+        return f"Your intelligence apparatus has compiled a profile. {_name}'s loyalty is {_char}."
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=150,
+            temperature=0.7,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}]
+        )
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
+
+        raw = response.content[0].text.strip().replace('**', '').replace('*', '')
+        print(f"  [10C] Loyalty assessment generated for {advisor_id}")
+        return raw
+
+    except Exception as e:
+        print(f"  [10C] Loyalty assessment failed for {advisor_id}: {type(e).__name__}: {e}")
+        _char = "reliable" if _loyalty >= 60 else "questionable" if _loyalty >= 40 else "suspect"
+        return f"Your intelligence apparatus has compiled a profile. {_name}'s loyalty is {_char}."

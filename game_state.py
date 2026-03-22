@@ -728,6 +728,51 @@ class GameState:
               f"extraction_tier={self.extraction_tier} "
               f"shadow_unlocked={self.shadow_state_unlocked}")
 
+        # ── 10C: Operations System Fields ─────────────────────────────────
+        # Operations turn tracking (reset each EOT)
+        self.ops_legitimate_this_turn = 0   # max 1 per turn (Military/Intel/Diplomatic)
+        self.ops_shadow_this_turn = 0       # max 1 per turn (Shadow Operations)
+
+        # Military operation state
+        self.arms_export_count = 0          # total exports for diminishing returns
+        self.modernization_tranche_1 = False
+        self.modernization_tranche_2 = False
+        self.modernization_tranche_3 = False
+
+        # Intelligence sharing state (per NPC)
+        # {npc_id: {"level": 0-3, "day_started": int}}
+        self.intel_sharing_agreements = {}
+
+        # Kompromat state (per NPC)
+        # {npc_id: {"active": bool, "uses_remaining": int, "day_collected": int, "burned": bool}}
+        self.kompromat_holdings = {}
+        # {npc_id: {"day_started": int, "detection_risk_per_day": float}}
+        self.kompromat_collection_active = {}
+
+        # Loyalty operations
+        # {advisor_id: {"assessed": bool, "coerced": bool, "coerced_day": int}}
+        self.advisor_loyalty_ops = {}
+        self.counter_intel_cooldown = 0
+        self.targeted_intercept_cooldown = 0
+
+        # Diplomatic operations cooldowns
+        self.trade_mission_cooldown = 0
+
+        # Shadow operations (detection tracking)
+        self.journalist_elimination_available = True  # one-time per game
+        self.journalist_elimination_day = 0
+        self.journalist_elimination_discovery_day = 0
+
+        # Operations log for biography/historian context
+        # List of {day, operation, target, outcome, detected}
+        self.operations_log = []
+
+        # Force projection pressure ceiling modifiers
+        # {npc_id: {"ceiling_modifier": float, "expires_day": int}}
+        self.force_projection_modifiers = {}
+
+        print(f"[10C] Operations fields initialized")
+
         # 8D: The Leak — scripted branching crisis
         self.the_leak_fired = False            # True once triggered, never fires again
         self.the_leak_resolved = False         # True once player picks a response
@@ -1486,6 +1531,25 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'advisors_with_fear_bonus': getattr(self, 'advisors_with_fear_bonus', []),
             'advisors_witnessed_elimination': getattr(self, 'advisors_witnessed_elimination', []),
             'advisors_chronically_fearful': getattr(self, 'advisors_chronically_fearful', []),
+            # 10C: Operations System
+            'ops_legitimate_this_turn': getattr(self, 'ops_legitimate_this_turn', 0),
+            'ops_shadow_this_turn': getattr(self, 'ops_shadow_this_turn', 0),
+            'arms_export_count': getattr(self, 'arms_export_count', 0),
+            'modernization_tranche_1': getattr(self, 'modernization_tranche_1', False),
+            'modernization_tranche_2': getattr(self, 'modernization_tranche_2', False),
+            'modernization_tranche_3': getattr(self, 'modernization_tranche_3', False),
+            'intel_sharing_agreements': getattr(self, 'intel_sharing_agreements', {}),
+            'kompromat_holdings': getattr(self, 'kompromat_holdings', {}),
+            'kompromat_collection_active': getattr(self, 'kompromat_collection_active', {}),
+            'advisor_loyalty_ops': getattr(self, 'advisor_loyalty_ops', {}),
+            'counter_intel_cooldown': getattr(self, 'counter_intel_cooldown', 0),
+            'targeted_intercept_cooldown': getattr(self, 'targeted_intercept_cooldown', 0),
+            'trade_mission_cooldown': getattr(self, 'trade_mission_cooldown', 0),
+            'journalist_elimination_available': getattr(self, 'journalist_elimination_available', True),
+            'journalist_elimination_day': getattr(self, 'journalist_elimination_day', 0),
+            'journalist_elimination_discovery_day': getattr(self, 'journalist_elimination_discovery_day', 0),
+            'operations_log': getattr(self, 'operations_log', []),
+            'force_projection_modifiers': getattr(self, 'force_projection_modifiers', {}),
         }
 
     @classmethod
@@ -1939,6 +2003,27 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.advisors_with_fear_bonus = data.get('advisors_with_fear_bonus', [])
         gs.advisors_witnessed_elimination = data.get('advisors_witnessed_elimination', [])
         gs.advisors_chronically_fearful = data.get('advisors_chronically_fearful', [])
+        # 10C: Operations System
+        gs.ops_legitimate_this_turn = data.get('ops_legitimate_this_turn', 0)
+        gs.ops_shadow_this_turn = data.get('ops_shadow_this_turn', 0)
+        gs.arms_export_count = data.get('arms_export_count', 0)
+        gs.modernization_tranche_1 = data.get('modernization_tranche_1', False)
+        gs.modernization_tranche_2 = data.get('modernization_tranche_2', False)
+        gs.modernization_tranche_3 = data.get('modernization_tranche_3', False)
+        gs.intel_sharing_agreements = data.get('intel_sharing_agreements', {})
+        gs.kompromat_holdings = data.get('kompromat_holdings', {})
+        gs.kompromat_collection_active = data.get('kompromat_collection_active', {})
+        gs.advisor_loyalty_ops = data.get('advisor_loyalty_ops', {})
+        gs.counter_intel_cooldown = data.get('counter_intel_cooldown', 0)
+        gs.targeted_intercept_cooldown = data.get('targeted_intercept_cooldown', 0)
+        gs.trade_mission_cooldown = data.get('trade_mission_cooldown', 0)
+        gs.journalist_elimination_available = data.get('journalist_elimination_available', True)
+        gs.journalist_elimination_day = data.get('journalist_elimination_day', 0)
+        gs.journalist_elimination_discovery_day = data.get('journalist_elimination_discovery_day', 0)
+        gs.operations_log = data.get('operations_log', [])
+        gs.force_projection_modifiers = data.get('force_projection_modifiers', {})
+        if 'ops_legitimate_this_turn' not in data:
+            print("  [game_state] 10C OPERATIONS FIELDS MIGRATED: added defaults to old save")
         if 'media_tier' not in data:
             print("  [game_state] 9.5A-SHADOW FIELDS MIGRATED: added defaults to old save")
         # Sync resource_tier from cabinet_axes for old saves

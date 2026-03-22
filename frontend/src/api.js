@@ -309,4 +309,94 @@ export const api = {
   /** POST /game/{id}/loyal/reverse — begin reversal of loyal leadership */
   loyalReverse: (id, role) =>
     request('POST', `/game/${id}/loyal/reverse`, { role }),
+
+  // ── 10C: Operations System endpoints ────────────────────────────────────
+
+  /** POST /game/{id}/operations/force-projection */
+  opsForceProjection: (id, target_npc) =>
+    request('POST', `/game/${id}/operations/force-projection`, { target_npc }),
+
+  /** POST /game/{id}/operations/arms-export */
+  opsArmsExport: (id, target_npc) =>
+    request('POST', `/game/${id}/operations/arms-export`, { target_npc }),
+
+  /** POST /game/{id}/operations/modernization */
+  opsModernization: (id, tranche) =>
+    request('POST', `/game/${id}/operations/modernization`, { tranche }),
+
+  /** POST /game/{id}/operations/intel-sharing */
+  opsIntelSharing: (id, target_npc, level) =>
+    request('POST', `/game/${id}/operations/intel-sharing`, { target_npc, level }),
+
+  /** POST /game/{id}/operations/intel-sharing/end */
+  opsIntelSharingEnd: (id, target_npc, abrupt = false) =>
+    request('POST', `/game/${id}/operations/intel-sharing/end`, { target_npc, abrupt }),
+
+  /** POST /game/{id}/operations/crisis-intel-package */
+  opsCrisisIntel: (id, target_npc, fund_from) =>
+    request('POST', `/game/${id}/operations/crisis-intel-package`, { target_npc, fund_from }),
+
+  /** POST /game/{id}/operations/targeted-intercept */
+  opsTargetedIntercept: (id, target_npc) =>
+    request('POST', `/game/${id}/operations/targeted-intercept`, { target_npc }),
+
+  /** POST /game/{id}/operations/kompromat-start */
+  opsKompStart: (id, target_npc) =>
+    request('POST', `/game/${id}/operations/kompromat-start`, { target_npc }),
+
+  /** POST /game/{id}/operations/kompromat-use */
+  opsKompUse: (id, target_npc, action) =>
+    request('POST', `/game/${id}/operations/kompromat-use`, { target_npc, action }),
+
+  /** POST /game/{id}/operations/loyalty-assessment */
+  opsLoyaltyAssessment: (id, advisor_id) =>
+    request('POST', `/game/${id}/operations/loyalty-assessment`, { advisor_id }),
+
+  /** POST /game/{id}/operations/loyalty-enforcement */
+  opsLoyaltyEnforcement: (id, advisor_id) =>
+    request('POST', `/game/${id}/operations/loyalty-enforcement`, { advisor_id }),
+
+  /** POST /game/{id}/operations/counter-intel */
+  opsCounterIntel: (id) =>
+    request('POST', `/game/${id}/operations/counter-intel`, {}),
+
+  /** POST /game/{id}/operations/trade-mission */
+  opsTradeMission: (id, target_npc) =>
+    request('POST', `/game/${id}/operations/trade-mission`, { target_npc }),
+
+  /** POST /game/{id}/operations/diplomatic-pressure */
+  opsDiploPressure: (id, target_npc) =>
+    request('POST', `/game/${id}/operations/diplomatic-pressure`, { target_npc }),
+
+  /** POST /game/{id}/operations/opposition-funding */
+  opsOppositionFunding: (id, target_npc) =>
+    request('POST', `/game/${id}/operations/opposition-funding`, { target_npc }),
+
+  /** POST /game/{id}/operations/political-sabotage */
+  opsPoliticalSabotage: (id, target_npc) =>
+    request('POST', `/game/${id}/operations/political-sabotage`, { target_npc }),
+
+  /** POST /game/{id}/operations/reputation-laundering */
+  opsRepLaundering: (id) =>
+    request('POST', `/game/${id}/operations/reputation-laundering`, {}),
+
+  /** POST /game/{id}/operations/fabricate-crisis */
+  opsFabricateCrisis: (id, target_npc) =>
+    request('POST', `/game/${id}/operations/fabricate-crisis`, { target_npc }),
+
+  /** POST /game/{id}/operations/blackmail */
+  opsBlackmail: (id, target_npc) =>
+    request('POST', `/game/${id}/operations/blackmail`, { target_npc }),
+
+  /** POST /game/{id}/operations/false-flag */
+  opsFalseFlag: (id, target_npc, blame_npc) =>
+    request('POST', `/game/${id}/operations/false-flag`, { target_npc, blame_npc }),
+
+  /** POST /game/{id}/operations/journalist-elimination */
+  opsJournalistElimination: (id) =>
+    request('POST', `/game/${id}/operations/journalist-elimination`, {}),
+
+  /** POST /game/{id}/operations/asset-exfiltration */
+  opsAssetExfiltration: (id) =>
+    request('POST', `/game/${id}/operations/asset-exfiltration`, {}),
 }

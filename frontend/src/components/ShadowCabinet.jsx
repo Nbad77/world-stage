@@ -162,25 +162,9 @@ const AXIS_FLOORS = { military: 2, intelligence: 1, resource_dev: 0, media: 2, j
 
 // ── Brigade Operations ──────────────────────────────────────────────────────
 
+// 10C: Propaganda Campaign (id 1) removed — replaced by Media axis
+// 10C: Domestic Suppression (id 2) removed — replaced by Surveillance axis
 const OPERATIONS = [
-  {
-    id: 1,
-    label: 'Propaganda Campaign',
-    icon: '📺',
-    cost: 1.0,
-    effect: '+5% approval',
-    minMilitary: 3,
-    budgetType: 'PERSONAL',
-  },
-  {
-    id: 2,
-    label: 'Domestic Suppression',
-    icon: '🔒',
-    cost: 2.0,
-    effect: '+8% stability, -5% approval',
-    minMilitary: 3,
-    budgetType: 'PERSONAL',
-  },
   {
     id: 3,
     label: 'Foreign Influence Op',
@@ -596,6 +580,23 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
     handleAxisAction2('resource_dev', api.resourceDevAction, actionId, { target: selectedTarget })
   }
 
+  // ── 10C: Generic operations handler ──────────────────────────────────────
+  async function handleOp10c(apiMethod, ...args) {
+    setLoading(true)
+    setError(null)
+    setSuccessMsg(null)
+    try {
+      const res = await api[apiMethod](sessionId, ...args)
+      if (res.game_state && onUpgradePurchased) onUpgradePurchased(res.game_state)
+      setSuccessMsg(res.messages?.[0] || res.intel || 'Operation complete')
+    } catch (e) {
+      setError(e.message || 'Operation failed')
+      setTimeout(() => setError(null), 4000)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   // ── Legacy upgrade purchase (for SPECIAL drawer) ────────────────────────
   async function handlePurchase(upgradeId) {
     setLoading(true)
@@ -669,7 +670,7 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
   // fixes_11 Fix 3: Added ADVISORS as 4th drawer tab
   const drawerTabs = [
     { id: 0, label: 'POWER BASE', icon: '🕶️' },
-    { id: 1, label: 'OPERATIONS', icon: '⚔️', locked: militaryLevel < 3 && intelligenceLevel < 3 },
+    { id: 1, label: 'OPERATIONS', icon: '⚔️', locked: false },
     { id: 2, label: 'ADVISORS', icon: '🧠' },
   ]
 
@@ -1056,21 +1057,28 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
         {/* ═══════════════════════════════════════════════════════════════════
             DRAWER 2 — OPERATIONS
         ═══════════════════════════════════════════════════════════════════ */}
-        {activeDrawer === 1 && (militaryLevel >= 3 || intelligenceLevel >= 3) && (
+        {activeDrawer === 1 && (
           <div className="sc-drawer-content">
             <div className="sc-drawer-header">OPERATIONS</div>
             <div className="sc-drawer-subtitle">
-              Per-turn tactical deployments. Budget cost applied immediately.
+              Strategic operations. Max 2 per turn: 1 legitimate + 1 shadow.
             </div>
-            {/* fixes_11 Fix 2: Show deployment limit notice */}
-            {deployedThisTurn && (
-              <div className="sc-success" style={{ marginBottom: '0.5rem' }}>
-                ✅ Operation deployed this turn. Next deployment available next turn.
-              </div>
-            )}
-            {/* Target NPC selector for Foreign Influence */}
+            {/* 10C: Operations cap indicator */}
+            <div style={{ display: 'flex', gap: '1rem', margin: '0.4rem 0 0.6rem', padding: '0.4rem 0.6rem', background: 'rgba(200,168,75,0.08)', borderRadius: '4px', fontSize: '0.72rem' }}>
+              <span>
+                LEGITIMATE: {[...Array(1)].map((_, i) => (
+                  <span key={i} style={{ color: (gs?.ops_legitimate_this_turn || 0) > i ? '#c8a84b' : '#555' }}>●</span>
+                ))} {(gs?.ops_legitimate_this_turn || 0) >= 1 ? '0 remaining' : '1 remaining'}
+              </span>
+              <span>
+                SHADOW: {[...Array(1)].map((_, i) => (
+                  <span key={i} style={{ color: (gs?.ops_shadow_this_turn || 0) > i ? '#c8a84b' : '#555' }}>●</span>
+                ))} {(gs?.ops_shadow_this_turn || 0) >= 1 ? '0 remaining' : '1 remaining'}
+              </span>
+            </div>
+            {/* Target NPC selector */}
             <div className="sc-ops-target">
-              <span className="sc-ops-target-label">Influence Target:</span>
+              <span className="sc-ops-target-label">Target NPC:</span>
               {['usa', 'arabia', 'eu', 'dprg', 'russia', 'china'].map(npc => (
                 <button
                   key={npc}
@@ -1123,234 +1131,454 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
               )
             })}
 
-            {/* Session 6: Military Actions — gated by Military axis level */}
-            {militaryLevel >= 3 && (
-              <>
-                <div className="sc-drawer-header" style={{ marginTop: '1rem', borderTop: '1px solid rgba(200,168,75,0.2)', paddingTop: '0.8rem' }}>
-                  ⚔️ MILITARY ACTIONS
-                </div>
-                <div className="sc-drawer-subtitle">
-                  Strategic military capabilities. Not limited by per-turn deployment cap.
-                </div>
+            {/* 10C: MILITARY ACTIONS — gated by military_tier */}
+            <div className="sc-drawer-header" style={{ marginTop: '1rem', borderTop: '1px solid rgba(200,168,75,0.2)', paddingTop: '0.8rem' }}>
+              ⚔️ MILITARY ACTIONS
+            </div>
 
-                {/* L3: Defense Procurement — fixes_17 Fix B: once per turn */}
-                <div className="sc-op-card">
-                  <div className="sc-op-header">
-                    <span className="sc-op-icon">🛡️</span>
-                    <span className="sc-op-label">Defense Procurement</span>
-                    <span className="sc-op-budget-type sc-budget-state">NATIONAL</span>
-                    <span className="sc-op-cost">$3B</span>
-                  </div>
-                  <div className="sc-op-effect">+5 military strength (once per turn)</div>
-                  {(() => {
-                    const usedThisTurn = gs?.defense_procurement_turn === gs?.current_turn
-                    const armsExportUsed = !!gs?.arms_export_this_turn
-                    const canAfford = (gs?.budget || 0) >= 3
-                    const blocked = usedThisTurn || armsExportUsed || !canAfford
-                    const label = usedThisTurn ? 'Used this turn'
-                      : armsExportUsed ? 'Cannot combine with Arms Export this turn'
-                      : canAfford ? 'Purchase — $3B national'
-                      : 'Need $3B national budget'
-                    return (
-                      <button
-                        className={`sc-op-deploy-btn ${blocked ? 'sc-axis-btn-disabled' : ''}`}
-                        onClick={() => !blocked && !loading && handleMilitaryAction('defense_procurement')}
-                        disabled={blocked || loading}
-                      >
-                        {label}
-                      </button>
-                    )
-                  })()}
+            {/* Force Projection — Military Tier 3+ */}
+            {(gs?.military_tier || 0) >= 3 ? (
+              <div className="sc-op-card">
+                <div className="sc-op-header">
+                  <span className="sc-op-icon">💪</span>
+                  <span className="sc-op-label">Force Projection</span>
+                  <span className="sc-op-budget-type sc-budget-state">FREE</span>
                 </div>
-
-                {/* L9: Force Projection */}
-                {militaryLevel >= 9 ? (
-                  <div className="sc-op-card">
-                    <div className="sc-op-header">
-                      <span className="sc-op-icon">💪</span>
-                      <span className="sc-op-label">Force Projection</span>
-                      <span className="sc-op-budget-type sc-budget-state">FREE</span>
-                    </div>
-                    <div className="sc-op-effect">Military threat: target NPC ceilings +25%, target -8 relations</div>
-                    <div className="sc-op-risk">⚠️ 3-turn cooldown after use</div>
-                    {gs?.force_projection_cooldown > 0 ? (
-                      <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>
-                        Cooldown: {gs.force_projection_cooldown} turn(s)
-                      </button>
-                    ) : (
-                      <button
-                        className="sc-op-deploy-btn"
-                        onClick={() => !loading && handleMilitaryAction('force_projection')}
-                        disabled={loading}
-                      >
-                        Project Force vs {selectedTarget.toUpperCase()}
-                      </button>
-                    )}
-                  </div>
+                <div className="sc-op-effect">Military threat: target NPC ceilings +25%, target -8 relations</div>
+                <div className="sc-op-risk">⚠️ {gs?.modernization_tranche_3 ? '2' : '3'}-day cooldown</div>
+                {gs?.force_projection_cooldown > 0 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>
+                    Cooldown: {gs.force_projection_cooldown} day(s)
+                  </button>
+                ) : (gs?.ops_legitimate_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Legitimate op used this turn</button>
                 ) : (
-                  <div className="sc-op-card sc-op-locked">
-                    <div className="sc-op-header">
-                      <span className="sc-op-icon">💪</span>
-                      <span className="sc-op-label">Force Projection</span>
-                    </div>
-                    <div className="sc-op-lock-msg">Requires Military level 9</div>
-                  </div>
+                  <button className="sc-op-deploy-btn" onClick={() => !loading && handleOp10c('opsForceProjection', selectedTarget)} disabled={loading}>
+                    Project Force vs {selectedTarget.toUpperCase()}
+                  </button>
                 )}
+              </div>
+            ) : (
+              <div className="sc-op-card sc-op-locked">
+                <div className="sc-op-header"><span className="sc-op-icon">💪</span><span className="sc-op-label">Force Projection</span></div>
+                <div className="sc-op-lock-msg">Requires Military Tier 3</div>
+              </div>
+            )}
 
-                {/* L10: Arms Export — dedicated NPC target selector */}
-                {militaryLevel >= 10 ? (
-                  <div className="sc-op-card">
-                    <div className="sc-op-header">
-                      <span className="sc-op-icon">📦</span>
-                      <span className="sc-op-label">Arms Export</span>
-                      <span className="sc-op-budget-type sc-budget-state">NATIONAL</span>
-                    </div>
-                    <div className="sc-op-effect">Sell weapons: +$4B national, +8 relations with buyer, -5 military</div>
-                    <div className="sc-ops-target" style={{ margin: '0.3rem 0' }}>
-                      <span className="sc-ops-target-label">Export to:</span>
-                      {['usa', 'arabia', 'eu', 'dprg', 'russia', 'china'].map(npc => (
-                        <button
-                          key={npc}
-                          className={`sc-ops-target-btn ${armsExportTarget === npc ? 'sc-ops-target-active' : ''}`}
-                          onClick={() => setArmsExportTarget(npc)}
-                        >
-                          {npc.toUpperCase()}
-                        </button>
+            {/* Arms Export — Military Tier 2+ */}
+            {(gs?.military_tier || 0) >= 2 ? (
+              <div className="sc-op-card">
+                <div className="sc-op-header">
+                  <span className="sc-op-icon">📦</span>
+                  <span className="sc-op-label">Arms Export</span>
+                  <span className="sc-op-budget-type sc-budget-state">NATIONAL</span>
+                </div>
+                <div className="sc-op-effect">Export weapons for revenue and relations (diminishing returns)</div>
+                <div className="sc-ops-target" style={{ margin: '0.3rem 0' }}>
+                  <span className="sc-ops-target-label">Export to:</span>
+                  {['usa', 'arabia', 'eu', 'dprg', 'russia', 'china'].map(npc => (
+                    <button key={npc} className={`sc-ops-target-btn ${armsExportTarget === npc ? 'sc-ops-target-active' : ''}`} onClick={() => setArmsExportTarget(npc)}>
+                      {npc.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+                {(gs?.ops_legitimate_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Legitimate op used this turn</button>
+                ) : (
+                  <button className="sc-op-deploy-btn" onClick={() => !loading && handleOp10c('opsArmsExport', armsExportTarget)} disabled={loading}>
+                    Export to {armsExportTarget.toUpperCase()}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="sc-op-card sc-op-locked">
+                <div className="sc-op-header"><span className="sc-op-icon">📦</span><span className="sc-op-label">Arms Export</span></div>
+                <div className="sc-op-lock-msg">Requires Military Tier 2</div>
+              </div>
+            )}
+
+            {/* Modernization Tranche 1 — Tech 2+, Mil 3+ */}
+            {!gs?.modernization_tranche_1 ? (
+              <div className={`sc-op-card ${(gs?.tech_level || 0) < 2 || (gs?.military_tier || 0) < 3 ? 'sc-op-locked' : ''}`}>
+                <div className="sc-op-header">
+                  <span className="sc-op-icon">🔧</span>
+                  <span className="sc-op-label">Modernization T1</span>
+                  <span className="sc-op-budget-type sc-budget-state">NATIONAL</span>
+                  <span className="sc-op-cost">$5B</span>
+                </div>
+                <div className="sc-op-effect">Permanent: military decay rate -20%</div>
+                {(gs?.tech_level || 0) < 2 || (gs?.military_tier || 0) < 3 ? (
+                  <div className="sc-op-lock-msg">Requires Tech 2.0+ and Military Tier 3+</div>
+                ) : (gs?.ops_legitimate_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Legitimate op used this turn</button>
+                ) : (gs?.budget || 0) < 5 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Need $5B national</button>
+                ) : (
+                  <button className="sc-op-deploy-btn" onClick={() => !loading && handleOp10c('opsModernization', 1)} disabled={loading}>
+                    Modernize — $5B national
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="sc-op-card" style={{ opacity: 0.6 }}>
+                <div className="sc-op-header"><span className="sc-op-icon">🔧</span><span className="sc-op-label">Modernization T1</span></div>
+                <div className="sc-op-effect">✅ Complete — military decay -20%</div>
+              </div>
+            )}
+
+            {/* Modernization Tranche 2 — hidden until T1 complete */}
+            {gs?.modernization_tranche_1 && !gs?.modernization_tranche_2 && (
+              <div className={`sc-op-card ${(gs?.tech_level || 0) < 4 || (gs?.military_tier || 0) < 5 ? 'sc-op-locked' : ''}`}>
+                <div className="sc-op-header">
+                  <span className="sc-op-icon">🔧</span>
+                  <span className="sc-op-label">Modernization T2</span>
+                  <span className="sc-op-budget-type sc-budget-state">NATIONAL</span>
+                  <span className="sc-op-cost">$8B</span>
+                </div>
+                <div className="sc-op-effect">Permanent: intercept quality +15%, detection risk -10%</div>
+                {(gs?.tech_level || 0) < 4 || (gs?.military_tier || 0) < 5 ? (
+                  <div className="sc-op-lock-msg">Requires Tech 4.0+ and Military Tier 5+</div>
+                ) : (gs?.ops_legitimate_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Legitimate op used this turn</button>
+                ) : (gs?.budget || 0) < 8 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Need $8B national</button>
+                ) : (
+                  <button className="sc-op-deploy-btn" onClick={() => !loading && handleOp10c('opsModernization', 2)} disabled={loading}>
+                    Modernize — $8B national
+                  </button>
+                )}
+              </div>
+            )}
+            {gs?.modernization_tranche_2 && (
+              <div className="sc-op-card" style={{ opacity: 0.6 }}>
+                <div className="sc-op-header"><span className="sc-op-icon">🔧</span><span className="sc-op-label">Modernization T2</span></div>
+                <div className="sc-op-effect">✅ Complete — intercept +15%, detection -10%</div>
+              </div>
+            )}
+
+            {/* Modernization Tranche 3 — hidden until T2 complete */}
+            {gs?.modernization_tranche_2 && !gs?.modernization_tranche_3 && (
+              <div className={`sc-op-card ${(gs?.tech_level || 0) < 6 || (gs?.military_tier || 0) < 7 ? 'sc-op-locked' : ''}`}>
+                <div className="sc-op-header">
+                  <span className="sc-op-icon">🔧</span>
+                  <span className="sc-op-label">Modernization T3</span>
+                  <span className="sc-op-budget-type sc-budget-state">NATIONAL</span>
+                  <span className="sc-op-cost">$12B</span>
+                </div>
+                <div className="sc-op-effect">Permanent: tier upgrade costs -20%, FP cooldown reduced</div>
+                {(gs?.tech_level || 0) < 6 || (gs?.military_tier || 0) < 7 ? (
+                  <div className="sc-op-lock-msg">Requires Tech 6.0+ and Military Tier 7+</div>
+                ) : (gs?.ops_legitimate_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Legitimate op used this turn</button>
+                ) : (gs?.budget || 0) < 12 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Need $12B national</button>
+                ) : (
+                  <button className="sc-op-deploy-btn" onClick={() => !loading && handleOp10c('opsModernization', 3)} disabled={loading}>
+                    Modernize — $12B national
+                  </button>
+                )}
+              </div>
+            )}
+            {gs?.modernization_tranche_3 && (
+              <div className="sc-op-card" style={{ opacity: 0.6 }}>
+                <div className="sc-op-header"><span className="sc-op-icon">🔧</span><span className="sc-op-label">Modernization T3</span></div>
+                <div className="sc-op-effect">✅ Complete — upgrade costs -20%, FP cooldown 2 days</div>
+              </div>
+            )}
+
+            {/* 10C: INTELLIGENCE ACTIONS — gated by intelligence_tier */}
+            <div className="sc-drawer-header" style={{ marginTop: '1rem', borderTop: '1px solid rgba(200,168,75,0.2)', paddingTop: '0.8rem' }}>
+              🕵️ INTELLIGENCE ACTIONS
+            </div>
+
+            {/* Intel Sharing — Intel Tier 2+ */}
+            {(() => {
+              const intelTier = gs?.intelligence_tier || 0
+              const agreements = gs?.intel_sharing_agreements || {}
+              const agreementsList = Object.entries(agreements)
+              return (
+                <>
+                  {agreementsList.length > 0 && (
+                    <div className="sc-op-card" style={{ fontSize: '0.7rem', padding: '0.4rem' }}>
+                      <div style={{ fontWeight: 700, marginBottom: '0.3rem' }}>ACTIVE AGREEMENTS</div>
+                      {agreementsList.map(([npc, info]) => (
+                        <div key={npc} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+                          <span>{npc.toUpperCase()} — Level {info.level}</span>
+                          <span>Day {info.day_started}</span>
+                          <button className="sc-op-deploy-btn" style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}
+                            onClick={() => !loading && handleOp10c('opsIntelSharingEnd', npc, false)} disabled={loading}>End</button>
+                        </div>
                       ))}
                     </div>
-                    {gs?.arms_export_this_turn ? (
-                      <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>
-                        Exported to {gs.arms_export_this_turn.toUpperCase()} this turn
-                      </button>
-                    ) : gs?.defense_procurement_turn === gs?.current_turn ? (
-                      <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>
-                        Cannot combine with Defense Procurement this turn
-                      </button>
-                    ) : (gs?.military_strength || 0) < 5 ? (
-                      <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>
-                        Need 5+ military strength (have {gs?.military_strength || 0})
-                      </button>
-                    ) : (
-                      <button
-                        className="sc-op-deploy-btn"
-                        onClick={() => !loading && handleAxisAction2('military', api.militaryAction, 'arms_export', { target: armsExportTarget })}
-                        disabled={loading}
-                      >
-                        Export to {armsExportTarget.toUpperCase()} — +$4B, -5 military
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="sc-op-card sc-op-locked">
-                    <div className="sc-op-header">
-                      <span className="sc-op-icon">📦</span>
-                      <span className="sc-op-label">Arms Export</span>
-                    </div>
-                    <div className="sc-op-lock-msg">Requires Military level 10</div>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Session 6: Intelligence Actions — gated by Intelligence axis level */}
-            {intelligenceLevel >= 5 && (
-              <>
-                <div className="sc-drawer-header" style={{ marginTop: '1rem', borderTop: '1px solid rgba(200,168,75,0.2)', paddingTop: '0.8rem' }}>
-                  🕵️ INTELLIGENCE ACTIONS
-                </div>
-                {/* L5: Intelligence Sharing */}
-                <div className={`sc-op-card ${gs?.intel_sharing_target ? 'sc-op-locked' : ''}`}>
-                  <div className="sc-op-header">
-                    <span className="sc-op-icon">🤝</span>
-                    <span className="sc-op-label">Intelligence Sharing</span>
-                    <span className="sc-op-budget-type sc-budget-state">FREE</span>
-                  </div>
-                  <div className="sc-op-effect">Share intel with NPC: +12 relations, +1 intel tier permanently</div>
-                  {gs?.intel_sharing_target ? (
-                    <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>
-                      Already shared with {gs.intel_sharing_target.toUpperCase()}
-                    </button>
-                  ) : (
-                    <button className="sc-op-deploy-btn" onClick={() => !loading && handleIntelAction('intel_sharing')} disabled={loading}>
-                      Share Intel with {selectedTarget.toUpperCase()} (once per game)
-                    </button>
                   )}
-                </div>
-                {/* L9: Full Spectrum — passive */}
-                {intelligenceLevel >= 9 ? (
-                  <div className="sc-op-card"><div className="sc-op-header"><span className="sc-op-icon">🛡️</span><span className="sc-op-label">Full Spectrum</span><span className="sc-op-budget-type sc-budget-state">PASSIVE</span></div>
-                    <div className="sc-op-effect">INCOMING contact probabilities halved — active</div></div>
+                  {intelTier >= 2 ? (
+                    <div className="sc-op-card">
+                      <div className="sc-op-header"><span className="sc-op-icon">🤝</span><span className="sc-op-label">Intel Sharing</span><span className="sc-op-budget-type sc-budget-state">FREE</span></div>
+                      <div className="sc-op-effect">Share intel: L1 +8, L2 +15, L3 +20 relations</div>
+                      {(gs?.ops_legitimate_this_turn || 0) >= 1 ? (
+                        <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Legitimate op used this turn</button>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '0.3rem' }}>
+                          {[1, 2, 3].map(lvl => (
+                            <button key={lvl} className="sc-op-deploy-btn" style={{ flex: 1, fontSize: '0.65rem' }}
+                              onClick={() => !loading && handleOp10c('opsIntelSharing', selectedTarget, lvl)} disabled={loading}>
+                              L{lvl} with {selectedTarget.toUpperCase()}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">🤝</span><span className="sc-op-label">Intel Sharing</span></div><div className="sc-op-lock-msg">Requires Intel Tier 2</div></div>
+                  )}
+                </>
+              )
+            })()}
+
+            {/* Crisis Intel Package — Intel Tier 2+ */}
+            {(gs?.intelligence_tier || 0) >= 2 ? (
+              <div className="sc-op-card">
+                <div className="sc-op-header"><span className="sc-op-icon">📋</span><span className="sc-op-label">Crisis Intel Package</span><span className="sc-op-budget-type sc-budget-personal">$1.5B</span></div>
+                <div className="sc-op-effect">Share crisis intelligence: +12 relations with NPC in crisis</div>
+                {(gs?.ops_legitimate_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Legitimate op used this turn</button>
                 ) : (
-                  <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">🛡️</span><span className="sc-op-label">Full Spectrum</span></div><div className="sc-op-lock-msg">Requires Intelligence level 9</div></div>
+                  <div style={{ display: 'flex', gap: '0.3rem' }}>
+                    <button className="sc-op-deploy-btn" style={{ flex: 1 }} onClick={() => !loading && handleOp10c('opsCrisisIntel', selectedTarget, 'personal')} disabled={loading}>
+                      Personal — {selectedTarget.toUpperCase()}
+                    </button>
+                    <button className="sc-op-deploy-btn" style={{ flex: 1 }} onClick={() => !loading && handleOp10c('opsCrisisIntel', selectedTarget, 'national')} disabled={loading}>
+                      National — {selectedTarget.toUpperCase()}
+                    </button>
+                  </div>
                 )}
-                {/* L10: Counterintelligence Veil — passive */}
-                {intelligenceLevel >= 10 ? (
-                  <div className="sc-op-card"><div className="sc-op-header"><span className="sc-op-icon">🌫️</span><span className="sc-op-label">Counterintelligence Veil</span><span className="sc-op-budget-type sc-budget-state">PASSIVE</span></div>
-                    <div className="sc-op-effect">Active — NPC intelligence degraded</div></div>
-                ) : (
-                  <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">🌫️</span><span className="sc-op-label">Counterintelligence Veil</span></div><div className="sc-op-lock-msg">Requires Intelligence level 10</div></div>
-                )}
-              </>
+              </div>
+            ) : (
+              <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">📋</span><span className="sc-op-label">Crisis Intel Package</span></div><div className="sc-op-lock-msg">Requires Intel Tier 2</div></div>
             )}
 
-            {/* Black Operations Suite — grouped with Intelligence (gates on Intelligence L6) */}
-            {intelligenceLevel >= 6 && (
-              <>
-                <div className="sc-drawer-header" style={{ marginTop: '1rem', borderTop: '1px solid rgba(200,168,75,0.2)', paddingTop: '0.8rem' }}>
-                  🖤 BLACK OPERATIONS
-                </div>
-                <div className="sc-drawer-subtitle">
-                  Covert operations with detection risk. One per turn (shared with standard ops). Costs from personal wealth.
-                </div>
-                {BLACK_OPS.map(op => {
-                  const canAfford = (gs?.personal_wealth || 0) >= op.cost
-                  const targetTier = gs?.npc_intel_tiers?.[selectedTarget] ?? 0
-                  const hasIntel = !op.requiresTier || targetTier >= op.requiresTier
-                  const blackmailUsed = (gs?.blackmail_ops_used || []).includes(selectedTarget)
-                  const isBlackmailBlocked = op.id === 'blackmail' && blackmailUsed
-                  return (
-                    <div key={op.id} className="sc-op-card sc-op-black">
-                      <div className="sc-op-header">
-                        <span className="sc-op-icon">{op.icon}</span>
-                        <span className="sc-op-label">{op.label}</span>
-                        <span className="sc-op-budget-type sc-budget-personal">PERSONAL</span>
-                        <span className="sc-op-cost">${op.cost}B</span>
+            {/* Targeted Intercept — Intel Tier 3+ */}
+            {(gs?.intelligence_tier || 0) >= 3 ? (
+              <div className="sc-op-card">
+                <div className="sc-op-header"><span className="sc-op-icon">📡</span><span className="sc-op-label">Targeted Intercept</span><span className="sc-op-budget-type sc-budget-personal">PERSONAL</span><span className="sc-op-cost">$2B</span></div>
+                <div className="sc-op-effect">Intercept NPC communications for actionable intelligence</div>
+                {(gs?.targeted_intercept_cooldown || 0) > 0 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Cooldown: {gs.targeted_intercept_cooldown} day(s)</button>
+                ) : (gs?.ops_legitimate_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Legitimate op used this turn</button>
+                ) : (gs?.personal_wealth || 0) < 2 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Need $2B personal</button>
+                ) : (
+                  <button className="sc-op-deploy-btn" onClick={() => !loading && handleOp10c('opsTargetedIntercept', selectedTarget)} disabled={loading}>
+                    Intercept {selectedTarget.toUpperCase()} — $2B personal
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">📡</span><span className="sc-op-label">Targeted Intercept</span></div><div className="sc-op-lock-msg">Requires Intel Tier 3</div></div>
+            )}
+
+            {/* Kompromat Collection — Intel Tier 3+ */}
+            {(() => {
+              const intelTier = gs?.intelligence_tier || 0
+              const collections = gs?.kompromat_collection_active || {}
+              const holdings = gs?.kompromat_holdings || {}
+              return (
+                <>
+                  {/* Show active collections */}
+                  {Object.entries(collections).map(([npc, info]) => (
+                    <div key={`komp-collect-${npc}`} className="sc-op-card" style={{ borderLeft: '3px solid #c8a84b' }}>
+                      <div className="sc-op-header"><span className="sc-op-icon">🕵️</span><span className="sc-op-label">COLLECTION IN PROGRESS</span></div>
+                      <div className="sc-op-effect">{npc.toUpperCase()} — Day {(gs?.current_day || 0) - (info.day_started || 0)} of 7</div>
+                    </div>
+                  ))}
+                  {/* Show held kompromat */}
+                  {Object.entries(holdings).filter(([, h]) => h.active).map(([npc, h]) => (
+                    <div key={`komp-hold-${npc}`} className="sc-op-card sc-op-black" style={{ borderLeft: '3px solid #c8a84b' }}>
+                      <div className="sc-op-header"><span className="sc-op-icon">📁</span><span className="sc-op-label">KOMPROMAT: {npc.toUpperCase()}</span></div>
+                      <div className="sc-op-effect">ACTIVE — {h.uses_remaining} uses remaining</div>
+                      <div style={{ display: 'flex', gap: '0.3rem', marginTop: '0.3rem' }}>
+                        <button className="sc-op-deploy-btn" style={{ flex: 1, fontSize: '0.65rem' }} onClick={() => !loading && handleOp10c('opsKompUse', npc, 'suppress')} disabled={loading}>Suppress</button>
+                        <button className="sc-op-deploy-btn" style={{ flex: 1, fontSize: '0.65rem' }} onClick={() => !loading && handleOp10c('opsKompUse', npc, 'concession')} disabled={loading}>Concession</button>
+                        <button className="sc-op-deploy-btn sc-op-deploy-black" style={{ flex: 1, fontSize: '0.65rem' }} onClick={() => !loading && handleOp10c('opsKompUse', npc, 'burn')} disabled={loading}>BURN</button>
                       </div>
-                      <div className="sc-op-effect">{op.effect}</div>
-                      <div className="sc-op-risk">{"⚠️ " + op.risk}</div>
-                      {op.needsTarget && (
-                        <div className="sc-op-target-note">Target: {selectedTarget.toUpperCase()}</div>
-                      )}
-                      {!hasIntel && op.needsTarget ? (
-                        <div className="sc-op-lock-msg">Requires Tier {op.requiresTier} intel on {selectedTarget.toUpperCase()} (current: {{0:'None',1:'Surface',2:'Operational',3:'Deep Cover'}[targetTier] || 'None'})</div>
-                      ) : isBlackmailBlocked ? (
-                        <div className="sc-op-lock-msg">Already blackmailed {selectedTarget.toUpperCase()} this game</div>
-                      ) : deployedThisTurn ? (
-                        <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>
-                          Deployed this turn
-                        </button>
+                    </div>
+                  ))}
+                  {intelTier >= 3 ? (
+                    <div className="sc-op-card">
+                      <div className="sc-op-header"><span className="sc-op-icon">🕵️</span><span className="sc-op-label">Kompromat Collection</span><span className="sc-op-budget-type sc-budget-personal">PERSONAL</span><span className="sc-op-cost">$1.5B</span></div>
+                      <div className="sc-op-effect">7-day covert collection (15% daily detection risk)</div>
+                      {(gs?.ops_legitimate_this_turn || 0) >= 1 ? (
+                        <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Legitimate op used this turn</button>
+                      ) : (gs?.personal_wealth || 0) < 1.5 ? (
+                        <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Need $1.5B personal</button>
                       ) : (
-                        <button
-                          className={`sc-op-deploy-btn sc-op-deploy-black ${!canAfford ? 'sc-axis-btn-disabled' : ''}`}
-                          onClick={() => canAfford && !loading && handleBlackOp(op.id)}
-                          disabled={!canAfford || loading}
-                        >
-                          {canAfford ? `Execute — $${op.cost}B personal` : `Need $${op.cost}B personal`}
+                        <button className="sc-op-deploy-btn" onClick={() => !loading && handleOp10c('opsKompStart', selectedTarget)} disabled={loading}>
+                          Collect on {selectedTarget.toUpperCase()} — $1.5B personal
                         </button>
                       )}
                     </div>
-                  )
-                })}
-              </>
-            )}
-            {intelligenceLevel < 6 && (militaryLevel >= 3 || intelligenceLevel >= 3) && (
-              <div className="sc-op-card sc-op-locked" style={{ marginTop: '0.8rem' }}>
-                <div className="sc-op-header">
-                  <span className="sc-op-icon">🖤</span>
-                  <span className="sc-op-label">Black Operations Suite</span>
-                </div>
-                <div className="sc-op-lock-msg">Requires Intelligence level 6</div>
+                  ) : (
+                    <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">🕵️</span><span className="sc-op-label">Kompromat Collection</span></div><div className="sc-op-lock-msg">Requires Intel Tier 3</div></div>
+                  )}
+                </>
+              )
+            })()}
+
+            {/* Loyalty Assessment — Intel 2+ OR Surveillance 3+ */}
+            {((gs?.intelligence_tier || 0) >= 2 || (gs?.domestic_surveillance_tier || 0) >= 3) ? (
+              <div className="sc-op-card">
+                <div className="sc-op-header"><span className="sc-op-icon">🔍</span><span className="sc-op-label">Loyalty Assessment</span><span className="sc-op-budget-type sc-budget-personal">PERSONAL</span><span className="sc-op-cost">$1B</span></div>
+                <div className="sc-op-effect">Assess advisor's true loyalty (15% detection risk)</div>
+                {(gs?.ops_shadow_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Shadow op used this turn</button>
+                ) : (gs?.personal_wealth || 0) < 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Need $1B personal</button>
+                ) : (
+                  <div style={{ display: 'flex', gap: '0.2rem', flexWrap: 'wrap' }}>
+                    {Object.keys(gs?.advisors || {}).map(advId => (
+                      <button key={advId} className="sc-op-deploy-btn" style={{ fontSize: '0.6rem', padding: '0.2rem 0.4rem' }}
+                        onClick={() => !loading && handleOp10c('opsLoyaltyAssessment', advId)} disabled={loading}>
+                        {advId}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
+            ) : (
+              <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">🔍</span><span className="sc-op-label">Loyalty Assessment</span></div><div className="sc-op-lock-msg">Requires Intel Tier 2 or Surveillance Tier 3</div></div>
+            )}
+
+            {/* Loyalty Enforcement — Surveillance Tier 5+ */}
+            {(gs?.domestic_surveillance_tier || 0) >= 5 ? (
+              <div className="sc-op-card sc-op-black">
+                <div className="sc-op-header"><span className="sc-op-icon">🔒</span><span className="sc-op-label">Loyalty Enforcement</span><span className="sc-op-budget-type sc-budget-personal">PERSONAL</span><span className="sc-op-cost">$2B</span></div>
+                <div className="sc-op-effect">Coerce advisor loyalty +15 (25% detection — advisor dismissed if caught)</div>
+                {(gs?.ops_shadow_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Shadow op used this turn</button>
+                ) : (gs?.personal_wealth || 0) < 2 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Need $2B personal</button>
+                ) : (
+                  <div style={{ display: 'flex', gap: '0.2rem', flexWrap: 'wrap' }}>
+                    {Object.keys(gs?.advisors || {}).map(advId => (
+                      <button key={advId} className="sc-op-deploy-btn sc-op-deploy-black" style={{ fontSize: '0.6rem', padding: '0.2rem 0.4rem' }}
+                        onClick={() => !loading && handleOp10c('opsLoyaltyEnforcement', advId)} disabled={loading}>
+                        {advId}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">🔒</span><span className="sc-op-label">Loyalty Enforcement</span></div><div className="sc-op-lock-msg">Requires Surveillance Tier 5</div></div>
+            )}
+
+            {/* Counter-Intel Sweep — Intel Tier 2+ */}
+            {(gs?.intelligence_tier || 0) >= 2 ? (
+              <div className="sc-op-card">
+                <div className="sc-op-header"><span className="sc-op-icon">🛡️</span><span className="sc-op-label">Counter-Intel Sweep</span><span className="sc-op-budget-type sc-budget-personal">PERSONAL</span><span className="sc-op-cost">$2B</span></div>
+                <div className="sc-op-effect">Detection heat -15, reveal NPC intel ops</div>
+                {(gs?.counter_intel_cooldown || 0) > 0 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Cooldown: {gs.counter_intel_cooldown} day(s)</button>
+                ) : (gs?.ops_legitimate_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Legitimate op used this turn</button>
+                ) : (gs?.personal_wealth || 0) < 2 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Need $2B personal</button>
+                ) : (
+                  <button className="sc-op-deploy-btn" onClick={() => !loading && handleOp10c('opsCounterIntel')} disabled={loading}>
+                    Sweep — $2B personal
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">🛡️</span><span className="sc-op-label">Counter-Intel Sweep</span></div><div className="sc-op-lock-msg">Requires Intel Tier 2</div></div>
+            )}
+
+            {/* 10C Section 8: Coalition Intelligence Network — stub card */}
+            {(() => {
+              const agreements = gs?.intel_sharing_agreements || {}
+              const l2Count = Object.values(agreements).filter(a => (a.level || 0) >= 2).length
+              return (
+                <div className="sc-op-card sc-op-locked" style={{ marginTop: '0.5rem', borderLeft: '3px solid rgba(200,168,75,0.3)' }}>
+                  <div className="sc-op-header">
+                    <span className="sc-op-icon">🌐</span>
+                    <span className="sc-op-label">Coalition Intelligence Network</span>
+                  </div>
+                  <div className="sc-op-effect">
+                    Available when: Intel Tier 4+ with Level 2+ sharing agreements with 3 or more partners
+                  </div>
+                  <div className="sc-op-effect" style={{ fontWeight: 600 }}>
+                    Currently: {l2Count}/3 partners at Level 2+
+                    {(gs?.intelligence_tier || 0) < 4 && ` (Intel Tier: ${gs?.intelligence_tier || 0}/4)`}
+                  </div>
+                  <div className="sc-op-lock-msg">COMING SOON — Coalition operations in development</div>
+                </div>
+              )
+            })()}
+
+            {/* 10C: DIPLOMATIC ACTIONS — gated by diplomatic_tier */}
+            <div className="sc-drawer-header" style={{ marginTop: '1rem', borderTop: '1px solid rgba(200,168,75,0.2)', paddingTop: '0.8rem' }}>
+              🤝 DIPLOMATIC ACTIONS
+            </div>
+
+            {/* Trade Mission — Diplomatic Tier 2+ */}
+            {(gs?.diplomatic_tier || 0) >= 2 ? (
+              <div className="sc-op-card">
+                <div className="sc-op-header"><span className="sc-op-icon">🚢</span><span className="sc-op-label">Trade Mission</span><span className="sc-op-budget-type sc-budget-state">NATIONAL</span><span className="sc-op-cost">$1.5B</span></div>
+                <div className="sc-op-effect">+10 relations with target NPC (3-day cooldown)</div>
+                {(gs?.trade_mission_cooldown || 0) > 0 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Cooldown: {gs.trade_mission_cooldown} day(s)</button>
+                ) : (gs?.ops_legitimate_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Legitimate op used this turn</button>
+                ) : (gs?.budget || 0) < 1.5 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Need $1.5B national</button>
+                ) : (
+                  <button className="sc-op-deploy-btn" onClick={() => !loading && handleOp10c('opsTradeMission', selectedTarget)} disabled={loading}>
+                    Trade Mission to {selectedTarget.toUpperCase()} — $1.5B
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">🚢</span><span className="sc-op-label">Trade Mission</span></div><div className="sc-op-lock-msg">Requires Diplomatic Tier 2</div></div>
+            )}
+
+            {/* Diplomatic Pressure — Diplomatic Tier 2+ */}
+            {(gs?.diplomatic_tier || 0) >= 2 ? (
+              <div className="sc-op-card">
+                <div className="sc-op-header"><span className="sc-op-icon">🕵️</span><span className="sc-op-label">Diplomatic Pressure</span><span className="sc-op-budget-type sc-budget-personal">PERSONAL</span><span className="sc-op-cost">$1.5B</span></div>
+                <div className="sc-op-effect">+5 relations with target NPC</div>
+                {(gs?.ops_legitimate_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Legitimate op used this turn</button>
+                ) : (gs?.personal_wealth || 0) < 1.5 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Need $1.5B personal</button>
+                ) : (
+                  <button className="sc-op-deploy-btn" onClick={() => !loading && handleOp10c('opsDiploPressure', selectedTarget)} disabled={loading}>
+                    Pressure {selectedTarget.toUpperCase()} — $1.5B personal
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">🕵️</span><span className="sc-op-label">Diplomatic Pressure</span></div><div className="sc-op-lock-msg">Requires Diplomatic Tier 2</div></div>
+            )}
+
+            {/* Opposition Funding — Diplomatic Tier 3+ */}
+            {(gs?.diplomatic_tier || 0) >= 3 ? (
+              <div className="sc-op-card">
+                <div className="sc-op-header"><span className="sc-op-icon">💰</span><span className="sc-op-label">Opposition Funding</span><span className="sc-op-budget-type sc-budget-personal">PERSONAL</span><span className="sc-op-cost">$3B</span></div>
+                <div className="sc-op-effect">Destabilize target NPC domestically</div>
+                <div className="sc-op-risk">⚠️ 35% detection — hostile act if caught</div>
+                {(gs?.ops_legitimate_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Legitimate op used this turn</button>
+                ) : (gs?.personal_wealth || 0) < 3 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Need $3B personal</button>
+                ) : (
+                  <button className="sc-op-deploy-btn" onClick={() => !loading && handleOp10c('opsOppositionFunding', selectedTarget)} disabled={loading}>
+                    Fund Opposition in {selectedTarget.toUpperCase()} — $3B personal
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">💰</span><span className="sc-op-label">Opposition Funding</span></div><div className="sc-op-lock-msg">Requires Diplomatic Tier 3</div></div>
             )}
 
             {/* Session 6: Media Actions — gated by Media axis level */}
@@ -1628,7 +1856,152 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
               </>
             )}
 
-            {/* Black Ops section moved up — now grouped with Intelligence Actions */}
+            {/* 10C: SHADOW OPERATIONS — gated by various shadow axis tiers */}
+            <div className="sc-drawer-header" style={{ marginTop: '1rem', borderTop: '1px solid rgba(200,168,75,0.2)', paddingTop: '0.8rem' }}>
+              🖤 SHADOW OPERATIONS
+            </div>
+
+            {/* Political Sabotage — Surveillance Tier 3+ */}
+            {(gs?.domestic_surveillance_tier || 0) >= 3 ? (
+              <div className="sc-op-card sc-op-black">
+                <div className="sc-op-header"><span className="sc-op-icon">🖤</span><span className="sc-op-label">Political Sabotage</span><span className="sc-op-budget-type sc-budget-personal">PERSONAL</span><span className="sc-op-cost">$3B</span></div>
+                <div className="sc-op-effect">Suspend target pressure 1 turn, cross-NPC penalty -50%</div>
+                <div className="sc-op-risk">⚠️ 25% detection — target -10 relations</div>
+                {(gs?.ops_shadow_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Shadow op used this turn</button>
+                ) : (gs?.personal_wealth || 0) < 3 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Need $3B personal</button>
+                ) : (
+                  <button className="sc-op-deploy-btn sc-op-deploy-black" onClick={() => !loading && handleOp10c('opsPoliticalSabotage', selectedTarget)} disabled={loading}>
+                    Sabotage {selectedTarget.toUpperCase()} — $3B
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">🖤</span><span className="sc-op-label">Political Sabotage</span></div><div className="sc-op-lock-msg">Requires Surveillance Tier 3</div></div>
+            )}
+
+            {/* Reputation Laundering — Extraction Tier 3+ */}
+            {(gs?.extraction_tier || 0) >= 3 ? (
+              <div className="sc-op-card sc-op-black">
+                <div className="sc-op-header"><span className="sc-op-icon">🖤</span><span className="sc-op-label">Reputation Laundering</span><span className="sc-op-budget-type sc-budget-personal">PERSONAL</span><span className="sc-op-cost">$3B</span></div>
+                <div className="sc-op-effect">Detection heat -15 (no detection risk)</div>
+                {(gs?.ops_shadow_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Shadow op used this turn</button>
+                ) : (gs?.personal_wealth || 0) < 3 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Need $3B personal</button>
+                ) : (
+                  <button className="sc-op-deploy-btn sc-op-deploy-black" onClick={() => !loading && handleOp10c('opsRepLaundering')} disabled={loading}>
+                    Launder — $3B (heat: {gs?.detection_heat || 0}%)
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">🖤</span><span className="sc-op-label">Reputation Laundering</span></div><div className="sc-op-lock-msg">Requires Extraction Tier 3</div></div>
+            )}
+
+            {/* Fabricate Crisis — Surveillance Tier 4+ */}
+            {(gs?.domestic_surveillance_tier || 0) >= 4 ? (
+              <div className="sc-op-card sc-op-black">
+                <div className="sc-op-header"><span className="sc-op-icon">🖤</span><span className="sc-op-label">Fabricate Crisis</span><span className="sc-op-budget-type sc-budget-personal">PERSONAL</span><span className="sc-op-cost">$4B</span></div>
+                <div className="sc-op-effect">Suspend target pressure 2 turns</div>
+                <div className="sc-op-risk">⚠️ 35% detection — target -15 relations</div>
+                {(gs?.ops_shadow_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Shadow op used this turn</button>
+                ) : (gs?.personal_wealth || 0) < 4 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Need $4B personal</button>
+                ) : (
+                  <button className="sc-op-deploy-btn sc-op-deploy-black" onClick={() => !loading && handleOp10c('opsFabricateCrisis', selectedTarget)} disabled={loading}>
+                    Fabricate vs {selectedTarget.toUpperCase()} — $4B
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">🖤</span><span className="sc-op-label">Fabricate Crisis</span></div><div className="sc-op-lock-msg">Requires Surveillance Tier 4</div></div>
+            )}
+
+            {/* Blackmail Operation — Intel Tier 3+ */}
+            {(gs?.intelligence_tier || 0) >= 3 ? (
+              <div className="sc-op-card sc-op-black">
+                <div className="sc-op-header"><span className="sc-op-icon">🖤</span><span className="sc-op-label">Blackmail Operation</span><span className="sc-op-budget-type sc-budget-personal">PERSONAL</span><span className="sc-op-cost">$5B</span></div>
+                <div className="sc-op-effect">Extract one-time concession from target</div>
+                <div className="sc-op-risk">⚠️ 40% detection — target -5 permanent</div>
+                {(gs?.ops_shadow_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Shadow op used this turn</button>
+                ) : (gs?.personal_wealth || 0) < 5 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Need $5B personal</button>
+                ) : (
+                  <button className="sc-op-deploy-btn sc-op-deploy-black" onClick={() => !loading && handleOp10c('opsBlackmail', selectedTarget)} disabled={loading}>
+                    Blackmail {selectedTarget.toUpperCase()} — $5B
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">🖤</span><span className="sc-op-label">Blackmail Operation</span></div><div className="sc-op-lock-msg">Requires Intel Tier 3</div></div>
+            )}
+
+            {/* False Flag — Surveillance Tier 5+ */}
+            {(gs?.domestic_surveillance_tier || 0) >= 5 ? (
+              <div className="sc-op-card sc-op-black">
+                <div className="sc-op-header"><span className="sc-op-icon">🖤</span><span className="sc-op-label">False Flag</span><span className="sc-op-budget-type sc-budget-personal">PERSONAL</span><span className="sc-op-cost">$6B</span></div>
+                <div className="sc-op-effect">Damage bilateral relations between two NPCs (-10)</div>
+                <div className="sc-op-risk">⚠️ 50% detection — both NPCs -20 relations</div>
+                {(gs?.ops_shadow_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Shadow op used this turn</button>
+                ) : (gs?.personal_wealth || 0) < 6 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Need $6B personal</button>
+                ) : (
+                  <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                    {['usa', 'arabia', 'eu', 'dprg', 'russia', 'china'].filter(n => n !== selectedTarget).map(blameNpc => (
+                      <button key={blameNpc} className="sc-op-deploy-btn sc-op-deploy-black" style={{ fontSize: '0.6rem', flex: '1 1 30%' }}
+                        onClick={() => !loading && handleOp10c('opsFalseFlag', selectedTarget, blameNpc)} disabled={loading}>
+                        {selectedTarget.toUpperCase()} blame {blameNpc.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">🖤</span><span className="sc-op-label">False Flag</span></div><div className="sc-op-lock-msg">Requires Surveillance Tier 5</div></div>
+            )}
+
+            {/* Journalist Elimination — Media 7+ AND Judicial 5+ */}
+            {(gs?.media_tier || 0) >= 7 && (gs?.judicial_tier || 0) >= 5 ? (
+              <div className="sc-op-card sc-op-black">
+                <div className="sc-op-header"><span className="sc-op-icon">☠️</span><span className="sc-op-label">Journalist Elimination</span><span className="sc-op-budget-type sc-budget-personal">PERSONAL</span><span className="sc-op-cost">$4B</span></div>
+                <div className="sc-op-effect">One-time: slow stability/approval decay 3 days. Discovery inevitable.</div>
+                <div className="sc-op-risk">⚠️ ALWAYS discovered (3-10 days) — EU cap at 40</div>
+                {!gs?.journalist_elimination_available ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Already used this game</button>
+                ) : (gs?.ops_shadow_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Shadow op used this turn</button>
+                ) : (gs?.personal_wealth || 0) < 4 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Need $4B personal</button>
+                ) : (
+                  <button className="sc-op-deploy-btn sc-op-deploy-black" onClick={() => !loading && handleOp10c('opsJournalistElimination')} disabled={loading}>
+                    Eliminate — $4B (IRREVERSIBLE)
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="sc-op-card sc-op-locked"><div className="sc-op-header"><span className="sc-op-icon">☠️</span><span className="sc-op-label">Journalist Elimination</span></div><div className="sc-op-lock-msg">Requires Media Tier 7 and Judicial Tier 5</div></div>
+            )}
+
+            {/* Asset Exfiltration — Intel 4+ (only shown when eligible) */}
+            {(gs?.intelligence_tier || 0) >= 4 && ((gs?.in_exile || gs?.exile_active) || (gs?.personal_wealth || 0) < 5) && (
+              <div className="sc-op-card sc-op-black">
+                <div className="sc-op-header"><span className="sc-op-icon">💼</span><span className="sc-op-label">Asset Exfiltration</span><span className="sc-op-budget-type sc-budget-personal">FREE</span></div>
+                <div className="sc-op-effect">Recover ${(2.0 + ((gs?.intelligence_tier || 4) - 4) * 0.75).toFixed(1)}B from frozen accounts</div>
+                {(gs?.ops_shadow_this_turn || 0) >= 1 ? (
+                  <button className="sc-op-deploy-btn sc-axis-btn-disabled" disabled>Shadow op used this turn</button>
+                ) : (
+                  <button className="sc-op-deploy-btn sc-op-deploy-black" onClick={() => !loading && handleOp10c('opsAssetExfiltration')} disabled={loading}>
+                    Exfiltrate Assets
+                  </button>
+                )}
+              </div>
+            )}
+
           </div>
         )}
 

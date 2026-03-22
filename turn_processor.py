@@ -3711,6 +3711,11 @@ def apply_end_of_turn_effects(game_state):
         _mil_effect = "full_decay"
         _mil_label = f"({_mil_change}, mil_tier 0 full decay)"
 
+    # 10C: Modernization tranche 1 — military decay rate -20%
+    if getattr(game_state, 'modernization_tranche_1', False) and _mil_change < 0:
+        _mil_change = -max(1, round(abs(_mil_change) * 0.8))
+        _mil_label += " [mod T1 -20% decay]"
+
     # 9.5C: Loyal generals increase decay rate by 10% (incompetent logistics)
     _loyal_gen = getattr(game_state, 'loyal_generals_installed', False)
     if _loyal_gen and _mil_change < 0:
@@ -4221,6 +4226,94 @@ def apply_end_of_turn_effects(game_state):
         game_state.sovereign_collateral_turns = _sc_turns - 1
         messages.append(f"🏗️ Sovereign Collateral repayment: -${_sc_repay:.1f}B ({game_state.sovereign_collateral_turns} turn(s) remaining)")
         print(f"  [RESOURCE_DEV] Collateral repayment: -${_sc_repay:.1f}B, turns left={game_state.sovereign_collateral_turns}")
+
+    # ──────────────────────────────────────────
+    # 7f. 10C: OPERATIONS SYSTEM EOT RESETS
+    # ──────────────────────────────────────────
+
+    # Reset per-turn operations caps
+    game_state.ops_legitimate_this_turn = 0
+    game_state.ops_shadow_this_turn = 0
+
+    # Decrement cooldowns (floor at 0)
+    for _cd_field in ['counter_intel_cooldown', 'trade_mission_cooldown', 'targeted_intercept_cooldown']:
+        _cd_val = getattr(game_state, _cd_field, 0)
+        if _cd_val > 0:
+            setattr(game_state, _cd_field, _cd_val - 1)
+            print(f"  [10C] {_cd_field}: {_cd_val} -> {_cd_val - 1}")
+
+    # Expire force projection pressure ceiling modifiers
+    _fp_mods = getattr(game_state, 'force_projection_modifiers', {})
+    _expired_fp = [npc for npc, mod in _fp_mods.items() if mod.get('expires_day', 0) <= game_state.current_day]
+    for npc in _expired_fp:
+        del _fp_mods[npc]
+        print(f"  [10C] Force projection modifier expired for {npc}")
+    game_state.force_projection_modifiers = _fp_mods
+
+    # Kompromat collection daily detection check
+    import random as _10c_random
+    _komp_active = dict(getattr(game_state, 'kompromat_collection_active', {}))
+    _komp_completed = []
+    _komp_detected = []
+    for _k_npc, _k_info in list(_komp_active.items()):
+        _det_risk = _k_info.get('detection_risk_per_day', 0.15)
+        if _10c_random.random() < _det_risk:
+            # Detected — collection fails
+            _komp_detected.append(_k_npc)
+            del _komp_active[_k_npc]
+            game_state.update_relations(_k_npc, -15, source="kompromat collection detected")
+            _ops_log = getattr(game_state, 'operations_log', [])
+            _ops_log.append({'day': game_state.current_day, 'operation': 'kompromat_collection',
+                             'target': _k_npc, 'outcome': 'detected', 'detected': True})
+            game_state.operations_log = _ops_log
+            messages.append(f"🚨 Kompromat collection on {_k_npc.upper()} detected! Relations -15")
+            print(f"  [10C] Kompromat collection DETECTED: {_k_npc}, relations -15")
+        elif (game_state.current_day - _k_info.get('day_started', 0)) >= 7:
+            # Collection complete — move to holdings
+            _komp_completed.append(_k_npc)
+            del _komp_active[_k_npc]
+            _holdings = getattr(game_state, 'kompromat_holdings', {})
+            _holdings[_k_npc] = {
+                'active': True, 'uses_remaining': 3,
+                'day_collected': game_state.current_day, 'burned': False
+            }
+            game_state.kompromat_holdings = _holdings
+            _ops_log = getattr(game_state, 'operations_log', [])
+            _ops_log.append({'day': game_state.current_day, 'operation': 'kompromat_collection',
+                             'target': _k_npc, 'outcome': 'success', 'detected': False})
+            game_state.operations_log = _ops_log
+            messages.append(f"🕵️ Kompromat on {_k_npc.upper()} collected successfully (3 uses available)")
+            print(f"  [10C] Kompromat collection COMPLETE: {_k_npc}")
+    game_state.kompromat_collection_active = _komp_active
+
+    # Kompromat counter-intel discovery check (5% per day per holding)
+    _komp_holdings = dict(getattr(game_state, 'kompromat_holdings', {}))
+    for _kh_npc, _kh_info in list(_komp_holdings.items()):
+        if _kh_info.get('active') and not _kh_info.get('burned'):
+            if _10c_random.random() < 0.05:
+                # NPC discovered kompromat — relationship collapse
+                _kh_info['active'] = False
+                _kh_info['burned'] = True
+                _komp_holdings[_kh_npc] = _kh_info
+                game_state.update_relations(_kh_npc, -30, source="kompromat discovered by NPC counter-intel")
+                messages.append(f"🚨 {_kh_npc.upper()} counter-intelligence discovered your kompromat file! Relations -30")
+                print(f"  [10C] Kompromat COUNTER-INTEL discovery: {_kh_npc}, relations -30")
+    game_state.kompromat_holdings = _komp_holdings
+
+    # Journalist elimination delayed discovery
+    _je_discovery_day = getattr(game_state, 'journalist_elimination_discovery_day', 0)
+    if _je_discovery_day > 0 and game_state.current_day >= _je_discovery_day:
+        game_state.journalist_elimination_discovery_day = 0  # clear trigger
+        game_state.eu_relations_ceiling = min(getattr(game_state, 'eu_relations_ceiling', 100), 40)
+        # Cap EU relations at ceiling
+        if game_state.relations.get('eu', 0) > 40:
+            game_state.relations['eu'] = 40
+        messages.append("🚨 JOURNALIST ELIMINATION DISCOVERED — EU relations capped at 40, international condemnation")
+        _ops_log = getattr(game_state, 'operations_log', [])
+        _ops_log.append({'day': game_state.current_day, 'operation': 'journalist_elimination_discovery',
+                         'target': None, 'outcome': 'discovered', 'detected': True})
+        game_state.operations_log = _ops_log
+        print(f"  [10C] Journalist elimination DISCOVERED on day {game_state.current_day}")
 
     # ──────────────────────────────────────────
     # 7e. fixes_17 Fix K: Pre-drift martyrdom trigger

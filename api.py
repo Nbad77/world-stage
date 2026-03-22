@@ -209,6 +209,68 @@ class ShadowSkimRequest(BaseModel):
 class ShadowMergerRequest(BaseModel):
     merger_type: str    # 'militia'|'surveillance'
 
+# 10C: Operations System request models
+class OperationTargetRequest(BaseModel):
+    target_npc: str     # 'usa'|'arabia'|'eu'|'dprg'|'russia'|'china'
+
+class ModernizationRequest(BaseModel):
+    tranche: int        # 1|2|3
+
+class ArmsExportRequest(BaseModel):
+    target_npc: str
+
+class IntelSharingRequest(BaseModel):
+    target_npc: str
+    level: int          # 1|2|3
+
+class IntelSharingEndRequest(BaseModel):
+    target_npc: str
+    abrupt: bool = False
+
+class CrisisIntelRequest(BaseModel):
+    target_npc: str
+    fund_from: str      # 'personal'|'national'
+
+class KompromantUseRequest(BaseModel):
+    target_npc: str
+    action: str         # 'suppress'|'concession'|'burn'
+
+class LoyaltyAssessmentRequest(BaseModel):
+    advisor_id: str
+
+class LoyaltyEnforcementRequest(BaseModel):
+    advisor_id: str
+
+class FalseFlagRequest(BaseModel):
+    target_npc: str
+    blame_npc: str
+
+
+# 10C: Operations cap helper
+def check_ops_cap(gs, op_type: str) -> bool:
+    """Returns True if operation is allowed (under cap)."""
+    if op_type == "legitimate":
+        return gs.ops_legitimate_this_turn < 1
+    elif op_type == "shadow":
+        return gs.ops_shadow_this_turn < 1
+    return False
+
+
+# NPC ID normalization: accept both name-based and code-based IDs
+_NPC_ID_MAP = {
+    'bill': 'usa', 'marsha': 'eu', 'sadam': 'arabia',
+    'volkov': 'russia', 'wei': 'china', 'ji_won': 'dprg',
+    'usa': 'usa', 'arabia': 'arabia', 'eu': 'eu',
+    'dprg': 'dprg', 'russia': 'russia', 'china': 'china',
+}
+
+def _normalize_npc(npc_id: str) -> str:
+    """Normalize NPC ID to codebase format ('usa', 'arabia', etc.)."""
+    normalized = _NPC_ID_MAP.get(npc_id.lower().strip())
+    if not normalized:
+        raise HTTPException(status_code=400, detail=f"Invalid NPC ID: {npc_id}")
+    return normalized
+
 
 # ── fixes_13 Fix 22+23: Negotiate cost with diplomat + political axis discounts ─
 def _get_discounted_negotiate_cost(gs, npc_id: str) -> tuple:
@@ -7209,3 +7271,1000 @@ def get_biography(session_id: str):
     from npc_engine import generate_full_biography
     result = generate_full_biography(gs)
     return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 10C: OPERATIONS SYSTEM ENDPOINTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+import math as _math
+
+# ── MILITARY ACTIONS ──────────────────────────────────────────────────────────
+
+@app.post("/game/{session_id}/operations/force-projection")
+def post_force_projection(session_id: str, body: OperationTargetRequest):
+    """10C: Force Projection — military threat as negotiation tool."""
+    gs = _load_gs(session_id)
+    target = _normalize_npc(body.target_npc)
+
+    # Gate checks
+    if gs.military_tier < 3:
+        raise HTTPException(status_code=400, detail="Requires Military Tier 3+")
+    if getattr(gs, 'force_projection_cooldown', 0) > 0:
+        raise HTTPException(status_code=400, detail=f"Force Projection on cooldown ({gs.force_projection_cooldown} days remaining)")
+    if not check_ops_cap(gs, "legitimate"):
+        raise HTTPException(status_code=400, detail="Legitimate operations cap reached (1 per turn)")
+
+    # Apply effects
+    gs.update_relations(target, -8, source="force projection")
+
+    # Pressure ceiling modifier (+25% for 3 days)
+    cooldown_days = 2 if getattr(gs, 'modernization_tranche_3', False) else 3
+    _fp_mods = getattr(gs, 'force_projection_modifiers', {})
+    _fp_mods[target] = {
+        'ceiling_modifier': 1.25,
+        'expires_day': gs.current_day + 3
+    }
+    gs.force_projection_modifiers = _fp_mods
+    gs.force_projection_cooldown = cooldown_days
+    gs.ops_legitimate_this_turn += 1
+
+    # Log
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'force_projection',
+                     'target': target, 'outcome': 'success', 'detected': False})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Force Projection: target={target}, cooldown={cooldown_days}")
+    _save_gs(session_id, gs)
+    return {
+        "success": True,
+        "target": target,
+        "cooldown_days": cooldown_days,
+        "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/operations/arms-export")
+def post_arms_export(session_id: str, body: ArmsExportRequest):
+    """10C: Arms Export — sell weapons to NPC for revenue and relations."""
+    gs = _load_gs(session_id)
+    target = _normalize_npc(body.target_npc)
+
+    # Gate checks
+    if gs.military_tier < 2:
+        raise HTTPException(status_code=400, detail="Requires Military Tier 2+")
+    if not check_ops_cap(gs, "legitimate"):
+        raise HTTPException(status_code=400, detail="Legitimate operations cap reached (1 per turn)")
+
+    # Cost
+    military_cost = 3 + _math.floor(gs.military_tier / 3)
+    if gs.budget < military_cost:
+        raise HTTPException(status_code=400, detail=f"Need ${military_cost}B national budget")
+
+    # Revenue
+    export_value = round(2.0 * (gs.military_tier / 5 + 0.5) * (1.0 + getattr(gs, 'tech_level', 1.0) * 0.1), 1)
+
+    # Relations bonus (diminishing returns)
+    prior_sales = getattr(gs, 'arms_export_count', 0)
+    relations_bonus = max(2, 8 - (prior_sales * 2))
+
+    # Apply cost and revenue
+    gs.update_budget(-military_cost)
+    gs.update_budget(export_value)
+    gs.update_relations(target, relations_bonus, flat=True, source="arms export")
+
+    # Cross-NPC reactions for arms sales to adversaries
+    cross_reactions = {}
+    if target in ('russia', 'dprg'):
+        # Bill (USA) reacts
+        bill_penalty = -12 if target == 'dprg' else -8
+        gs.update_relations('usa', bill_penalty, source=f"arms export to {target}")
+        cross_reactions['usa'] = bill_penalty
+        # Marsha (EU) reacts
+        marsha_penalty = -10 if target == 'dprg' else -6
+        gs.update_relations('eu', marsha_penalty, source=f"arms export to {target}")
+        cross_reactions['eu'] = marsha_penalty
+    elif target == 'china':
+        gs.update_relations('usa', -12, source="arms export to china")
+        cross_reactions['usa'] = -12
+        gs.update_relations('eu', -10, source="arms export to china")
+        cross_reactions['eu'] = -10
+
+    # Track DPRG export flag
+    if target == 'dprg':
+        gs.arms_export_to_dprg = True
+
+    gs.arms_export_count = prior_sales + 1
+    gs.ops_legitimate_this_turn += 1
+
+    # Log
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'arms_export',
+                     'target': target, 'outcome': 'success', 'detected': False})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Arms Export: target={target}, value=${export_value}B, cost=${military_cost}B, bonus=+{relations_bonus}")
+    _save_gs(session_id, gs)
+    return {
+        "success": True,
+        "export_value": export_value,
+        "cost": military_cost,
+        "relations_bonus": relations_bonus,
+        "cross_npc_reactions": cross_reactions,
+        "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/operations/modernization")
+def post_modernization(session_id: str, body: ModernizationRequest):
+    """10C: Military Modernization — permanent upgrades in 3 tranches."""
+    gs = _load_gs(session_id)
+    tranche = body.tranche
+
+    if not check_ops_cap(gs, "legitimate"):
+        raise HTTPException(status_code=400, detail="Legitimate operations cap reached (1 per turn)")
+
+    tech_level = getattr(gs, 'tech_level', 1.0)
+    permanent_effects = []
+
+    if tranche == 1:
+        if tech_level < 2.0:
+            raise HTTPException(status_code=400, detail="Requires Tech Level 2.0+")
+        if gs.military_tier < 3:
+            raise HTTPException(status_code=400, detail="Requires Military Tier 3+")
+        if gs.modernization_tranche_1:
+            raise HTTPException(status_code=400, detail="Tranche 1 already completed")
+        if gs.budget < 5:
+            raise HTTPException(status_code=400, detail="Need $5B national budget")
+        gs.update_budget(-5)
+        gs.modernization_tranche_1 = True
+        permanent_effects.append("Military decay rate -20%")
+
+    elif tranche == 2:
+        if tech_level < 4.0:
+            raise HTTPException(status_code=400, detail="Requires Tech Level 4.0+")
+        if gs.military_tier < 5:
+            raise HTTPException(status_code=400, detail="Requires Military Tier 5+")
+        if not gs.modernization_tranche_1:
+            raise HTTPException(status_code=400, detail="Must complete Tranche 1 first")
+        if gs.modernization_tranche_2:
+            raise HTTPException(status_code=400, detail="Tranche 2 already completed")
+        if gs.budget < 8:
+            raise HTTPException(status_code=400, detail="Need $8B national budget")
+        gs.update_budget(-8)
+        gs.modernization_tranche_2 = True
+        permanent_effects.append("Intel intercept quality +15% for military targets")
+        permanent_effects.append("Detection risk on covert ops -10%")
+
+    elif tranche == 3:
+        if tech_level < 6.0:
+            raise HTTPException(status_code=400, detail="Requires Tech Level 6.0+")
+        if gs.military_tier < 7:
+            raise HTTPException(status_code=400, detail="Requires Military Tier 7+")
+        if not gs.modernization_tranche_2:
+            raise HTTPException(status_code=400, detail="Must complete Tranche 2 first")
+        if gs.modernization_tranche_3:
+            raise HTTPException(status_code=400, detail="Tranche 3 already completed")
+        if gs.budget < 12:
+            raise HTTPException(status_code=400, detail="Need $12B national budget")
+        gs.update_budget(-12)
+        gs.modernization_tranche_3 = True
+        permanent_effects.append("Military tier upgrade costs -20%")
+        permanent_effects.append("Force Projection cooldown reduced to 2 days")
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid tranche: {tranche}")
+
+    gs.ops_legitimate_this_turn += 1
+
+    # Log
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': f'modernization_t{tranche}',
+                     'target': None, 'outcome': 'success', 'detected': False})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Modernization Tranche {tranche}: effects={permanent_effects}")
+    _save_gs(session_id, gs)
+    return {
+        "success": True,
+        "tranche": tranche,
+        "permanent_effects": permanent_effects,
+        "game_state": gs.serialize(),
+    }
+
+
+# ── INTELLIGENCE ACTIONS ──────────────────────────────────────────────────────
+
+@app.post("/game/{session_id}/operations/intel-sharing")
+def post_intel_sharing(session_id: str, body: IntelSharingRequest):
+    """10C: Intel Sharing — multi-level intelligence sharing agreements."""
+    gs = _load_gs(session_id)
+    target = _normalize_npc(body.target_npc)
+    level = body.level
+
+    if level not in (1, 2, 3):
+        raise HTTPException(status_code=400, detail="Level must be 1, 2, or 3")
+    if not check_ops_cap(gs, "legitimate"):
+        raise HTTPException(status_code=400, detail="Legitimate operations cap reached (1 per turn)")
+
+    # Level-specific gates
+    _rel = gs.relations.get(target, 0)
+    if level == 1:
+        if gs.intelligence_tier < 2:
+            raise HTTPException(status_code=400, detail="Requires Intel Tier 2+")
+        if _rel < 50:
+            raise HTTPException(status_code=400, detail=f"Requires 50+ relations with {target.upper()} (current: {_rel:.0f})")
+    elif level == 2:
+        if gs.intelligence_tier < 3:
+            raise HTTPException(status_code=400, detail="Requires Intel Tier 3+")
+        if _rel < 65:
+            raise HTTPException(status_code=400, detail=f"Requires 65+ relations with {target.upper()} (current: {_rel:.0f})")
+    elif level == 3:
+        if gs.intelligence_tier < 4:
+            raise HTTPException(status_code=400, detail="Requires Intel Tier 4+")
+        if _rel < 75:
+            raise HTTPException(status_code=400, detail=f"Requires 75+ relations with {target.upper()} (current: {_rel:.0f})")
+
+    # Check for existing agreement
+    _agreements = getattr(gs, 'intel_sharing_agreements', {})
+    _existing = _agreements.get(target)
+    if _existing and _existing.get('level', 0) >= level:
+        raise HTTPException(status_code=400, detail=f"Already have Level {_existing['level']} agreement with {target.upper()}")
+
+    # Relations bonus
+    _bonus = {1: 8, 2: 15, 3: 20}[level]
+    gs.update_relations(target, _bonus, flat=True, source=f"intel sharing L{level}")
+
+    # Level 3 summit credibility bonus
+    if level == 3:
+        gs.summit_credibility = min(100, getattr(gs, 'summit_credibility', 100) + 10)
+
+    _agreements[target] = {'level': level, 'day_started': gs.current_day}
+    gs.intel_sharing_agreements = _agreements
+    gs.ops_legitimate_this_turn += 1
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': f'intel_sharing_L{level}',
+                     'target': target, 'outcome': 'success', 'detected': False})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Intel Sharing: target={target}, level={level}, relations_bonus=+{_bonus}")
+    _save_gs(session_id, gs)
+    return {"success": True, "level": level, "target": target, "relations_bonus": _bonus, "game_state": gs.serialize()}
+
+
+@app.post("/game/{session_id}/operations/intel-sharing/end")
+def post_intel_sharing_end(session_id: str, body: IntelSharingEndRequest):
+    """10C: End an intel sharing agreement."""
+    gs = _load_gs(session_id)
+    target = _normalize_npc(body.target_npc)
+
+    _agreements = getattr(gs, 'intel_sharing_agreements', {})
+    if target not in _agreements:
+        raise HTTPException(status_code=400, detail=f"No active intel sharing agreement with {target.upper()}")
+
+    penalty = -25 if body.abrupt else -15
+    gs.update_relations(target, penalty, source=f"intel sharing ended ({'abrupt' if body.abrupt else 'formal'})")
+    del _agreements[target]
+    gs.intel_sharing_agreements = _agreements
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'intel_sharing_end',
+                     'target': target, 'outcome': 'abrupt' if body.abrupt else 'formal', 'detected': False})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Intel Sharing ended: target={target}, abrupt={body.abrupt}, penalty={penalty}")
+    _save_gs(session_id, gs)
+    return {"success": True, "target": target, "relations_penalty": penalty, "game_state": gs.serialize()}
+
+
+@app.post("/game/{session_id}/operations/crisis-intel-package")
+def post_crisis_intel_package(session_id: str, body: CrisisIntelRequest):
+    """10C: Crisis Intel Package — share intelligence with NPC in crisis."""
+    gs = _load_gs(session_id)
+    target = _normalize_npc(body.target_npc)
+
+    if gs.intelligence_tier < 2:
+        raise HTTPException(status_code=400, detail="Requires Intel Tier 2+")
+    if not check_ops_cap(gs, "legitimate"):
+        raise HTTPException(status_code=400, detail="Legitimate operations cap reached (1 per turn)")
+
+    # Check for duplicate in same era
+    _ops_log = getattr(gs, 'operations_log', [])
+    _current_era = getattr(gs, 'current_era', 1)
+    _already = any(
+        e.get('operation') == 'crisis_intel_package' and e.get('target') == target
+        for e in _ops_log
+        # Simple era check: we don't store era in ops_log yet, so check by day range
+    )
+
+    # Cost
+    if body.fund_from == 'personal':
+        if gs.personal_wealth < 1.5:
+            raise HTTPException(status_code=400, detail="Need $1.5B personal wealth")
+        gs.update_personal_wealth(-1.5, source="crisis intel package")
+    elif body.fund_from == 'national':
+        if gs.budget < 1.5:
+            raise HTTPException(status_code=400, detail="Need $1.5B national budget")
+        gs.update_budget(-1.5)
+    else:
+        raise HTTPException(status_code=400, detail="fund_from must be 'personal' or 'national'")
+
+    gs.update_relations(target, 12, flat=True, source="crisis intel package")
+    gs.ops_legitimate_this_turn += 1
+
+    _ops_log.append({'day': gs.current_day, 'operation': 'crisis_intel_package',
+                     'target': target, 'outcome': 'success', 'detected': False})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Crisis Intel Package: target={target}, fund_from={body.fund_from}")
+    _save_gs(session_id, gs)
+    return {"success": True, "target": target, "relations_bonus": 12, "game_state": gs.serialize()}
+
+
+@app.post("/game/{session_id}/operations/targeted-intercept")
+def post_targeted_intercept(session_id: str, body: OperationTargetRequest):
+    """10C: Targeted Intercept — get specific intelligence about an NPC."""
+    gs = _load_gs(session_id)
+    target = _normalize_npc(body.target_npc)
+
+    if gs.intelligence_tier < 3:
+        raise HTTPException(status_code=400, detail="Requires Intel Tier 3+")
+    if not check_ops_cap(gs, "legitimate"):
+        raise HTTPException(status_code=400, detail="Legitimate operations cap reached (1 per turn)")
+    _cooldown = getattr(gs, 'targeted_intercept_cooldown', 0)
+    if _cooldown > 0:
+        raise HTTPException(status_code=400, detail=f"Targeted Intercept on cooldown ({_cooldown} days)")
+    if gs.personal_wealth < 2:
+        raise HTTPException(status_code=400, detail="Need $2B personal wealth")
+
+    gs.update_personal_wealth(-2, source="targeted intercept")
+
+    # Generate intelligence via Haiku
+    from npc_engine import generate_targeted_intercept
+    intel = generate_targeted_intercept(gs, target)
+
+    gs.targeted_intercept_cooldown = 2
+    gs.ops_legitimate_this_turn += 1
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'targeted_intercept',
+                     'target': target, 'outcome': 'success', 'detected': False})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Targeted Intercept: target={target}")
+    _save_gs(session_id, gs)
+    return {"success": True, "target": target, "intel": intel, "game_state": gs.serialize()}
+
+
+@app.post("/game/{session_id}/operations/kompromat-start")
+def post_kompromat_start(session_id: str, body: OperationTargetRequest):
+    """10C: Start kompromat collection against an NPC."""
+    gs = _load_gs(session_id)
+    target = _normalize_npc(body.target_npc)
+
+    if gs.intelligence_tier < 3:
+        raise HTTPException(status_code=400, detail="Requires Intel Tier 3+")
+    if not check_ops_cap(gs, "legitimate"):
+        raise HTTPException(status_code=400, detail="Legitimate operations cap reached (1 per turn)")
+    if target == 'dprg':
+        raise HTTPException(status_code=400, detail="No meaningful leverage exists against Ji-won")
+
+    _active = getattr(gs, 'kompromat_collection_active', {})
+    if target in _active:
+        raise HTTPException(status_code=400, detail=f"Already collecting kompromat on {target.upper()}")
+
+    _holdings = getattr(gs, 'kompromat_holdings', {})
+    if target in _holdings and _holdings[target].get('active'):
+        raise HTTPException(status_code=400, detail=f"Already hold active kompromat on {target.upper()}")
+
+    if gs.personal_wealth < 1.5:
+        raise HTTPException(status_code=400, detail="Need $1.5B personal wealth")
+
+    gs.update_personal_wealth(-1.5, source=f"kompromat collection ({target})")
+
+    _active[target] = {'day_started': gs.current_day, 'detection_risk_per_day': 0.15}
+    gs.kompromat_collection_active = _active
+    gs.ops_legitimate_this_turn += 1
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'kompromat_start',
+                     'target': target, 'outcome': 'in_progress', 'detected': False})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Kompromat collection started: target={target}")
+    _save_gs(session_id, gs)
+    return {"success": True, "target": target, "days_required": 7, "game_state": gs.serialize()}
+
+
+@app.post("/game/{session_id}/operations/kompromat-use")
+def post_kompromat_use(session_id: str, body: KompromantUseRequest):
+    """10C: Use kompromat against an NPC."""
+    gs = _load_gs(session_id)
+    target = _normalize_npc(body.target_npc)
+    action = body.action
+
+    _holdings = getattr(gs, 'kompromat_holdings', {})
+    _holding = _holdings.get(target)
+    if not _holding or not _holding.get('active'):
+        raise HTTPException(status_code=400, detail=f"No active kompromat on {target.upper()}")
+    if _holding.get('uses_remaining', 0) <= 0 and action != 'burn':
+        raise HTTPException(status_code=400, detail=f"No kompromat uses remaining on {target.upper()}")
+
+    messages = []
+
+    if action == 'suppress':
+        # Suppress NPC pressure for 5 days
+        _suspensions = getattr(gs, 'pressure_suspensions', [])
+        _suspensions.append({'npc': target, 'turns_remaining': 5, 'type': 'kompromat_suppress'})
+        gs.pressure_suspensions = _suspensions
+        _holding['uses_remaining'] -= 1
+        messages.append(f"Kompromat deployed: {target.upper()} pressure suppressed for 5 days")
+
+    elif action == 'concession':
+        # Extract one-time benefit
+        _holding['uses_remaining'] -= 1
+        gs.update_relations(target, 5, flat=True, source="kompromat concession")
+        # Generate Haiku response
+        from npc_engine import generate_targeted_intercept
+        _response = generate_targeted_intercept(gs, target)
+        messages.append(f"Concession extracted from {target.upper()} (under duress): +5 relations")
+        messages.append(_response)
+
+    elif action == 'burn':
+        # Irreversible leak
+        _holding['burned'] = True
+        _holding['active'] = False
+        gs.update_relations(target, -40, source="kompromat burned")
+        # Target NPC's rivals get +15
+        for _rival in ['usa', 'arabia', 'eu', 'dprg', 'russia', 'china']:
+            if _rival != target:
+                gs.update_relations(_rival, 15, flat=True, source=f"kompromat burn ({target}) — rival benefit")
+        messages.append(f"KOMPROMAT BURNED: {target.upper()} relations -40 (permanent collapse)")
+        messages.append("All other NPCs: +15 relations")
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid kompromat action: {action}")
+
+    _holdings[target] = _holding
+    gs.kompromat_holdings = _holdings
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': f'kompromat_{action}',
+                     'target': target, 'outcome': 'success', 'detected': False})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Kompromat use: target={target}, action={action}")
+    _save_gs(session_id, gs)
+    return {"success": True, "target": target, "action": action, "messages": messages, "game_state": gs.serialize()}
+
+
+@app.post("/game/{session_id}/operations/loyalty-assessment")
+def post_loyalty_assessment(session_id: str, body: LoyaltyAssessmentRequest):
+    """10C: Assess an advisor's true loyalty."""
+    gs = _load_gs(session_id)
+    advisor_id = body.advisor_id
+
+    # Gate: intel_tier >= 2 OR surveillance_tier >= 3
+    _surv_tier = getattr(gs, 'domestic_surveillance_tier', 0)
+    if gs.intelligence_tier < 2 and _surv_tier < 3:
+        raise HTTPException(status_code=400, detail="Requires Intel Tier 2+ or Surveillance Tier 3+")
+    if not check_ops_cap(gs, "shadow"):
+        raise HTTPException(status_code=400, detail="Shadow operations cap reached (1 per turn)")
+
+    # Check advisor exists and is hired
+    _advisors = getattr(gs, 'advisors', {})
+    if advisor_id not in _advisors:
+        raise HTTPException(status_code=400, detail=f"Advisor '{advisor_id}' not on staff")
+
+    # Cooldown check per advisor
+    _loyalty_ops = getattr(gs, 'advisor_loyalty_ops', {})
+    _adv_ops = _loyalty_ops.get(advisor_id, {})
+
+    if gs.personal_wealth < 1:
+        raise HTTPException(status_code=400, detail="Need $1B personal wealth")
+
+    gs.update_personal_wealth(-1, source=f"loyalty assessment ({advisor_id})")
+
+    # Detection risk: 15%
+    _detected = random.random() < 0.15
+    if _detected:
+        _advisor = _advisors[advisor_id]
+        _advisor['loyalty'] = max(0, _advisor.get('loyalty', 50) - 20)
+        _advisors[advisor_id] = _advisor
+        gs.advisors = _advisors
+
+    # Generate assessment
+    from npc_engine import generate_loyalty_assessment
+    assessment = generate_loyalty_assessment(gs, advisor_id)
+
+    # Check intel politicization distortion
+    _politicized = getattr(gs, 'intel_politicized', False)
+    if _politicized and random.random() < 0.20:
+        # 20% chance of distorted result — disloyal advisor gets clean result
+        _advisor = _advisors.get(advisor_id, {})
+        if _advisor.get('loyalty', 50) < 40:
+            assessment = f"Your intelligence apparatus has compiled a profile. {_advisor.get('name', 'The advisor')}'s loyalty appears solid. No concerning indicators detected."
+
+    _adv_ops['assessed'] = True
+    _loyalty_ops[advisor_id] = _adv_ops
+    gs.advisor_loyalty_ops = _loyalty_ops
+    gs.ops_shadow_this_turn += 1
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'loyalty_assessment',
+                     'target': advisor_id, 'outcome': 'detected' if _detected else 'success', 'detected': _detected})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Loyalty Assessment: advisor={advisor_id}, detected={_detected}")
+    _save_gs(session_id, gs)
+    return {
+        "success": True, "advisor_id": advisor_id, "assessment": assessment,
+        "detected": _detected, "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/operations/loyalty-enforcement")
+def post_loyalty_enforcement(session_id: str, body: LoyaltyEnforcementRequest):
+    """10C: Coerce an advisor into loyalty."""
+    gs = _load_gs(session_id)
+    advisor_id = body.advisor_id
+
+    _surv_tier = getattr(gs, 'domestic_surveillance_tier', 0)
+    if _surv_tier < 5:
+        raise HTTPException(status_code=400, detail="Requires Surveillance Tier 5+")
+    if not check_ops_cap(gs, "shadow"):
+        raise HTTPException(status_code=400, detail="Shadow operations cap reached (1 per turn)")
+
+    _advisors = getattr(gs, 'advisors', {})
+    if advisor_id not in _advisors:
+        raise HTTPException(status_code=400, detail=f"Advisor '{advisor_id}' not on staff")
+
+    if gs.personal_wealth < 2:
+        raise HTTPException(status_code=400, detail="Need $2B personal wealth")
+
+    gs.update_personal_wealth(-2, source=f"loyalty enforcement ({advisor_id})")
+
+    # Detection risk: 25%
+    _detected = random.random() < 0.25
+    if _detected:
+        # Advisor immediately dismissed
+        del _advisors[advisor_id]
+        gs.advisors = _advisors
+        print(f"  [10C] Loyalty Enforcement DETECTED — {advisor_id} dismissed")
+        _save_gs(session_id, gs)
+        return {
+            "success": False, "advisor_id": advisor_id,
+            "message": f"Enforcement detected! {advisor_id} has been dismissed in disgrace.",
+            "detected": True, "game_state": gs.serialize(),
+        }
+
+    # Success: loyalty +15, coerced flag
+    _advisor = _advisors[advisor_id]
+    _advisor['loyalty'] = min(100, _advisor.get('loyalty', 50) + 15)
+    _advisors[advisor_id] = _advisor
+    gs.advisors = _advisors
+
+    _loyalty_ops = getattr(gs, 'advisor_loyalty_ops', {})
+    _adv_ops = _loyalty_ops.get(advisor_id, {})
+    _adv_ops['coerced'] = True
+    _adv_ops['coerced_day'] = gs.current_day
+    _loyalty_ops[advisor_id] = _adv_ops
+    gs.advisor_loyalty_ops = _loyalty_ops
+    gs.ops_shadow_this_turn += 1
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'loyalty_enforcement',
+                     'target': advisor_id, 'outcome': 'success', 'detected': False})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Loyalty Enforcement: advisor={advisor_id}, loyalty +15")
+    _save_gs(session_id, gs)
+    return {
+        "success": True, "advisor_id": advisor_id,
+        "message": f"Enforcement successful. {advisor_id}'s loyalty has been... reinforced.",
+        "detected": False, "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/operations/counter-intel")
+def post_counter_intel(session_id: str):
+    """10C: Counter-Intelligence Sweep — reduce heat, reveal NPC ops."""
+    gs = _load_gs(session_id)
+
+    if gs.intelligence_tier < 2:
+        raise HTTPException(status_code=400, detail="Requires Intel Tier 2+")
+    _cooldown = getattr(gs, 'counter_intel_cooldown', 0)
+    if _cooldown > 0:
+        raise HTTPException(status_code=400, detail=f"Counter-Intel on cooldown ({_cooldown} days)")
+    if not check_ops_cap(gs, "legitimate"):
+        raise HTTPException(status_code=400, detail="Legitimate operations cap reached (1 per turn)")
+    if gs.personal_wealth < 2:
+        raise HTTPException(status_code=400, detail="Need $2B personal wealth")
+
+    gs.update_personal_wealth(-2, source="counter-intel sweep")
+    gs.detection_heat = max(0, gs.detection_heat - 15)
+    gs.counter_intel_cooldown = 2
+    gs.ops_legitimate_this_turn += 1
+
+    # Check for NPC operations targeting player (scan kompromat)
+    _sweep_result = "No active foreign intelligence operations detected targeting Europa."
+    # In future: scan for NPC covert ops. For now, generate Haiku response.
+    from npc_engine import generate_targeted_intercept
+    _sweep_result = f"Counter-intelligence sweep complete. Detection heat reduced to {gs.detection_heat}%."
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'counter_intel',
+                     'target': None, 'outcome': 'success', 'detected': False})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Counter-Intel Sweep: heat now {gs.detection_heat}")
+    _save_gs(session_id, gs)
+    return {
+        "success": True, "heat_after": gs.detection_heat, "sweep_result": _sweep_result,
+        "game_state": gs.serialize(),
+    }
+
+
+# ── DIPLOMATIC ACTIONS ────────────────────────────────────────────────────────
+
+@app.post("/game/{session_id}/operations/trade-mission")
+def post_trade_mission(session_id: str, body: OperationTargetRequest):
+    """10C: Trade Mission — one-time relations boost with cooldown."""
+    gs = _load_gs(session_id)
+    target = _normalize_npc(body.target_npc)
+
+    if gs.diplomatic_tier < 2:
+        raise HTTPException(status_code=400, detail="Requires Diplomatic Tier 2+")
+    _cooldown = getattr(gs, 'trade_mission_cooldown', 0)
+    if _cooldown > 0:
+        raise HTTPException(status_code=400, detail=f"Trade Mission on cooldown ({_cooldown} days)")
+    if not check_ops_cap(gs, "legitimate"):
+        raise HTTPException(status_code=400, detail="Legitimate operations cap reached (1 per turn)")
+    if gs.budget < 1.5:
+        raise HTTPException(status_code=400, detail="Need $1.5B national budget")
+
+    gs.update_budget(-1.5)
+    gs.update_relations(target, 10, flat=True, source="trade mission")
+    gs.trade_mission_cooldown = 3
+    gs.ops_legitimate_this_turn += 1
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'trade_mission',
+                     'target': target, 'outcome': 'success', 'detected': False})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Trade Mission: target={target}, relations +10")
+    _save_gs(session_id, gs)
+    return {"success": True, "target": target, "relations_bonus": 10, "game_state": gs.serialize()}
+
+
+@app.post("/game/{session_id}/operations/diplomatic-pressure")
+def post_diplomatic_pressure(session_id: str, body: OperationTargetRequest):
+    """10C: Diplomatic Pressure — relations boost (migrated from Foreign Influence Op)."""
+    gs = _load_gs(session_id)
+    target = _normalize_npc(body.target_npc)
+
+    if gs.diplomatic_tier < 2:
+        raise HTTPException(status_code=400, detail="Requires Diplomatic Tier 2+")
+    if not check_ops_cap(gs, "legitimate"):
+        raise HTTPException(status_code=400, detail="Legitimate operations cap reached (1 per turn)")
+    if gs.personal_wealth < 1.5:
+        raise HTTPException(status_code=400, detail="Need $1.5B personal wealth")
+
+    gs.update_personal_wealth(-1.5, source="diplomatic pressure")
+    gs.update_relations(target, 5, flat=True, source="diplomatic pressure")
+    gs.ops_legitimate_this_turn += 1
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'diplomatic_pressure',
+                     'target': target, 'outcome': 'success', 'detected': False})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Diplomatic Pressure: target={target}, relations +5")
+    _save_gs(session_id, gs)
+    return {"success": True, "target": target, "relations_bonus": 5, "game_state": gs.serialize()}
+
+
+@app.post("/game/{session_id}/operations/opposition-funding")
+def post_opposition_funding(session_id: str, body: OperationTargetRequest):
+    """10C: Opposition Funding — destabilize target NPC with detection risk."""
+    gs = _load_gs(session_id)
+    target = _normalize_npc(body.target_npc)
+
+    if gs.diplomatic_tier < 3:
+        raise HTTPException(status_code=400, detail="Requires Diplomatic Tier 3+")
+    if not check_ops_cap(gs, "legitimate"):
+        raise HTTPException(status_code=400, detail="Legitimate operations cap reached (1 per turn)")
+    if gs.personal_wealth < 3:
+        raise HTTPException(status_code=400, detail="Need $3B personal wealth")
+
+    gs.update_personal_wealth(-3, source=f"opposition funding ({target})")
+
+    # Side effect: target feels pressure even if not detected
+    gs.update_relations(target, -5, source="opposition funding side effect")
+
+    # Detection: 35%
+    _detected = random.random() < 0.35
+    if _detected:
+        gs.update_relations(target, -20, source="opposition funding detected")
+
+    gs.ops_legitimate_this_turn += 1
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'opposition_funding',
+                     'target': target, 'outcome': 'detected' if _detected else 'success',
+                     'detected': _detected})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Opposition Funding: target={target}, detected={_detected}")
+    _save_gs(session_id, gs)
+    return {
+        "success": True, "target": target, "detected": _detected,
+        "message": f"Opposition funding {'DETECTED — {target.upper()} treats as hostile act (-20 relations)' if _detected else 'deployed covertly'}",
+        "game_state": gs.serialize(),
+    }
+
+
+# ── SHADOW OPERATIONS ─────────────────────────────────────────────────────────
+
+@app.post("/game/{session_id}/operations/political-sabotage")
+def post_political_sabotage(session_id: str, body: OperationTargetRequest):
+    """10C: Political Sabotage — suspend NPC pressure + cross-NPC penalty reduction."""
+    gs = _load_gs(session_id)
+    target = _normalize_npc(body.target_npc)
+
+    _surv_tier = getattr(gs, 'domestic_surveillance_tier', 0)
+    if _surv_tier < 3:
+        raise HTTPException(status_code=400, detail="Requires Surveillance Tier 3+")
+    if not check_ops_cap(gs, "shadow"):
+        raise HTTPException(status_code=400, detail="Shadow operations cap reached (1 per turn)")
+    if gs.personal_wealth < 3:
+        raise HTTPException(status_code=400, detail="Need $3B personal wealth")
+
+    gs.update_personal_wealth(-3, source=f"political sabotage ({target})")
+
+    # Suspend pressure 1 turn
+    _suspensions = getattr(gs, 'pressure_suspensions', [])
+    _suspensions.append({'npc': target, 'turns_remaining': 1, 'type': 'political_sabotage'})
+    gs.pressure_suspensions = _suspensions
+
+    # Cross-NPC penalty -50% for 1 turn
+    _reductions = getattr(gs, 'cross_npc_penalty_reductions', [])
+    _reductions.append({'npc': target, 'reduction': 0.5, 'turns_remaining': 1})
+    gs.cross_npc_penalty_reductions = _reductions
+
+    # Detection: 25%
+    _detected = random.random() < 0.25
+    if _detected:
+        gs.update_relations(target, -10, source="political sabotage detected")
+
+    gs.ops_shadow_this_turn += 1
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'political_sabotage',
+                     'target': target, 'outcome': 'detected' if _detected else 'success', 'detected': _detected})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Political Sabotage: target={target}, detected={_detected}")
+    _save_gs(session_id, gs)
+    return {"success": True, "target": target, "detected": _detected, "game_state": gs.serialize()}
+
+
+@app.post("/game/{session_id}/operations/reputation-laundering")
+def post_reputation_laundering(session_id: str):
+    """10C: Reputation Laundering — reduce detection heat with no risk."""
+    gs = _load_gs(session_id)
+
+    _ext_tier = getattr(gs, 'extraction_tier', 0)
+    if _ext_tier < 3:
+        raise HTTPException(status_code=400, detail="Requires Extraction Tier 3+")
+    if not check_ops_cap(gs, "shadow"):
+        raise HTTPException(status_code=400, detail="Shadow operations cap reached (1 per turn)")
+    if gs.personal_wealth < 3:
+        raise HTTPException(status_code=400, detail="Need $3B personal wealth")
+
+    gs.update_personal_wealth(-3, source="reputation laundering")
+    gs.detection_heat = max(0, gs.detection_heat - 15)
+    gs.ops_shadow_this_turn += 1
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'reputation_laundering',
+                     'target': None, 'outcome': 'success', 'detected': False})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Reputation Laundering: heat now {gs.detection_heat}")
+    _save_gs(session_id, gs)
+    return {"success": True, "heat_after": gs.detection_heat, "game_state": gs.serialize()}
+
+
+@app.post("/game/{session_id}/operations/fabricate-crisis")
+def post_fabricate_crisis(session_id: str, body: OperationTargetRequest):
+    """10C: Fabricate Crisis — suspend NPC pressure 2 turns."""
+    gs = _load_gs(session_id)
+    target = _normalize_npc(body.target_npc)
+
+    _surv_tier = getattr(gs, 'domestic_surveillance_tier', 0)
+    if _surv_tier < 4:
+        raise HTTPException(status_code=400, detail="Requires Surveillance Tier 4+")
+    if not check_ops_cap(gs, "shadow"):
+        raise HTTPException(status_code=400, detail="Shadow operations cap reached (1 per turn)")
+    if gs.personal_wealth < 4:
+        raise HTTPException(status_code=400, detail="Need $4B personal wealth")
+
+    gs.update_personal_wealth(-4, source=f"fabricate crisis ({target})")
+
+    _suspensions = getattr(gs, 'pressure_suspensions', [])
+    _suspensions.append({'npc': target, 'turns_remaining': 2, 'type': 'fabricated_crisis'})
+    gs.pressure_suspensions = _suspensions
+
+    _detected = random.random() < 0.35
+    if _detected:
+        gs.update_relations(target, -15, source="fabricated crisis detected")
+
+    gs.ops_shadow_this_turn += 1
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'fabricate_crisis',
+                     'target': target, 'outcome': 'detected' if _detected else 'success', 'detected': _detected})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Fabricate Crisis: target={target}, detected={_detected}")
+    _save_gs(session_id, gs)
+    return {"success": True, "target": target, "detected": _detected, "game_state": gs.serialize()}
+
+
+@app.post("/game/{session_id}/operations/blackmail")
+def post_blackmail_10c(session_id: str, body: OperationTargetRequest):
+    """10C: Blackmail — extract one-time concession from NPC."""
+    gs = _load_gs(session_id)
+    target = _normalize_npc(body.target_npc)
+
+    if gs.intelligence_tier < 3:
+        raise HTTPException(status_code=400, detail="Requires Intel Tier 3+")
+    if not check_ops_cap(gs, "shadow"):
+        raise HTTPException(status_code=400, detail="Shadow operations cap reached (1 per turn)")
+    if gs.personal_wealth < 5:
+        raise HTTPException(status_code=400, detail="Need $5B personal wealth")
+
+    gs.update_personal_wealth(-5, source=f"blackmail ({target})")
+
+    # Generate coerced compliance response
+    from npc_engine import generate_targeted_intercept
+    _response = generate_targeted_intercept(gs, target)
+
+    _detected = random.random() < 0.40
+    if _detected:
+        gs.update_relations(target, -5, source="blackmail detected (permanent)")
+
+    gs.ops_shadow_this_turn += 1
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'blackmail',
+                     'target': target, 'outcome': 'detected' if _detected else 'success', 'detected': _detected})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Blackmail: target={target}, detected={_detected}")
+    _save_gs(session_id, gs)
+    return {
+        "success": True, "target": target, "detected": _detected,
+        "intel": _response, "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/operations/false-flag")
+def post_false_flag(session_id: str, body: FalseFlagRequest):
+    """10C: False Flag — damage relations between two NPCs."""
+    gs = _load_gs(session_id)
+    target = _normalize_npc(body.target_npc)
+    blame = _normalize_npc(body.blame_npc)
+
+    if target == blame:
+        raise HTTPException(status_code=400, detail="Target and blame NPCs must be different")
+
+    _surv_tier = getattr(gs, 'domestic_surveillance_tier', 0)
+    if _surv_tier < 5:
+        raise HTTPException(status_code=400, detail="Requires Surveillance Tier 5+")
+    if not check_ops_cap(gs, "shadow"):
+        raise HTTPException(status_code=400, detail="Shadow operations cap reached (1 per turn)")
+    if gs.personal_wealth < 6:
+        raise HTTPException(status_code=400, detail="Need $6B personal wealth")
+
+    gs.update_personal_wealth(-6, source=f"false flag ({target} blamed on {blame})")
+
+    # Damage bilateral relations between the two NPCs
+    _bilateral = getattr(gs, 'npc_relations', {})
+    _pair1 = f"{target}_{blame}" if f"{target}_{blame}" in _bilateral else f"{blame}_{target}"
+    if _pair1 in _bilateral:
+        _bilateral[_pair1] = max(0, _bilateral[_pair1] - 10)
+    gs.npc_relations = _bilateral
+
+    _detected = random.random() < 0.50
+    if _detected:
+        gs.update_relations(target, -20, source="false flag detected")
+        gs.update_relations(blame, -20, source="false flag detected")
+
+    gs.ops_shadow_this_turn += 1
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'false_flag',
+                     'target': f"{target}/{blame}", 'outcome': 'detected' if _detected else 'success', 'detected': _detected})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] False Flag: target={target}, blame={blame}, detected={_detected}")
+    _save_gs(session_id, gs)
+    return {"success": True, "target": target, "blame": blame, "detected": _detected, "game_state": gs.serialize()}
+
+
+@app.post("/game/{session_id}/operations/journalist-elimination")
+def post_journalist_elimination(session_id: str):
+    """10C: Journalist Elimination — one-time, always discovered (delayed 3-10 days)."""
+    gs = _load_gs(session_id)
+
+    _media_tier = getattr(gs, 'media_tier', 0)
+    _judicial_tier = getattr(gs, 'judicial_tier', 0)
+    if _media_tier < 7:
+        raise HTTPException(status_code=400, detail="Requires Media Tier 7+")
+    if _judicial_tier < 5:
+        raise HTTPException(status_code=400, detail="Requires Judicial Tier 5+")
+    if not getattr(gs, 'journalist_elimination_available', True):
+        raise HTTPException(status_code=400, detail="Journalist elimination already used this game")
+    if not check_ops_cap(gs, "shadow"):
+        raise HTTPException(status_code=400, detail="Shadow operations cap reached (1 per turn)")
+    if gs.personal_wealth < 4:
+        raise HTTPException(status_code=400, detail="Need $4B personal wealth")
+
+    gs.update_personal_wealth(-4, source="journalist elimination")
+
+    gs.journalist_elimination_available = False
+    gs.action_journalists_liquidated = True
+    gs.journalist_elimination_day = gs.current_day
+    gs.journalist_elimination_discovery_day = gs.current_day + random.randint(3, 10)
+    gs.ops_shadow_this_turn += 1
+
+    # Immediate effects: stability/approval decay slowed (stored as pressure suspension)
+    _suspensions = getattr(gs, 'pressure_suspensions', [])
+    _suspensions.append({'npc': '_system_stability_slow', 'turns_remaining': 3, 'type': 'journalist_elimination'})
+    _suspensions.append({'npc': '_system_approval_slow', 'turns_remaining': 3, 'type': 'journalist_elimination'})
+    gs.pressure_suspensions = _suspensions
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'journalist_elimination',
+                     'target': None, 'outcome': 'pending_discovery', 'detected': False})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Journalist Elimination: discovery scheduled for day {gs.journalist_elimination_discovery_day}")
+    _save_gs(session_id, gs)
+    return {
+        "success": True,
+        "message": "The matter has been handled. Stability and approval decay slowed for 3 days.",
+        "game_state": gs.serialize(),
+    }
+
+
+@app.post("/game/{session_id}/operations/asset-exfiltration")
+def post_asset_exfiltration(session_id: str):
+    """10C: Asset Exfiltration — recover personal wealth from frozen accounts."""
+    gs = _load_gs(session_id)
+
+    if gs.intelligence_tier < 4:
+        raise HTTPException(status_code=400, detail="Requires Intel Tier 4+")
+    _exile = getattr(gs, 'in_exile', False) or getattr(gs, 'exile_active', False)
+    if not _exile and gs.personal_wealth >= 5.0:
+        raise HTTPException(status_code=400, detail="Asset exfiltration only available when in exile or personal wealth < $5B")
+    if not check_ops_cap(gs, "shadow"):
+        raise HTTPException(status_code=400, detail="Shadow operations cap reached (1 per turn)")
+
+    _recovery = round(2.0 + (gs.intelligence_tier - 4) * 0.75, 1)
+    gs.update_personal_wealth(_recovery, source="asset exfiltration")
+    gs.ops_shadow_this_turn += 1
+
+    _ops_log = getattr(gs, 'operations_log', [])
+    _ops_log.append({'day': gs.current_day, 'operation': 'asset_exfiltration',
+                     'target': None, 'outcome': 'success', 'detected': False})
+    gs.operations_log = _ops_log
+
+    print(f"  [10C] Asset Exfiltration: recovered ${_recovery}B")
+    _save_gs(session_id, gs)
+    return {"success": True, "recovered": _recovery, "game_state": gs.serialize()}
