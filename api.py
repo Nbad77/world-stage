@@ -8343,9 +8343,36 @@ async def resolve_event(session_id: str, request: Request, user: User = Depends(
 
     can_end_day = gs.events_resolved_today >= gs.events_required_today
 
+    # 10B-2: Generate and apply resolution consequences
+    import asyncio
+    from npc_engine import generate_event_resolution_consequences
+    consequences = await asyncio.to_thread(
+        generate_event_resolution_consequences, gs, target_event, resolution
+    )
+
+    # Apply NPC relation deltas
+    rels = gs.relations or {}
+    for npc_id, delta in consequences.get("npc_reactions", {}).items():
+        if npc_id in rels:
+            rels[npc_id] = max(0, min(100, rels[npc_id] + delta))
+    gs.relations = rels
+
+    # Apply stability delta
+    stab_delta = consequences.get("stability_delta", 0)
+    if stab_delta:
+        gs.stability = max(0, min(100, (gs.stability or 50) + stab_delta))
+
+    # Apply budget delta
+    budget_delta = consequences.get("budget_delta", 0)
+    if budget_delta:
+        gs.budget = round((gs.budget or 50) + budget_delta, 1)
+
+    target_event["consequences"] = consequences
+
     _save_gs(session_id, gs)
 
-    print(f"  [10B-1] Event {event_id} resolved: {resolution}. "
+    print(f"  [10B-2] Event {event_id} resolved: {resolution}. "
+          f"Consequences: {consequences.get('interpretation', 'N/A')}. "
           f"Progress: {gs.events_resolved_today}/{gs.events_required_today}")
 
     return {
@@ -8353,6 +8380,7 @@ async def resolve_event(session_id: str, request: Request, user: User = Depends(
         "events_resolved": gs.events_resolved_today,
         "events_required": gs.events_required_today,
         "can_end_day": can_end_day,
+        "consequences": consequences,
         "game_state": gs.serialize(),
     }
 

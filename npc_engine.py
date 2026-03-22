@@ -5195,7 +5195,8 @@ def generate_event_dialogue(game_state, event: dict) -> list:
 
     applicable = event.get("applicable_npcs", [])
     if not applicable:
-        return []
+        # Every country has a position on world events — use all six NPCs
+        applicable = ["usa", "arabia", "eu", "dprg", "russia", "china"]
 
     event_title = event.get("title", "Unknown Event")
     event_summary = event.get("summary", "")
@@ -5531,6 +5532,102 @@ def generate_declaration_consequences(game_state, declaration_text: str) -> dict
             "soft_power_delta": 0,
             "generates_world_event": False,
             "world_event_hint": "",
+        }
+
+
+def generate_event_resolution_consequences(game_state, event: dict, resolution: str) -> dict:
+    """10B-2: Generate consequences for resolving a world event.
+    Returns dict with npc_reactions, stability_delta, budget_delta, interpretation.
+    Uses deterministic fallback if no API key (tests)."""
+
+    context = _build_context(game_state)
+    event_title = event.get("title", "Unknown Event")
+    event_summary = event.get("summary", "")
+    event_severity = event.get("severity", "moderate")
+    event_category = event.get("category", "diplomatic")
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        # Deterministic fallback for tests
+        sev_mult = {"routine": 1, "moderate": 2, "urgent": 3, "critical": 4}.get(event_severity, 2)
+        return {
+            "interpretation": f"Europa's response to {event_title} has been noted.",
+            "npc_reactions": {"usa": sev_mult, "eu": sev_mult, "arabia": -sev_mult,
+                              "russia": -sev_mult, "china": 0, "dprg": 0},
+            "stability_delta": -sev_mult if event_category == "crisis" else sev_mult,
+            "budget_delta": -sev_mult * 0.5 if event_category == "economic" else 0,
+            "flags": [],
+        }
+
+    system_prompt = (
+        "You are a geopolitical consequences engine. A head of state has responded "
+        "to a world event. Determine the consequences based on the response, event, "
+        "and current game state.\n\n"
+        "Return ONLY a JSON object. No preamble.\n"
+        '{\n'
+        '  "interpretation": "one sentence: what the response achieved",\n'
+        '  "npc_reactions": {\n'
+        '    "usa": delta, "arabia": delta, "eu": delta,\n'
+        '    "russia": delta, "china": delta, "dprg": delta\n'
+        '  },\n'
+        '  "stability_delta": integer,\n'
+        '  "budget_delta": number,\n'
+        '  "flags": ["optional_flag_strings"]\n'
+        '}\n\n'
+        "NPC reaction deltas: integers from -10 to +10.\n"
+        "stability_delta: integer from -5 to +5.\n"
+        "budget_delta: number from -3.0 to +1.0 (billions).\n"
+        "flags: empty list unless something notable triggered."
+    )
+
+    rels = {k: round(v, 1) for k, v in (game_state.relations or {}).items()}
+    user_prompt = (
+        f"WORLD EVENT: {event_title}\n"
+        f"Severity: {event_severity} | Category: {event_category}\n"
+        f"Details: {event_summary}\n\n"
+        f"PLAYER RESPONSE: \"{resolution}\"\n\n"
+        f"Current NPC relations: {json.dumps(rels)}\n"
+        f"Current game state:\n{json.dumps(context, indent=2)}\n\n"
+        f"Determine consequences. Return ONLY JSON."
+    )
+
+    try:
+        response = _client.messages.create(
+            model=MODEL,
+            max_tokens=300,
+            temperature=0.6,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}]
+        )
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
+
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            raw = "\n".join(lines)
+
+        result = json.loads(raw)
+        for npc_id in result.get("npc_reactions", {}):
+            result["npc_reactions"][npc_id] = max(-10, min(10, int(result["npc_reactions"][npc_id])))
+        result["stability_delta"] = max(-5, min(5, int(result.get("stability_delta", 0))))
+        result["budget_delta"] = max(-3.0, min(1.0, float(result.get("budget_delta", 0))))
+        result.setdefault("flags", [])
+        result.setdefault("interpretation", "The response was noted.")
+
+        print(f"  [10B-2] Event resolution consequences: {result['interpretation']}")
+        return result
+
+    except Exception as e:
+        print(f"  [10B-2] Event resolution consequences failed: {e}")
+        return {
+            "interpretation": f"Europa's response to {event_title} has been noted.",
+            "npc_reactions": {"usa": 0, "arabia": 0, "eu": 0, "russia": 0, "china": 0, "dprg": 0},
+            "stability_delta": 0,
+            "budget_delta": 0,
+            "flags": [],
         }
 
 

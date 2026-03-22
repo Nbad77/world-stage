@@ -128,6 +128,9 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   // Stage 4: World events
   const [currentEvent, setCurrentEvent] = useState(initialData.current_event || null)
 
+  // 10B-2: Intel loading state per NPC
+  const [intelLoading, setIntelLoading] = useState({})
+
   // Session 7A Step 5: Era transition + Historian
   const [eraTransitionSuggestion, setEraTransitionSuggestion] = useState(null)
   const [historianModal, setHistorianModal] = useState(null) // { era, summary, isOnDemand }
@@ -774,6 +777,26 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     }))
   }
 
+  // ── 10B-2: GET INTEL handler ────────────────────────────────────────────
+  async function handleGetIntel(npcKey) {
+    setIntelLoading(prev => ({ ...prev, [npcKey]: true }))
+    try {
+      const result = await api.intelGetNpc(sessionId, npcKey)
+      console.log('[10B-2] Intel result for', npcKey, ':', result)
+      // Refresh gs to get updated personal_wealth and relations
+      const data = await api.getGame(sessionId)
+      setGs(data.game_state)
+      if (result.detected) {
+        console.log(`[10B-2] Intel detected by ${npcKey}`)
+      }
+    } catch (e) {
+      console.error('[10B-2] Intel failed:', e)
+      setError('Intel operation failed: ' + (e.message || e))
+    } finally {
+      setIntelLoading(prev => ({ ...prev, [npcKey]: false }))
+    }
+  }
+
   // ── Negotiation opener: inject communiqué as NPC's first message ─────────
   function handleStartNegotiation(npcKey, communiqueText) {
     if (npcKey === null) {
@@ -1261,7 +1284,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         />
       </div>
 
-      <DashboardLayout gs={gs} onShadowCabinet={() => setShadowCabinetOpen(true)} negotiatingNpc={negotiatingNpc} onHistorian={handleHistorianAssessment} historianLoading={historianLoading} onBiography={() => { console.log('[9B] opening draft biography from sidebar'); setShowBiography(true) }} onContact={phase === PHASE.DIALOGUE && !loading ? handlePlayerContact : null} contactsDisabled={loading || phase !== PHASE.DIALOGUE} activeTab={activeTab} onTabChange={setActiveTab} domesticContent={<DomesticTab gs={gs} sessionId={sessionId} onGsUpdate={setGs} />} onBackchannel={phase === PHASE.DIALOGUE ? handleOpenBackchannel : null} backchannelDisabled={loading || phase !== PHASE.DIALOGUE}>
+      <DashboardLayout gs={gs} onShadowCabinet={() => setShadowCabinetOpen(true)} negotiatingNpc={negotiatingNpc} onHistorian={handleHistorianAssessment} historianLoading={historianLoading} onBiography={() => { console.log('[9B] opening draft biography from sidebar'); setShowBiography(true) }} onContact={phase === PHASE.DIALOGUE && !loading ? handlePlayerContact : null} contactsDisabled={loading || phase !== PHASE.DIALOGUE} activeTab={activeTab} onTabChange={setActiveTab} domesticContent={<DomesticTab gs={gs} sessionId={sessionId} onGsUpdate={setGs} />} onBackchannel={phase === PHASE.DIALOGUE ? handleOpenBackchannel : null} backchannelDisabled={loading || phase !== PHASE.DIALOGUE} onGetIntel={handleGetIntel} intelLoading={intelLoading}>
 
       {/* Session 7E: Summit replaces center panel content when open */}
       {summitOpen ? (
@@ -1337,7 +1360,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               sessionId={sessionId}
               currentDay={gs?.current_turn ?? 1}
               currentEra={gs?.current_era ?? 1}
-              onEndDay={handleContinue}
+              onEndDay={() => _executeSkim(1)}
               onEventResolved={async (evt, res) => {
                 console.log('[BRIEFING] Event resolved:', evt.id, res)
                 try {

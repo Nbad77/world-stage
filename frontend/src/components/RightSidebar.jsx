@@ -15,17 +15,20 @@ const NPC_LIST = [
   { key: 'china',  label: 'Wei Jianming',     flag: '🇨🇳', subtitle: 'China',               color: 'var(--china)' },
 ]
 
-export default function RightSidebar({ gs, onContact, negotiatingNpc, contactsDisabled, onBackchannel, backchannelDisabled }) {
+export default function RightSidebar({ gs, onContact, negotiatingNpc, contactsDisabled, onBackchannel, backchannelDisabled, onGetIntel, intelLoading }) {
   if (!gs) return null
 
   const rel = gs.relations || {}
+  const cables = gs.diplomatic_cables || {}
 
   return (
     <div className="right-sidebar">
-      {/* Intelligence intercept badge (placeholder) */}
+      {/* Intelligence intercept badge */}
       <div className="rs-intel-badge">
         🔍 Intelligence Intercepts
-        <span style={{ marginLeft: 'auto', opacity: 0.5 }}>—</span>
+        <span style={{ marginLeft: 'auto', opacity: 0.5 }}>
+          {(gs.intelligence_tier ?? 0) >= 1 ? `Tier ${gs.intelligence_tier}` : '—'}
+        </span>
       </div>
 
       <div className="rs-header">Diplomatic Relations</div>
@@ -49,6 +52,9 @@ export default function RightSidebar({ gs, onContact, negotiatingNpc, contactsDi
           contactDisabled={contactsDisabled || negotiatingNpc === npc.key}
           onBackchannel={onBackchannel}
           backchannelDisabled={backchannelDisabled}
+          onGetIntel={onGetIntel}
+          intelLoading={intelLoading?.[npc.key] || false}
+          cable={cables[npc.key] || null}
           gs={gs}
         />
       ))}

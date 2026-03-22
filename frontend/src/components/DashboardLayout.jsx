@@ -26,7 +26,7 @@ const NPC_LABELS = {
   china:  'WEI JIANMING',
 }
 
-export default function DashboardLayout({ gs, children, onShadowCabinet, negotiatingNpc, onHistorian, historianLoading, onContact, contactsDisabled, activeTab, onTabChange, domesticContent, onBackchannel, backchannelDisabled, onBiography }) {
+export default function DashboardLayout({ gs, children, onShadowCabinet, negotiatingNpc, onHistorian, historianLoading, onContact, contactsDisabled, activeTab, onTabChange, domesticContent, onBackchannel, backchannelDisabled, onBiography, onGetIntel, intelLoading }) {
   // ── Ambient vs Event mode ────────────────────────────────────────────
   const mode = negotiatingNpc ? 'event' : 'ambient'
   const prevModeRef = useRef(mode)
@@ -139,7 +139,7 @@ export default function DashboardLayout({ gs, children, onShadowCabinet, negotia
 
       {/* ── Right Sidebar (desktop only) ─────────────────────────────── */}
       <aside className="dashboard-right hidden lg:block">
-        <RightSidebar gs={gs} onContact={onContact} negotiatingNpc={negotiatingNpc} contactsDisabled={contactsDisabled} onBackchannel={onBackchannel} backchannelDisabled={backchannelDisabled} />
+        <RightSidebar gs={gs} onContact={onContact} negotiatingNpc={negotiatingNpc} contactsDisabled={contactsDisabled} onBackchannel={onBackchannel} backchannelDisabled={backchannelDisabled} onGetIntel={onGetIntel} intelLoading={intelLoading} />
       </aside>
 
     </div>

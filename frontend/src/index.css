@@ -4222,6 +4222,36 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .briefing-resolution-text { color: var(--muted); font-size: 0.85rem; margin-top: 0.3rem; }
 .briefing-progress-inline { color: var(--accent); font-size: 0.85rem; font-family: var(--mono); }
 
+/* 10B-2: Resolution consequences */
+.briefing-consequences {
+  background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1rem; margin: 0.75rem 0;
+}
+.briefing-consequence-interpretation {
+  color: var(--text); font-size: 0.9rem; font-style: italic;
+  margin-bottom: 0.75rem; line-height: 1.4;
+}
+.briefing-consequence-section {
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+  margin-bottom: 0.5rem; font-size: 0.85rem;
+}
+.briefing-consequence-label {
+  color: var(--muted); font-family: var(--mono); font-size: 0.75rem;
+  text-transform: uppercase; letter-spacing: 0.05em; min-width: 80px;
+}
+.briefing-consequence-deltas { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.briefing-delta {
+  font-family: var(--mono); font-size: 0.85rem; font-weight: 600;
+  padding: 0.15rem 0.4rem; border-radius: 3px;
+}
+.briefing-delta.positive { color: var(--success); background: rgba(76,175,110,0.1); }
+.briefing-delta.negative { color: var(--danger); background: rgba(229,74,74,0.1); }
+.briefing-flag {
+  color: var(--warning); background: rgba(255,183,77,0.1);
+  padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.8rem;
+  font-family: var(--mono);
+}
+
 /* Free action header */
 .briefing-free-action-header {
   background: rgba(76,175,110,0.08); border: 1px solid var(--success);

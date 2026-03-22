@@ -164,6 +164,9 @@ export default function BriefingScreen({
   const [advisorAnalysesReady, setAdvisorAnalysesReady] = useState(false)
   const [eventScreenTransition, setEventScreenTransition] = useState(false)
 
+  // 10B-2: Resolution consequences
+  const [resolutionConsequences, setResolutionConsequences] = useState(null)
+
   // 10B-2: Declarations
   const [declarationText, setDeclarationText] = useState('')
   const [declarationLoading, setDeclarationLoading] = useState(false)
@@ -262,14 +265,12 @@ export default function BriefingScreen({
     setEventScreenTransition(true)
     setBriefingState('event_active')
 
-    // Fetch event-specific NPC dialogues
-    if (event.applicable_npcs?.length > 0) {
-      setEventDialoguesLoading(true)
-      api.briefingEventDialogue(sessionId, event.id)
-        .then(res => setEventDialogues(res.dialogues || []))
-        .catch(e => console.error('[10B-2] Event dialogue fetch failed:', e))
-        .finally(() => setEventDialoguesLoading(false))
-    }
+    // Fetch event-specific NPC dialogues (always — backend uses all NPCs if applicable_npcs empty)
+    setEventDialoguesLoading(true)
+    api.briefingEventDialogue(sessionId, event.id)
+      .then(res => setEventDialogues(res.dialogues || []))
+      .catch(e => console.error('[10B-2] Event dialogue fetch failed:', e))
+      .finally(() => setEventDialoguesLoading(false))
 
     // Fetch advisor analyses in background
     setAdvisorAnalysesLoading(true)
@@ -300,6 +301,7 @@ export default function BriefingScreen({
         can_end_day: result.can_end_day,
       })
       setActiveEvent({ ...activeEvent, resolved: true, resolution })
+      setResolutionConsequences(result.consequences || null)
       setBriefingState('event_summary')
       if (result.game_state && onGsUpdate) {
         onGsUpdate(result.game_state)
@@ -486,6 +488,7 @@ export default function BriefingScreen({
 
   // ── Render: Event Summary ────────────────────────────────────────────────
   if (briefingState === 'event_summary' && activeEvent) {
+    const csq = resolutionConsequences
     return (
       <div className="briefing-event-summary">
         <h3 className="briefing-summary-title">EVENT RESOLVED</h3>
@@ -495,6 +498,63 @@ export default function BriefingScreen({
             Response: {activeEvent.resolution}
           </p>
         </div>
+
+        {/* Consequences */}
+        {csq && (
+          <div className="briefing-consequences">
+            {csq.interpretation && (
+              <p className="briefing-consequence-interpretation">{csq.interpretation}</p>
+            )}
+
+            {/* NPC Relation Deltas */}
+            {csq.npc_reactions && Object.entries(csq.npc_reactions).some(([, d]) => d !== 0) && (
+              <div className="briefing-consequence-section">
+                <span className="briefing-consequence-label">RELATIONS</span>
+                <div className="briefing-consequence-deltas">
+                  {Object.entries(csq.npc_reactions).filter(([, d]) => d !== 0).map(([npc, delta]) => {
+                    const info = NPC_DISPLAY[npc]
+                    return (
+                      <span key={npc} className={`briefing-delta ${delta > 0 ? 'positive' : 'negative'}`}>
+                        {info?.flag || npc} {delta > 0 ? '+' : ''}{delta}
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Stability Delta */}
+            {csq.stability_delta !== 0 && csq.stability_delta != null && (
+              <div className="briefing-consequence-section">
+                <span className="briefing-consequence-label">STABILITY</span>
+                <span className={`briefing-delta ${csq.stability_delta > 0 ? 'positive' : 'negative'}`}>
+                  {csq.stability_delta > 0 ? '+' : ''}{csq.stability_delta}
+                </span>
+              </div>
+            )}
+
+            {/* Budget Delta */}
+            {csq.budget_delta !== 0 && csq.budget_delta != null && (
+              <div className="briefing-consequence-section">
+                <span className="briefing-consequence-label">BUDGET</span>
+                <span className={`briefing-delta ${csq.budget_delta > 0 ? 'positive' : 'negative'}`}>
+                  {csq.budget_delta > 0 ? '+' : ''}{csq.budget_delta.toFixed(1)}B
+                </span>
+              </div>
+            )}
+
+            {/* Flags */}
+            {csq.flags?.length > 0 && (
+              <div className="briefing-consequence-section">
+                <span className="briefing-consequence-label">FLAGS</span>
+                {csq.flags.map((f, i) => (
+                  <span key={i} className="briefing-flag">{f}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="briefing-progress-inline">
           Progress: {dayStatus.events_resolved} / {dayStatus.events_required} required events
         </div>

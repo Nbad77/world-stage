@@ -141,11 +141,9 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
             )
           })()}
           {/* 10B-2: Diplomatic cable teaser */}
-          {cable && (
-            <div className="npc-cable-teaser">
-              <span className="npc-cable-text">{cable}</span>
-            </div>
-          )}
+          <div className="npc-cable-teaser">
+            <span className="npc-cable-text">{cable || 'No recent communications.'}</span>
+          </div>
         </>
       )}
     </div>
