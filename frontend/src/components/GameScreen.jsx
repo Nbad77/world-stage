@@ -271,12 +271,12 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     setPendingConfirm({ type: 'skim', value: choice, text })
   }
 
-  function handleConfirmExecute() {
+  async function handleConfirmExecute() {
     if (!pendingConfirm) return
     const { type, value } = pendingConfirm
     setPendingConfirm(null)
-    if (type === 'choice') _executeChoice(value)
-    else if (type === 'skim') _executeSkim(value)
+    if (type === 'choice') await _executeChoice(value)
+    else if (type === 'skim') await _executeSkim(value)
   }
 
   function handleConfirmCancel() {
@@ -376,7 +376,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       // Legacy per-turn skim prompt removed. Auto-submit choice 1 to trigger EOT.
       if (!(res.brigade_available)) {
         console.log('[9.5A-Shadow] Auto-skipping skim prompt (persistent skim slider in Cabinet)')
-        _executeSkim(1)
+        await _executeSkim(1)
         return
       }
 
