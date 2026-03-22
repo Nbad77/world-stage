@@ -30,7 +30,15 @@
       "Bash(npx --yes @railway/cli logs -n 80)",
       "Bash(npx --yes @railway/cli login)",
       "Bash(npx acorn --ecma2022 --module --jsx src/components/GameScreen.jsx)",
-      "Bash(npx vite build --mode development)"
+      "Bash(npx vite build --mode development)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npm --version)",
+      "Read(//c/Users/nbbq8/OneDrive/Creative Projects/Claude Apps/GeoSim 3/**)",
+      "Bash(DATABASE_URL=sqlite:///test_diag.db python -m pytest tests/ -v -q --tb=no)",
+      "Bash(DATABASE_URL=sqlite:///test_diag.db python -m pytest tests/ -v -q --tb=no --ignore=tests/test_advisors.py --ignore=tests/test_session4d.py)",
+      "Bash(python -c \":*)",
+      "Bash(DATABASE_URL=sqlite:///test_final.db python -m pytest tests/ -v -q --tb=short --ignore=tests/test_advisors.py --ignore=tests/test_session4d.py)",
+      "Bash(DATABASE_URL=sqlite:///test_diag2.db python -m pytest tests/ -v -q --tb=no --ignore=tests/test_advisors.py --ignore=tests/test_session4d.py)"
     ]
   }
 }
