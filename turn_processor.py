@@ -5674,7 +5674,9 @@ def apply_end_of_turn_effects(game_state):
     game_state.todays_declaration = ""
     game_state.event_dialogues = {}
     game_state.cables_generated_today = False
+    game_state.diplomatic_cables = {}  # 10B-3: Clear cache — force fresh regeneration next day
     game_state.intel_ops_today = []
+    game_state.deals_today = []  # 10B-3: Clear daily deals (deal_history persists)
     game_state.contact_requested = {}  # Reset daily contact requests
 
     # Unlock declarations at day 5

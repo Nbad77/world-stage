@@ -716,6 +716,22 @@ export default function BriefingScreen({
         )}
       </div>
 
+      {/* 10B-3: Today's Activity — completed deals */}
+      {(dayStatus?.deals_today?.length > 0) && (
+        <div className="todays-deals">
+          <h4 className="deals-header">TODAY'S ACTIVITY</h4>
+          {dayStatus.deals_today.map(deal => (
+            <div key={deal.id} className="deal-item">
+              <span className="deal-npc">{deal.npc_name}</span>
+              <span className="deal-summary">{deal.briefing_summary}</span>
+              <span className="deal-source">
+                {deal.source === 'backchannel' ? '🔒 Covert' : '📋 Direct'}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* End day button */}
       {canEndDay && (
         <button className="briefing-end-day-btn" onClick={handleEndDay}>

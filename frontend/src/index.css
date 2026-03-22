@@ -4033,6 +4033,52 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 .briefing-end-day-btn:hover { opacity: 0.85; }
 
+/* 10B-3: Today's Activity — completed deals */
+.todays-deals {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: rgba(212, 175, 55, 0.05);
+  border: 1px solid rgba(212, 175, 55, 0.15);
+  border-radius: 8px;
+}
+.deals-header {
+  margin: 0 0 0.75rem 0;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ws-gold);
+}
+.deal-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 0.78rem;
+}
+.deal-item:last-child { border-bottom: none; }
+.deal-npc {
+  font-weight: 600;
+  color: var(--ws-gold);
+  min-width: 100px;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+}
+.deal-summary {
+  flex: 1;
+  color: var(--ws-text);
+  line-height: 1.4;
+}
+.deal-source {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 /* 10B-2: Event Screen (situation room) */
 .briefing-event-screen {
   display: flex; flex-direction: column; gap: 0.75rem;

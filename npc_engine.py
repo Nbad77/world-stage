@@ -1183,7 +1183,8 @@ def generate_contact_dialogue(game_state, npc_id, reason, tone='neutral'):
         system_prompt = (
             f"You are {npc_name} ({npc_role}). You are initiating contact with Europa's leader. "
             f"Write 1-2 sentences in character explaining why you are reaching out. "
-            f"Tone: {tone}. Be specific and reference the reason below. Stay in character."
+            f"Tone: {tone}. Be specific and reference the reason below. Stay in character.\n"
+            f"{_NARRATOR_BAN}"
         )
 
     # 8C: Append exile context if in exile
@@ -1335,13 +1336,29 @@ def generate_model_c_contact(game_state, npc_id):
     stability = getattr(game_state, 'stability', 50)
     regime = getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy')
 
+    # 10B-3: Format prior deals for context
+    _prior_deals = getattr(game_state, 'deal_history', [])
+    if _prior_deals:
+        _deal_lines = []
+        for d in _prior_deals[-5:]:  # Last 5 deals
+            _d_npc = d.get('npc', '?')
+            _d_summary = d.get('summary', 'unknown deal')
+            _d_turn = d.get('turn_accepted', '?')
+            _deal_lines.append(f"  {_d_npc}: {_d_summary} (Day {_d_turn})")
+        _prior_deals_text = "\n".join(_deal_lines)
+    else:
+        _prior_deals_text = "None"
+
     system = (
         f"{base_prompt}\n\n"
         f"DIRECT CONTACT MODE: Europa's President has opened a direct channel with you. "
         f"{tone_instruction}\n"
+        f"{_NARRATOR_BAN}\n"
+        f"Prior deals completed this session:\n{_prior_deals_text}\n"
+        f"Do not offer something already given this session.\n\n"
         f"Write 2-4 sentences responding to the contact. Stay in character. "
         f"Reference something specific about the current state of affairs. "
-        f"Plain text only, no markdown, no asterisks."
+        f"Plain text only, no markdown, no asterisks, no stage directions."
     )
     user_content = (
         f"Relations: {rel}/100. Europa stability: {stability}%. Regime: {regime}.\n"
@@ -1663,6 +1680,18 @@ def generate_world_event(game_state, last_action_type: str = ""):
 # This permanently prevents JSON fence leaks into the chat UI.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# 10B-3: Shared narrator ban — appended to ALL negotiation/contact prompts
+_NARRATOR_BAN = """
+CRITICAL VOICE RULE: Speak ONLY in first person, directly to the player.
+Never use third-person narrative framing. Never describe physical actions or scene-setting.
+Never write "You lean back" or "He pauses" or any narrator voice.
+Never use stage directions like *he pauses* or *leans forward*.
+Speak as this person, not as a narrator describing this person.
+Wrong: "You lean back in your chair. 'I can offer $0.8B,' he says."
+Wrong: *He pauses, considering.* "Perhaps we can find common ground."
+Right: "I can offer $0.8B. Here's what I need in return."
+"""
+
 # Call 1 prompts — dialogue only (character prompt + negotiation context + prose-only rule)
 _NEGOTIATION_DIALOGUE_PROMPTS = {
     'usa': f"""{USA_SYSTEM_PROMPT}
@@ -1694,8 +1723,9 @@ PRICE RESISTANCE — If the player names a specific dollar amount:
   Do NOT immediately accept their number. Counter toward it over 1-2 exchanges.
   Only accept if the amount is at or below your opening willingness.
 
+{_NARRATOR_BAN}
 Respond in character only. Plain prose. No JSON. No structured data. No markdown fences.
-Just your character's dialogue. 2-3 sentences max.
+No stage directions. Just your character's dialogue. 2-3 sentences max.
 """,
 
     'arabia': f"""{SADAM_SYSTEM_PROMPT}
@@ -1730,8 +1760,9 @@ PRICE RESISTANCE — If the player names a specific dollar amount:
   Do NOT immediately accept their number. Counter toward it over 1-2 exchanges.
   Only accept if the amount is at or below your opening willingness.
 
-Respond in character only. Plain prose (with stage directions). No JSON. No structured data.
-No markdown fences. Just your character's dialogue. 2-3 sentences max.
+{_NARRATOR_BAN}
+Respond in character only. Plain prose. No JSON. No structured data.
+No markdown fences. No stage directions. Just your character's dialogue. 2-3 sentences max.
 """,
 
     'eu': f"""{EU_SYSTEM_PROMPT}
@@ -1771,8 +1802,9 @@ PRICE RESISTANCE — If the player names a specific dollar amount:
   Do NOT immediately accept their number. Counter toward it over 1-2 exchanges.
   Only accept if the amount is at or below your opening willingness.
 
+{_NARRATOR_BAN}
 Respond in character only. Plain prose. No JSON. No structured data. No markdown fences.
-Just your character's dialogue. 2-3 sentences max.
+No stage directions. Just your character's dialogue. 2-3 sentences max.
 """,
 
     'dprg': f"""{JIWON_SYSTEM_PROMPT}
@@ -1804,9 +1836,9 @@ PRICE RESISTANCE — If the player names a specific dollar amount:
   Do NOT immediately accept their number. Counter toward it over 1-2 exchanges.
   Only accept if the amount is at or below your opening willingness.
 
-Respond in character only. Plain prose (with brief stage directions if meaningful).
-No JSON. No structured data. No markdown fences.
-Just your character's dialogue. 2-3 sentences max.
+{_NARRATOR_BAN}
+Respond in character only. Plain prose. No JSON. No structured data. No markdown fences.
+No stage directions. Just your character's dialogue. 2-3 sentences max.
 """,
 
     'russia': f"""{VOLKOV_SYSTEM_PROMPT}
@@ -1845,8 +1877,9 @@ PRICE RESISTANCE — If the player names a specific dollar amount:
   Do NOT immediately accept their number. Counter toward it over 1-2 exchanges.
   Only accept if the amount is at or below your opening willingness.
 
+{_NARRATOR_BAN}
 Respond in character only. Plain prose. No JSON. No structured data. No markdown fences.
-Just your character's dialogue. 2-3 sentences max.
+No stage directions. Just your character's dialogue. 2-3 sentences max.
 """,
 
     'china': f"""{WEI_SYSTEM_PROMPT}
@@ -1885,8 +1918,9 @@ PRICE RESISTANCE — If the player names a specific dollar amount:
   Do NOT immediately accept their number. Counter toward it over 1-2 exchanges.
   Only accept if the amount is at or below your opening willingness.
 
+{_NARRATOR_BAN}
 Respond in character only. Plain prose. No JSON. No structured data. No markdown fences.
-Just your character's dialogue. 3-4 sentences max.
+No stage directions. Just your character's dialogue. 3-4 sentences max.
 """,
 }
 
@@ -2904,6 +2938,21 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
         dialogue_prompt += _exile_suffix
 
     context = _build_context(game_state, npc_id=npc_id)
+
+    # 10B-3: Inject prior deal history so NPC doesn't re-offer completed deals
+    _prior_deals = getattr(game_state, 'deal_history', [])
+    if _prior_deals:
+        _deal_lines = []
+        for d in _prior_deals[-5:]:
+            _d_npc = d.get('npc', '?')
+            _d_summary = d.get('summary', 'unknown deal')
+            _d_turn = d.get('turn_accepted', '?')
+            _deal_lines.append(f"{_d_npc}: {_d_summary} (Day {_d_turn})")
+        context["prior_deals_this_session"] = _deal_lines
+        context["prior_deals_note"] = "Do not offer something already given this session."
+    else:
+        context["prior_deals_this_session"] = "None"
+
     # FEATURE 5: inject negotiation cap into context
     negotiation_cap = _get_negotiation_cap(game_state, npc_id)
     context["max_single_deal_budget_billions"] = negotiation_cap
@@ -5541,6 +5590,16 @@ def generate_diplomatic_cables(game_state) -> dict:
     cables = {}
     lock = threading.Lock()
 
+    # 10B-3: Build recent activity summary for cable context
+    _deal_history = getattr(game_state, 'deal_history', [])
+    _recent_deals = [d for d in _deal_history[-5:]]  # last 5 deals
+    _recent_activity_lines = []
+    for d in _recent_deals:
+        _d_npc = d.get('npc', '?')
+        _d_summary = d.get('summary', 'deal')
+        _recent_activity_lines.append(f"  Deal with {_d_npc}: {_d_summary}")
+    _recent_activity = "\n".join(_recent_activity_lines) if _recent_activity_lines else "No recent deals."
+
     def _gen_cable(npc_id):
         npc_label = _EVENT_NPC_NAMES.get(npc_id, npc_id)
         rel = (game_state.relations or {}).get(npc_id, 50)
@@ -5560,8 +5619,11 @@ def generate_diplomatic_cables(game_state) -> dict:
 
         user_prompt = (
             f"Game state:\n{json.dumps(context, indent=2)}\n\n"
+            f"Recent activity affecting this relationship:\n{_recent_activity}\n\n"
             f"Generate a 1-2 sentence diplomatic cable in YOUR specific voice. "
-            f"Tone: {temp}. Be specific about what you want from Europa right now. "
+            f"Tone: {temp}. Write a cable that reflects the CURRENT state of this relationship "
+            f"including any recent developments. "
+            f"Be specific about what you want from Europa right now. "
             f"Reference current game state details — budgets, relations, recent events. "
             f"Do NOT write generic diplomatic language. Sound like yourself, not a press release. "
             f"This is an ambient status update, not tied to any specific event."
@@ -5690,6 +5752,105 @@ def generate_declaration_consequences(game_state, declaration_text: str) -> dict
             "generates_world_event": False,
             "world_event_hint": "",
         }
+
+
+def generate_deal_consequences(game_state, npc_id: str, deal_text: str, is_backchannel: bool = False) -> dict:
+    """
+    10B-3: Generate GM consequences for a sidebar deal.
+    Returns consequence deltas for relations, budget, stability, etc.
+    """
+    _npc_names = {
+        'usa': 'United States', 'arabia': 'Arabia', 'eu': 'European Union',
+        'dprg': 'DPRG', 'russia': 'Russia', 'china': 'China'
+    }
+    npc_label = _npc_names.get(npc_id, npc_id)
+    rel = game_state.relations.get(npc_id, 50)
+    regime = getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy')
+    channel_type = "backchannel (covert)" if is_backchannel else "official diplomatic channel (public)"
+
+    # Build list of other NPCs for cross-visibility
+    other_npcs = [k for k in game_state.relations.keys() if k != npc_id]
+
+    system_prompt = (
+        "You are a geopolitical consequences engine. A deal has been made between Europa "
+        "and a foreign power through diplomatic channels. Determine the consequences for "
+        "the broader diplomatic landscape.\n\n"
+        "Return ONLY a JSON object. No preamble. No explanation.\n"
+        "{\n"
+        '  "relations_delta": {"npc_id": integer},  // e.g. {"usa": -3, "arabia": 2}\n'
+        '  "budget_delta": float,  // positive = Europa gains, negative = Europa pays\n'
+        '  "personal_wealth_delta": float,\n'
+        '  "stability_delta": float,  // -5 to +5\n'
+        '  "cross_npc_visibility": ["npc_ids who learn about this deal"],\n'
+        '  "historian_note": "one sentence in historian voice",\n'
+        '  "briefing_summary": "one sentence suitable for briefing item"\n'
+        "}\n\n"
+        "RULES:\n"
+        "- relations_delta keys must be from: usa, arabia, eu, dprg, russia, china\n"
+        "- Values should be integers between -10 and +10\n"
+        "- Budget deltas should be modest (-3.0 to +3.0)\n"
+        "- If backchannel (covert): cross_npc_visibility MUST be empty []\n"
+        "- If public: include NPCs who would realistically learn about this deal\n"
+        "- historian_note should be detached, analytical, third-person\n"
+        "- briefing_summary should be concise and factual"
+    )
+
+    user_content = (
+        f"Deal made with: {npc_label} ({npc_id})\n"
+        f"Channel: {channel_type}\n"
+        f"Deal text: {deal_text}\n"
+        f"Current relations with {npc_label}: {rel}/100\n"
+        f"Europa regime: {regime}\n"
+        f"Other NPCs: {', '.join(other_npcs)}\n"
+        f"Determine consequences."
+    )
+
+    try:
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            # Rule-based fallback
+            return _deal_consequences_fallback(npc_id, deal_text, is_backchannel)
+
+        response = _client.messages.create(
+            model=MODEL,
+            max_tokens=300,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        text = response.content[0].text.strip()
+        result = json.loads(text)
+        _token_log["haiku_calls"] = _token_log.get("haiku_calls", 0) + 1
+        return result
+    except Exception as e:
+        print(f"  [10B-3] Deal consequence generation failed: {e}")
+        return _deal_consequences_fallback(npc_id, deal_text, is_backchannel)
+
+
+def _deal_consequences_fallback(npc_id: str, deal_text: str, is_backchannel: bool) -> dict:
+    """Rule-based fallback for deal consequences when API unavailable."""
+    # Simple heuristic: deals generally improve relations with the NPC
+    # and may mildly annoy rivals
+    _rivals = {
+        'usa': ['russia', 'dprg'],
+        'russia': ['usa', 'eu'],
+        'china': ['usa'],
+        'arabia': [],
+        'eu': ['russia'],
+        'dprg': ['usa', 'eu'],
+    }
+    relations_delta = {npc_id: 5}  # Improve with deal partner
+    for rival in _rivals.get(npc_id, []):
+        relations_delta[rival] = -2
+
+    return {
+        "relations_delta": relations_delta,
+        "budget_delta": 0.0,
+        "personal_wealth_delta": 0.0,
+        "stability_delta": 1.0,
+        "cross_npc_visibility": [] if is_backchannel else list(_rivals.get(npc_id, [])),
+        "historian_note": f"Europa concluded a {'covert ' if is_backchannel else ''}deal with {npc_id}.",
+        "briefing_summary": f"Deal completed with {npc_id} via {'backchannel' if is_backchannel else 'official channels'}.",
+    }
 
 
 def generate_event_resolution_consequences(game_state, event: dict, resolution: str) -> dict:

@@ -8401,6 +8401,7 @@ async def get_day_status(session_id: str, user: User = Depends(get_optional_user
         "day_events_generated": gs.day_events_generated,
         "morning_briefing_read": gs.morning_briefing_read,
         "communique_days_without_response": gs.communique_days_without_response,
+        "deals_today": getattr(gs, 'deals_today', []),
     }
 
 
@@ -8778,4 +8779,81 @@ async def diplomacy_contact(session_id: str, request: Request, user: User = Depe
         "relations": rel,
         "tone_tier": tone_tier,
         "crisis": _crisis,
+    }
+
+
+# ── 10B-3: Side Deal GM Consequences ────────────────────────────────────────
+
+@app.post("/game/{session_id}/diplomacy/deal-consequences")
+async def deal_consequences(session_id: str, request: Request, user: User = Depends(get_optional_user)):
+    """
+    10B-3: Generate and apply GM consequences for a sidebar deal.
+    Called after a deal is completed via CONTACT/negotiate flow.
+    """
+    _verify_game_ownership(session_id, user)
+    body = await request.json()
+    npc_id = body.get("npc_id", "").lower()
+    deal_text = body.get("deal_text", "")
+    is_backchannel = body.get("is_backchannel", False)
+
+    if not npc_id or not deal_text:
+        raise HTTPException(status_code=400, detail="npc_id and deal_text required")
+
+    gs = _load_gs(session_id)
+
+    # Generate consequences
+    from npc_engine import generate_deal_consequences
+    consequences = await asyncio.to_thread(generate_deal_consequences, gs, npc_id, deal_text, is_backchannel)
+
+    # Apply consequences
+    relations_delta = consequences.get("relations_delta", {})
+    for npc_key, delta in relations_delta.items():
+        if isinstance(delta, (int, float)) and npc_key in gs.relations:
+            gs.update_relations(npc_key, delta)
+
+    budget_delta = consequences.get("budget_delta", 0.0)
+    if budget_delta:
+        gs.update_budget(budget_delta)
+
+    pw_delta = consequences.get("personal_wealth_delta", 0.0)
+    if pw_delta:
+        gs.personal_wealth = max(0, gs.personal_wealth + pw_delta)
+
+    stability_delta = consequences.get("stability_delta", 0.0)
+    if stability_delta:
+        gs.legitimacy_stability = max(0, min(100, gs.legitimacy_stability + stability_delta))
+
+    # Cross-NPC visibility: NPCs who learn about this deal get a small relations hit
+    cross_visible = consequences.get("cross_npc_visibility", [])
+    for visible_npc in cross_visible:
+        if visible_npc in gs.relations and visible_npc != npc_id:
+            # NPCs who learn about deals with rivals get slightly annoyed
+            gs.update_relations(visible_npc, -1)
+
+    # Record deal in deals_today
+    _npc_labels = {'usa': 'Bill Hartwell', 'arabia': 'Sadam', 'eu': 'Marsha',
+                   'dprg': 'Ji-won Ryang', 'russia': 'Volkov', 'china': 'Wei Jianming'}
+    deal_record = {
+        "id": f"deal_{gs.current_turn}_{npc_id}_{len(getattr(gs, 'deals_today', []))}",
+        "npc_id": npc_id,
+        "npc_name": _npc_labels.get(npc_id, npc_id),
+        "deal_text": deal_text,
+        "briefing_summary": consequences.get("briefing_summary", deal_text[:80]),
+        "source": "backchannel" if is_backchannel else "sidebar",
+        "day": gs.current_turn,
+        "consequences": consequences,
+    }
+    if not hasattr(gs, 'deals_today'):
+        gs.deals_today = []
+    gs.deals_today.append(deal_record)
+
+    _save_gs(session_id, gs)
+
+    print(f"  [10B-3] Deal consequences applied: {npc_id} — "
+          f"relations={relations_delta}, budget={budget_delta}, stability={stability_delta}")
+
+    return {
+        "consequences": consequences,
+        "deal_record": deal_record,
+        "game_state": gs.serialize(),
     }
