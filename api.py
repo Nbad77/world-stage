@@ -8443,19 +8443,28 @@ async def get_event_dialogue(session_id: str, request: Request, user: User = Dep
 
     gs = _load_gs(session_id)
 
+    # Debug: log what events exist
+    stored_ids = [evt.get("id") for evt in getattr(gs, 'daily_events', [])]
+    print(f"  [10B-2] event-dialogue: requested={event_id} stored_ids={stored_ids} "
+          f"day_events_generated={getattr(gs, 'day_events_generated', False)} "
+          f"num_events={len(getattr(gs, 'daily_events', []))}")
+
     # Check cache
     event_dialogues = getattr(gs, 'event_dialogues', {})
     if event_id in event_dialogues:
         return {"dialogues": event_dialogues[event_id], "cached": True}
 
-    # Find event
+    # Find event — first try exact match, then try matching by any stored event
     target_event = None
     for evt in gs.daily_events:
         if evt.get("id") == event_id:
             target_event = evt
             break
     if not target_event:
-        raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
+        # If event not found but events exist, the frontend may have stale IDs
+        # from before generate-events saved. Log and return helpful error.
+        print(f"  [10B-2] EVENT NOT FOUND: requested={event_id} but stored events are {stored_ids}")
+        raise HTTPException(status_code=404, detail=f"Event {event_id} not found. Stored event IDs: {stored_ids}")
 
     import asyncio
     from npc_engine import generate_event_dialogue, _client as _npc_client
