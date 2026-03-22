@@ -1338,9 +1338,28 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               currentDay={gs?.current_turn ?? 1}
               currentEra={gs?.current_era ?? 1}
               onEndDay={handleContinue}
-              onEventResolved={(evt, res) => console.log('[BRIEFING] Event resolved:', evt.id, res)}
+              onEventResolved={async (evt, res) => {
+                console.log('[BRIEFING] Event resolved:', evt.id, res)
+                try {
+                  // 1. Resolve the event on the backend
+                  await api.briefingResolveEvent(sessionId, evt.id, res)
+                  // 2. Refresh game state
+                  const data = await api.getGame(sessionId)
+                  setGs(data.game_state)
+                  // 3. Check day status for end-day readiness
+                  const status = await api.briefingDayStatus(sessionId)
+                  console.log('[BRIEFING] Day status after event resolve:', status)
+                } catch (err) {
+                  console.error('[BRIEFING] Event resolution failed:', err)
+                  setError('Event resolution failed: ' + (err.message || err))
+                }
+              }}
               onGsUpdate={setGs}
             />
+
+            {/* 10B-2: When Foreign Affairs tab is active, BriefingScreen handles everything.
+                Old content below only renders for non-foreign tabs. */}
+            {activeTab !== 'foreign' && <>
 
             {/* Session 7E: Summit Pending Banner */}
             {gs?.summit_due && !summitOpen && (
@@ -1839,6 +1858,9 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
             Consulting advisors…
           </div>
         )}
+
+            </>}
+            {/* End 10B-2 activeTab !== 'foreign' gate */}
 
       </div>
       )}
