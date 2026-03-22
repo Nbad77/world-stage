@@ -5316,8 +5316,6 @@ def generate_morning_briefing(gs, intel_level: str = "vague") -> str:
 
     try:
         client = anthropic.Anthropic(api_key=api_key)
-        with _token_log_lock:
-            pass  # just ensuring thread safety for the call
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -5327,10 +5325,9 @@ def generate_morning_briefing(gs, intel_level: str = "vague") -> str:
             messages=[{"role": "user", "content": user_prompt}],
         )
 
-        with _token_log_lock:
-            _token_log["calls"] += 1
-            _token_log["input_tokens"] += response.usage.input_tokens
-            _token_log["output_tokens"] += response.usage.output_tokens
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
 
         text = response.content[0].text.strip()
         print(f"  [10B-1] Morning briefing generated ({intel_level})")

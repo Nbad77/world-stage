@@ -3865,6 +3865,11 @@ def apply_end_of_turn_effects(game_state):
         _turns_no_supp = getattr(game_state, 'turns_no_suppression', 0)
         _heat = getattr(game_state, 'detection_heat', 0)
 
+        # Budget allocation values for archetype trust checks
+        _ba = getattr(game_state, 'budget_allocation', {})
+        _ba_infra = _ba.get('infrastructure', 20)
+        _ba_mil = _ba.get('military', 20)
+
         # Check if a domestic suppression action was taken this turn
         _supp_this_turn = False
         for _ah in getattr(game_state, 'action_history', []):
