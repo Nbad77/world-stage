@@ -899,6 +899,11 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   // The negotiate endpoint already has relationship-gated tone framing (Session 7B Step 3).
   // For relations >= 40 or crisis: opens full conversation modal via handlePlayerContact.
   // For relations < 40: NpcCard routes to handleContactRequest instead (terse ack, no modal).
+  //
+  // SIDE DEAL SEPARATION: Sidebar contacts go through /negotiate only — they do NOT
+  // call /briefing/resolve-event and do NOT increment events_resolved_today.
+  // World event resolution is handled separately by BriefingScreen's choice buttons.
+  // This means sidebar diplomacy is independent of the daily event queue.
   function handleDirectContact(npcKey) {
     if (!npcKey) return
     // handlePlayerContact opens the NegotiationPanel — the existing multi-turn modal
@@ -1330,7 +1335,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         />
       </div>
 
-      <DashboardLayout gs={gs} onShadowCabinet={() => setShadowCabinetOpen(true)} negotiatingNpc={negotiatingNpc} onHistorian={handleHistorianAssessment} historianLoading={historianLoading} onBiography={() => { console.log('[9B] opening draft biography from sidebar'); setShowBiography(true) }} onContact={phase === PHASE.DIALOGUE && !loading ? handleDirectContact : null} onContactRequest={handleContactRequest} contactLoading={contactLoading} contactResults={contactResults} contactsDisabled={loading || phase !== PHASE.DIALOGUE} activeTab={activeTab} onTabChange={setActiveTab} domesticContent={<DomesticTab gs={gs} sessionId={sessionId} onGsUpdate={setGs} />} onBackchannel={phase === PHASE.DIALOGUE ? handleOpenBackchannel : null} backchannelDisabled={loading || phase !== PHASE.DIALOGUE} onGetIntel={handleGetIntel} intelLoading={intelLoading} intelResults={intelResults} dialogue={dialogue}>
+      <DashboardLayout gs={gs} onShadowCabinet={() => setShadowCabinetOpen(true)} negotiatingNpc={negotiatingNpc} onHistorian={handleHistorianAssessment} historianLoading={historianLoading} onBiography={() => { console.log('[9B] opening draft biography from sidebar'); setShowBiography(true) }} onContact={!loading && (phase === PHASE.DIALOGUE || activeTab === 'foreign') ? handleDirectContact : null} onContactRequest={handleContactRequest} contactLoading={contactLoading} contactResults={contactResults} contactsDisabled={loading} activeTab={activeTab} onTabChange={setActiveTab} domesticContent={<DomesticTab gs={gs} sessionId={sessionId} onGsUpdate={setGs} />} onBackchannel={!loading && (phase === PHASE.DIALOGUE || activeTab === 'foreign') ? handleOpenBackchannel : null} backchannelDisabled={loading} onGetIntel={handleGetIntel} intelLoading={intelLoading} intelResults={intelResults} dialogue={dialogue}>
 
       {/* Session 7E: Summit replaces center panel content when open */}
       {summitOpen ? (
@@ -1423,49 +1428,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
 
             {/* 10B-2: When Foreign Affairs tab is active, BriefingScreen handles everything.
                 Old content below only renders for non-foreign tabs. */}
-            {activeTab !== 'foreign' && <>
-
-            {/* Session 7E: Summit Pending Banner */}
-            {gs?.summit_due && !summitOpen && (
-              <div className="summit-pending-banner">
-                <div className="summit-pending-text">
-                  🌐 UN SUMMIT IN SESSION — Address the assembly before advancing
-                </div>
-                <button
-                  className="summit-pending-btn"
-                  onClick={() => setSummitOpen(true)}
-                >
-                  OPEN SUMMIT
-                </button>
-              </div>
-            )}
-
-            {/* Session 7C Step 2: Advisor Assignment Panel — above communiqués, compact */}
-            {gs?.advisors && typeof gs.advisors === 'object' && !Array.isArray(gs.advisors) && Object.keys(gs.advisors).length > 0 && (
-              <AdvisorPanel gs={gs} sessionId={sessionId} onGsUpdate={setGs} />
-            )}
-
-            {/* Session 7D Step 3: Promise Tracker — active covert commitments */}
-            <PromiseTracker gs={gs} />
-
-            {/* Session 7E Step 3: Summit Commitment Tracker — active public commitments */}
-            <SummitCommitmentTracker gs={gs} />
-
-            {/* World event banner */}
-            <EventBanner event={currentEvent} />
-
-            <DialoguePanel
-              dialogue={dialogue}
-              onNegotiate={!loading && !(gs?.current_turn === (gs?.election_turn ?? 4) && !gs?.election_fired) ? handleStartNegotiation : null}
-              negotiatingNpc={negotiatingNpc}
-              intelActive={true}
-              intelligenceLevel={gs?.cabinet_axes?.intelligence || 0}
-              sessionId={sessionId}
-              gs={gs}
-              onGsUpdate={setGs}
-            />
-
-            {/* Negotiation slide-up panel */}
+            {/* Negotiation slide-up panel — renders on top of any tab/screen */}
             {negotiatingNpc && (() => {
               const info = NPC_INFO[negotiatingNpc]
 
@@ -1517,6 +1480,48 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
                 />
               )
             })()}
+
+            {activeTab !== 'foreign' && <>
+
+            {/* Session 7E: Summit Pending Banner */}
+            {gs?.summit_due && !summitOpen && (
+              <div className="summit-pending-banner">
+                <div className="summit-pending-text">
+                  🌐 UN SUMMIT IN SESSION — Address the assembly before advancing
+                </div>
+                <button
+                  className="summit-pending-btn"
+                  onClick={() => setSummitOpen(true)}
+                >
+                  OPEN SUMMIT
+                </button>
+              </div>
+            )}
+
+            {/* Session 7C Step 2: Advisor Assignment Panel — above communiqués, compact */}
+            {gs?.advisors && typeof gs.advisors === 'object' && !Array.isArray(gs.advisors) && Object.keys(gs.advisors).length > 0 && (
+              <AdvisorPanel gs={gs} sessionId={sessionId} onGsUpdate={setGs} />
+            )}
+
+            {/* Session 7D Step 3: Promise Tracker — active covert commitments */}
+            <PromiseTracker gs={gs} />
+
+            {/* Session 7E Step 3: Summit Commitment Tracker — active public commitments */}
+            <SummitCommitmentTracker gs={gs} />
+
+            {/* World event banner */}
+            <EventBanner event={currentEvent} />
+
+            <DialoguePanel
+              dialogue={dialogue}
+              onNegotiate={!loading && !(gs?.current_turn === (gs?.election_turn ?? 4) && !gs?.election_fired) ? handleStartNegotiation : null}
+              negotiatingNpc={negotiatingNpc}
+              intelActive={true}
+              intelligenceLevel={gs?.cabinet_axes?.intelligence || 0}
+              sessionId={sessionId}
+              gs={gs}
+              onGsUpdate={setGs}
+            />
 
             {/* FEATURE 3: Brigade aftermath banner — AFTER communiqués, BEFORE choices */}
             {gs?.brigades_deployed_last_turn && !aftermathResult && (

@@ -5560,9 +5560,11 @@ def generate_diplomatic_cables(game_state) -> dict:
 
         user_prompt = (
             f"Game state:\n{json.dumps(context, indent=2)}\n\n"
-            f"Generate a 1-2 sentence diplomatic cable summary of your current "
-            f"position toward Europa. Tone: {temp}. This is an ambient status update, "
-            f"not tied to any specific event. Be specific and in character."
+            f"Generate a 1-2 sentence diplomatic cable in YOUR specific voice. "
+            f"Tone: {temp}. Be specific about what you want from Europa right now. "
+            f"Reference current game state details — budgets, relations, recent events. "
+            f"Do NOT write generic diplomatic language. Sound like yourself, not a press release. "
+            f"This is an ambient status update, not tied to any specific event."
         )
 
         try:
