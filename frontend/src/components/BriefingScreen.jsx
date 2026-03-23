@@ -210,12 +210,14 @@ export default function BriefingScreen({
       const status = await api.briefingDayStatus(sessionId)
       if (status.day_events_generated && status.events?.length > 0) {
         setDailyEvents(status.events)
-        setDayStatus({
+        setDayStatus(prev => ({
           events_resolved: status.events_resolved,
           events_required: status.events_required,
           can_end_day: status.can_end_day,
-          deals_today: status.deals_today || [],
-        })
+          deals_today: (status.deals_today?.length > 0)
+            ? status.deals_today
+            : prev.deals_today || [],
+        }))
         if (status.morning_briefing_read) {
           setMorningBriefing('(already read)')
         }
@@ -348,12 +350,14 @@ export default function BriefingScreen({
       setDailyEvents(prev => prev.map(e =>
         e.id === activeEvent.id ? { ...e, resolved: true, resolution } : e
       ))
-      setDayStatus({
+      setDayStatus(prev => ({
         events_resolved: result.events_resolved,
         events_required: result.events_required,
         can_end_day: result.can_end_day,
-        deals_today: result.deals_today || dayStatus.deals_today || [],
-      })
+        deals_today: (result.deals_today?.length > 0)
+          ? result.deals_today
+          : prev.deals_today || [],
+      }))
       setActiveEvent({ ...activeEvent, resolved: true, resolution })
       console.log('[10B-2] Resolution consequences:', result.consequences)
       setResolutionConsequences(result.consequences || null)
