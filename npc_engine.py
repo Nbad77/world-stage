@@ -1689,6 +1689,11 @@ Speak as this person, not as a narrator describing this person.
 Wrong: "You lean back in your chair. 'I can offer $0.8B,' he says."
 Wrong: *He pauses, considering.* "Perhaps we can find common ground."
 Right: "I can offer $0.8B. Here's what I need in return."
+
+CRITICAL: Never show your reasoning process in brackets or parentheses.
+Never write [I'm evaluating...] or [Sadam would...] or any internal thought process.
+Speak ONLY as the character. Your output is the character's words, nothing else.
+No stage directions. No meta-commentary. No internal monologue.
 """
 
 # ── NPC base prompt lookup ────────────────────────────────────────────────────
