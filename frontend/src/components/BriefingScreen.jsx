@@ -757,19 +757,25 @@ export default function BriefingScreen({
       </div>
 
       {/* 10B-3: Today's Decisions — always visible */}
+      {(() => {
+        // Use whichever source has more deals — gameState (optimistic/immediate) or dayStatus (server)
+        const gsDeals = gameState?.deals_today || []
+        const dsDeals = dayStatus?.deals_today || []
+        const visibleDeals = gsDeals.length >= dsDeals.length ? gsDeals : dsDeals
+        return (
       <div className="todays-deals">
         <h4 className="deals-header">TODAY'S DECISIONS</h4>
         {dealsRefreshing && (
           <div className="deals-loading"><span>Updating day record...</span></div>
         )}
-        {!(dayStatus?.deals_today?.length > 0) && !dealsRefreshing && (
+        {visibleDeals.length === 0 && !dealsRefreshing && (
           <div className="decisions-empty">
             <span>No decisions recorded yet today.</span>
           </div>
         )}
-        {(dayStatus?.deals_today?.length > 0) && (<>
+        {visibleDeals.length > 0 && (<>
 
-          {dayStatus.deals_today.map(deal => {
+          {visibleDeals.map(deal => {
             const flagMap = { usa: '🇺🇸', arabia: '🇸🇦', eu: '🇪🇺', dprg: '🇰🇵', russia: '🇷🇺', china: '🇨🇳' }
             const flag = flagMap[deal.npc_id] || '🏳️'
             const delta = deal.relation_delta
@@ -877,6 +883,8 @@ export default function BriefingScreen({
           )}
         </>)}
       </div>
+        )
+      })()}
 
       {/* End day button */}
       {canEndDay && (
