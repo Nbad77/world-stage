@@ -418,6 +418,12 @@ export const api = {
   briefingMorning: (id) =>
     request('POST', `/game/${id}/briefing/morning`),
 
+  /** POST /diplomacy/deal-consequences — GM resolves side deal consequences */
+  dealConsequences: (id, npcId, dealText, isBackchannel) =>
+    request('POST', `/game/${id}/diplomacy/deal-consequences`, {
+      npc_id: npcId, deal_text: dealText, is_backchannel: isBackchannel,
+    }),
+
   // ── 10B-2: Event screen, declarations, intel ───────────────────────────────
 
   /** POST /game/{id}/briefing/event-dialogue — NPC communiqués for event */
