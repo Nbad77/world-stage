@@ -170,6 +170,7 @@ export default function BriefingScreen({
   const [morningBriefingLoading, setMorningBriefingLoading] = useState(false)
   const [eventsLoading, setEventsLoading] = useState(false)
   const [resolving, setResolving] = useState(false)
+  const [expandedDealId, setExpandedDealId] = useState(null)
   const lastDayRef = useRef(null)
 
   // 10B-2: Event screen state
@@ -752,22 +753,61 @@ export default function BriefingScreen({
             const flagMap = { usa: '🇺🇸', arabia: '🇸🇦', eu: '🇪🇺', dprg: '🇰🇵', russia: '🇷🇺', china: '🇨🇳' }
             const flag = flagMap[deal.npc_id] || '🏳️'
             const delta = deal.relation_delta
+            const isExpanded = expandedDealId === deal.id
+            const gm = deal.gm_consequences
             return (
-              <div key={deal.id} className="deal-item">
-                <span className="deal-npc">{flag} {deal.npc_name}</span>
-                <span className="deal-summary">{deal.briefing_summary}</span>
-                <span className="deal-meta">
-                  <span className="deal-source">
-                    {deal.is_backchannel ? '🔒 Covert'
-                      : deal.source === 'world_event' ? '🌐 Event'
-                      : '📋 Direct'}
-                  </span>
-                  {delta != null && delta !== 0 && (
-                    <span className={`deal-delta ${delta > 0 ? 'positive' : 'negative'}`}>
-                      {delta > 0 ? '+' : ''}{delta}
+              <div key={deal.id} className={`deal-entry ${isExpanded ? 'expanded' : ''}`}>
+                <div
+                  className="deal-item deal-item-clickable"
+                  onClick={() => setExpandedDealId(isExpanded ? null : deal.id)}
+                >
+                  <span className="deal-npc">{flag} {deal.npc_name}</span>
+                  <span className="deal-summary">{deal.briefing_summary}</span>
+                  <span className="deal-meta">
+                    <span className="deal-source">
+                      {deal.is_backchannel ? '🔒 Covert'
+                        : deal.source === 'world_event' ? '🌐 Event'
+                        : '📋 Direct'}
                     </span>
-                  )}
-                </span>
+                    {delta != null && delta !== 0 && (
+                      <span className={`deal-delta ${delta > 0 ? 'positive' : 'negative'}`}>
+                        {delta > 0 ? '+' : ''}{delta}
+                      </span>
+                    )}
+                    <span className="deal-expand-icon">{isExpanded ? '▲' : '▼'}</span>
+                  </span>
+                </div>
+                {isExpanded && gm && (
+                  <div className="deal-consequences-panel">
+                    <div className="deal-full-text">{deal.deal_text}</div>
+                    <h5 className="deal-impact-header">DIPLOMATIC IMPACT</h5>
+                    {(gm.affected_relations || Object.entries(gm.relations_delta || {})).length > 0 && (
+                      <div className="deal-affected-list">
+                        {/* If affected_relations exists (qualitative), use it */}
+                        {gm.affected_relations ? gm.affected_relations.map((ar, i) => (
+                          <div key={i} className="deal-affected-item">
+                            <span className={`deal-direction-icon ${ar.direction}`}>
+                              {ar.direction === 'positive' ? '▲' : ar.direction === 'negative' ? '▼' : '—'}
+                            </span>
+                            <span className="deal-affected-npc">{flagMap[ar.npc] || ''} {(ar.npc || '').toUpperCase()}</span>
+                            <span className="deal-affected-reason">{ar.reason}</span>
+                          </div>
+                        )) : Object.entries(gm.relations_delta || {}).map(([npc, d]) => (
+                          <div key={npc} className="deal-affected-item">
+                            <span className={`deal-direction-icon ${d > 0 ? 'positive' : d < 0 ? 'negative' : 'neutral'}`}>
+                              {d > 0 ? '▲' : d < 0 ? '▼' : '—'}
+                            </span>
+                            <span className="deal-affected-npc">{flagMap[npc] || ''} {npc.toUpperCase()}</span>
+                            <span className="deal-affected-reason">{d > 0 ? '+' : ''}{d} relations</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {gm.historian_note && (
+                      <div className="deal-historian-note">{gm.historian_note}</div>
+                    )}
+                  </div>
+                )}
               </div>
             )
           })}

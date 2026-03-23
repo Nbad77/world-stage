@@ -110,10 +110,8 @@ it is your highest register of trust.
 You enjoy the game of power and are comfortable saying so. You find
 Western double standards ("the moral compass of colonialism")
 endlessly entertaining. You have dark humor and expect the people
-you respect to share it. You use stage directions naturally —
-*lighting cigar*, *leaning forward*, *cold stare*, *a slow knowing
-smile*. You never moralize. You never lecture. You only offer deals
-or observations.
+you respect to share it. You never moralize. You never lecture.
+You only offer deals or observations.
 About your nuclear program: never deny directly. Reframe
 philosophically. "Why is it that some nations are allowed arsenals
 pointed at others' heads?" You see kinship with leaders who take
@@ -140,8 +138,7 @@ Relations 40-59: Transactional, cool, "choose carefully"
 Relations below 40: Cold, embargo threats
 Relations 0: Punishing, studying for weakness
 TONE RULES:
-2-3 sentences max. One stage direction per response.
-Output: *stage direction* then dialogue.
+2-3 sentences max. No stage directions. Dialogue only.
 COMMITMENT RULE:
 Only accept specific, verifiable commitments. Push back on vague promises.
 Demand specifics: dollar amounts, energy exclusivity terms, named deal abstentions, or timelines.
@@ -252,11 +249,10 @@ Europa's situation — budget, stability, approval, relations, and personal weal
 Europa's stats, NOT your own. Never reference Europa's relation scores, personal wealth,
 or budget figures as if they were your own. You observe and react to Europa's choices.
 TONE RULES:
-2-3 sentences max. Minimal stage directions — only when meaningful.
+2-3 sentences max. No stage directions. Dialogue only.
 Formal language with occasional ideological phrasing.
 No speeches. Precision over poetry.
 Never reference the turn number directly in dialogue.
-Output: *brief action if needed* then dialogue.
 COMMITMENT RULE:
 Only accept specific, verifiable commitments. Push back on vague promises.
 Demand specifics: relation targets, named actions, dollar amounts, or timelines.
@@ -912,11 +908,14 @@ def _call_npc(system_prompt, context_dict, npc_name, extra_instruction=""):
     if extra_instruction:
         user_content += f"\n\nIMPORTANT: {extra_instruction}"
 
+    # Inject narrator ban into every NPC call
+    _full_system = system_prompt + "\n\n" + _NARRATOR_BAN if _NARRATOR_BAN not in system_prompt else system_prompt
+
     response = client.messages.create(
         model=MODEL,
         max_tokens=MAX_TOKENS,
         temperature=TEMPERATURE,
-        system=system_prompt,
+        system=_full_system,
         messages=[{"role": "user", "content": user_content}]
     )
 
@@ -1691,6 +1690,64 @@ Wrong: "You lean back in your chair. 'I can offer $0.8B,' he says."
 Wrong: *He pauses, considering.* "Perhaps we can find common ground."
 Right: "I can offer $0.8B. Here's what I need in return."
 """
+
+# ── NPC base prompt lookup ────────────────────────────────────────────────────
+_NPC_BASE_PROMPTS = {
+    'usa': USA_SYSTEM_PROMPT,
+    'arabia': SADAM_SYSTEM_PROMPT,
+    'eu': EU_SYSTEM_PROMPT,
+    'dprg': JIWON_SYSTEM_PROMPT,
+    'russia': VOLKOV_SYSTEM_PROMPT,
+    'china': WEI_SYSTEM_PROMPT,
+}
+
+_NPC_DISPLAY_NAMES = {
+    'usa': 'Bill Hartwell', 'arabia': 'Sadam', 'eu': 'Marsha',
+    'dprg': 'Ji-won Ryang', 'russia': 'Nikolai Volkov', 'china': 'Wei Jianming',
+}
+
+def build_npc_system_prompt(npc_id, gs=None, relations=None):
+    """Build a complete NPC system prompt with narrator ban, tone guidance,
+    and prior deal context injected dynamically from game state."""
+    base = _NPC_BASE_PROMPTS.get(npc_id, '')
+    if not base:
+        return ''
+
+    parts = [base, _NARRATOR_BAN]
+
+    # Relationship tone guidance
+    rel = relations
+    if rel is None and gs:
+        rel = (getattr(gs, 'relations', None) or {}).get(npc_id, 50)
+    if rel is not None:
+        if rel >= 90:
+            tone = "Your tone is that of a trusted partner — frank, direct, substantive."
+        elif rel >= 70:
+            tone = "Your tone is friendly and partner-adjacent — warm, forthcoming."
+        elif rel >= 55:
+            tone = "Your tone is warm and candid — engaged, willing to share."
+        elif rel >= 40:
+            tone = "Your tone is professional and watchful — civil but guarded."
+        elif rel >= 30:
+            tone = "Your tone is cold and transactional only — minimal engagement."
+        else:
+            tone = "Your tone is hostile and minimal — threats implied, patience exhausted."
+        parts.append(f"RELATIONSHIP CONTEXT: Current relations with Europa: {rel}/100.\n{tone}")
+
+    # Prior deals context
+    if gs:
+        _deals = getattr(gs, 'deals_today', []) or []
+        _history = getattr(gs, 'deal_history', []) or []
+        all_deals = _deals + _history
+        npc_deals = [d for d in all_deals if d.get('npc_id') == npc_id]
+        if npc_deals:
+            summaries = [f"- Day {d.get('day', '?')}: {d.get('deal_text', 'deal')[:80]}" for d in npc_deals[-5:]]
+            parts.append("PRIOR AGREEMENTS WITH EUROPA:\n" + "\n".join(summaries) +
+                         "\nDo not offer something already given this session.")
+        else:
+            parts.append("PRIOR AGREEMENTS WITH EUROPA: None.")
+
+    return "\n\n".join(parts)
 
 # Call 1 prompts — dialogue only (character prompt + negotiation context + prose-only rule)
 _NEGOTIATION_DIALOGUE_PROMPTS = {
@@ -3654,11 +3711,12 @@ def generate_election_reactions(game_state, result_key: str) -> dict:
     )
 
     try:
+        _full_sys_elec = system_prompt + "\n\n" + _NARRATOR_BAN
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
             model=MODEL,
             max_tokens=400,
-            system=system_prompt,
+            system=_full_sys_elec,
             messages=[{"role": "user", "content": user_prompt}],
         )
 
@@ -4108,12 +4166,13 @@ def generate_backchannel_response(npc_id: str, player_message: str, game_state) 
         return {"response_text": _fb, "promise_detected": False, "promise_summary": None}
 
     try:
+        _full_sys_bc = system_prompt + "\n\n" + _NARRATOR_BAN if _NARRATOR_BAN not in system_prompt else system_prompt
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
             model=MODEL,
             max_tokens=250,
             temperature=0.8,
-            system=system_prompt,
+            system=_full_sys_bc,
             messages=[{"role": "user", "content": user_prompt}]
         )
 
@@ -4468,12 +4527,13 @@ def generate_summit_reactions(player_declaration: str, game_state) -> list:
         try:
             # fixes_21 Fix C: Marsha gets 400 tokens (most verbose, was hitting 150 limit)
             _max_tok = 400 if npc_id == 'eu' else 150
+            _full_sys = system_prompt + "\n\n" + _NARRATOR_BAN if _NARRATOR_BAN not in system_prompt else system_prompt
             client = anthropic.Anthropic(api_key=api_key)
             response = client.messages.create(
                 model=MODEL,
                 max_tokens=_max_tok,
                 temperature=0.7,
-                system=system_prompt,
+                system=_full_sys,
                 messages=[{"role": "user", "content": user_prompt}]
             )
             _token_log["calls"] += 1
@@ -5579,20 +5639,33 @@ def generate_advisor_event_analysis(game_state, event: dict) -> list:
     return results
 
 
+def _build_cable_fallback(npc_id, rel):
+    """Build a relationship-toned fallback cable (no API call needed)."""
+    name = _NPC_DISPLAY_NAMES.get(npc_id, npc_id)
+    if rel >= 70:
+        return f"{name} signals continued goodwill toward Europa."
+    elif rel >= 40:
+        return f"{name} maintains routine diplomatic contact."
+    elif rel >= 20:
+        return f"{name} keeps communication brief and formal."
+    else:
+        return f"No cable received from {name}."
+
+
 def generate_diplomatic_cables(game_state) -> dict:
     """10B-2: Generate ambient diplomatic cables for all NPCs.
-    One-line current position summaries. Returns {npc_id: cable_text}."""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import threading
+    Sequential with retry to avoid rate limits.
+    Returns {npc_id: cable_text}."""
+    import time as _time
+    import anthropic as _anthropic_mod
 
     npc_ids = ['usa', 'arabia', 'eu', 'dprg', 'russia', 'china']
     context = _build_context(game_state)
     cables = {}
-    lock = threading.Lock()
 
     # 10B-3: Build recent activity summary for cable context
     _deal_history = getattr(game_state, 'deal_history', [])
-    _recent_deals = [d for d in _deal_history[-5:]]  # last 5 deals
+    _recent_deals = [d for d in _deal_history[-5:]]
     _recent_activity_lines = []
     for d in _recent_deals:
         _d_npc = d.get('npc', '?')
@@ -5600,26 +5673,18 @@ def generate_diplomatic_cables(game_state) -> dict:
         _recent_activity_lines.append(f"  Deal with {_d_npc}: {_d_summary}")
     _recent_activity = "\n".join(_recent_activity_lines) if _recent_activity_lines else "No recent deals."
 
-    def _gen_cable(npc_id):
+    for npc_id in npc_ids:
         npc_label = _EVENT_NPC_NAMES.get(npc_id, npc_id)
         rel = (game_state.relations or {}).get(npc_id, 50)
 
-        if rel >= 70:
-            temp = "warm"
-        elif rel >= 50:
-            temp = "cordial"
-        elif rel >= 30:
-            temp = "cool"
-        else:
-            temp = "hostile"
-
-        system = _EVENT_NPC_PROMPTS.get(npc_id)
+        # Use dynamic system prompt with narrator ban and tone guidance
+        system = build_npc_system_prompt(npc_id, game_state, relations=rel)
         if not system:
-            return npc_id, f"{npc_label}: No cable available."
+            cables[npc_id] = _build_cable_fallback(npc_id, rel)
+            continue
 
-        # Apply narrator ban to cable generation
-        system = system + "\n\n" + _NARRATOR_BAN + (
-            "\nWrite ONLY what this person would say or write in an official "
+        system += (
+            "\n\nWrite ONLY what this person would say or write in an official "
             "diplomatic cable. No stage directions. No physical descriptions. "
             "No narrator voice."
         )
@@ -5628,15 +5693,13 @@ def generate_diplomatic_cables(game_state) -> dict:
             f"Game state:\n{json.dumps(context, indent=2)}\n\n"
             f"Recent activity affecting this relationship:\n{_recent_activity}\n\n"
             f"Generate a 1-2 sentence diplomatic cable in YOUR specific voice. "
-            f"Tone: {temp}. Write a cable that reflects the CURRENT state of this relationship "
-            f"including any recent developments. "
             f"Be specific about what you want from Europa right now. "
             f"Reference current game state details — budgets, relations, recent events. "
             f"Do NOT write generic diplomatic language. Sound like yourself, not a press release. "
             f"This is an ambient status update, not tied to any specific event."
         )
 
-        try:
+        def _try_cable():
             response = _client.messages.create(
                 model=MODEL,
                 max_tokens=100,
@@ -5644,23 +5707,29 @@ def generate_diplomatic_cables(game_state) -> dict:
                 system=system,
                 messages=[{"role": "user", "content": user_prompt}]
             )
-            with lock:
-                _token_log["calls"] += 1
-                _token_log["input_tokens"] += response.usage.input_tokens
-                _token_log["output_tokens"] += response.usage.output_tokens
-
+            _token_log["calls"] += 1
+            _token_log["input_tokens"] += response.usage.input_tokens
+            _token_log["output_tokens"] += response.usage.output_tokens
             raw = response.content[0].text.strip()
-            text = raw.replace('**', '').replace('*', '').strip()
-            return npc_id, text
+            return raw.replace('**', '').replace('*', '').strip()
+
+        try:
+            cables[npc_id] = _try_cable()
+        except (_anthropic_mod.RateLimitError,) as e:
+            print(f"[10B-2] Cable rate limited for {npc_id}, retrying in 2s...")
+            _time.sleep(2.0)
+            try:
+                cables[npc_id] = _try_cable()
+            except Exception as e2:
+                print(f"[10B-2] Cable retry failed for {npc_id}: {type(e2).__name__}: {e2}")
+                cables[npc_id] = _build_cable_fallback(npc_id, rel)
         except Exception as e:
             print(f"[10B-2] Cable generation failed for {npc_id}: {type(e).__name__}: {e}")
-            return npc_id, f"{npc_label} maintains a {temp} diplomatic posture toward Europa."
+            cables[npc_id] = _build_cable_fallback(npc_id, rel)
 
-    with ThreadPoolExecutor(max_workers=6) as executor:
-        futures = [executor.submit(_gen_cable, nid) for nid in npc_ids]
-        for future in as_completed(futures):
-            npc_id, text = future.result()
-            cables[npc_id] = text
+        # 500ms between calls to avoid rate limits
+        if npc_id != npc_ids[-1]:
+            _time.sleep(0.5)
 
     print(f"  [10B-2] Diplomatic cables generated for {len(cables)} NPCs")
     return cables

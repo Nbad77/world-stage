@@ -3305,12 +3305,48 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
                 entry["outcome"] = "accepted"
                 break
 
-    # 10B-3: Track deal in deals_today for Day Activity display
+    # 10B-3: Track deal in deals_today + generate GM consequences
     if npc_id:
         import uuid as _uuid
         _deal_text = counter.get('text', 'Diplomatic agreement')
         _npc_name = ALL_NPC_NAMES.get(npc_id, npc_id.title())
         _is_covert = counter.get('covert', False)
+
+        # Generate GM consequences for the deal
+        _gm_consequences = None
+        try:
+            from npc_engine import generate_deal_consequences
+            _gm_consequences = generate_deal_consequences(gs, npc_id, _deal_text, _is_covert)
+            print(f"  [10B-3] GM consequences generated for {npc_id} deal")
+        except Exception as _gm_err:
+            print(f"  [10B-3] GM consequence generation failed: {_gm_err}")
+            _gm_consequences = {
+                'relations_delta': {npc_id: 3},
+                'budget_delta': 0,
+                'personal_wealth_delta': 0,
+                'stability_delta': 0,
+                'cross_npc_visibility': [],
+                'historian_note': f'A diplomatic agreement was reached with {_npc_name}.',
+                'briefing_summary': f'Agreement with {_npc_name}: {_deal_text[:80]}',
+            }
+
+        # Apply consequences from GM
+        _rel_delta = 3  # default
+        if _gm_consequences:
+            for _cn, _cd in (_gm_consequences.get('relations_delta') or {}).items():
+                if _cn in gs.relations and isinstance(_cd, (int, float)):
+                    gs.update_relations(_cn, _cd)
+            _bd = _gm_consequences.get('budget_delta', 0)
+            if _bd and isinstance(_bd, (int, float)):
+                gs.update_budget(_bd)
+            _pwd = _gm_consequences.get('personal_wealth_delta', 0)
+            if _pwd and isinstance(_pwd, (int, float)):
+                gs.personal_wealth += _pwd
+            _sd = _gm_consequences.get('stability_delta', 0)
+            if _sd and isinstance(_sd, (int, float)):
+                gs.legitimacy_stability += _sd
+            _rel_delta = (_gm_consequences.get('relations_delta') or {}).get(npc_id, 3)
+
         if not hasattr(gs, 'deals_today'):
             gs.deals_today = []
         gs.deals_today.append({
@@ -3318,16 +3354,15 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
             'npc_id': npc_id,
             'npc_name': _npc_name,
             'deal_text': _deal_text,
-            'briefing_summary': f"Agreement with {_npc_name}: {_deal_text[:80]}",
+            'briefing_summary': (_gm_consequences or {}).get('briefing_summary', f"Agreement with {_npc_name}: {_deal_text[:80]}"),
             'source': 'sidebar',
             'day': gs.current_turn,
             'is_backchannel': _is_covert,
-            'relation_delta': 3,
+            'relation_delta': _rel_delta,
+            'gm_consequences': _gm_consequences,
         })
-        # Apply small positive relation signal for sidebar deal
         # TODO: modify gate by soft_power_score
-        gs.update_relations(npc_id, 3)
-        print(f"  [10B-3] Deal tracked: {_npc_name} — {_deal_text[:60]}, +3 relations")
+        print(f"  [10B-3] Deal tracked: {_npc_name} — {_deal_text[:60]}, relations delta: {_rel_delta}")
 
     _save_gs(session_id, gs)
     return {"status": "ok", "letter": letter, "covert": counter.get('covert', False)}

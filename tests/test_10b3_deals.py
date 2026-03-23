@@ -180,3 +180,47 @@ def test_no_narrator_voice_in_negotiation_prompts():
         # Ensure old stage direction permissions are removed
         assert '(with stage directions)' not in prompt, f"{npc_id} still has stage direction permission"
         assert '(with brief stage directions' not in prompt, f"{npc_id} still has brief stage direction permission"
+
+
+def test_stage_directions_removed_from_base_prompts():
+    """Sadam and Ji-won base prompts no longer encourage stage directions."""
+    from npc_engine import SADAM_SYSTEM_PROMPT, JIWON_SYSTEM_PROMPT
+    assert 'stage directions naturally' not in SADAM_SYSTEM_PROMPT
+    assert '*lighting cigar*' not in SADAM_SYSTEM_PROMPT
+    assert 'One stage direction per response' not in SADAM_SYSTEM_PROMPT
+    assert '*brief action if needed*' not in JIWON_SYSTEM_PROMPT
+
+
+def test_build_npc_system_prompt_includes_narrator_ban():
+    """build_npc_system_prompt injects narrator ban and tone guidance."""
+    from npc_engine import build_npc_system_prompt, _NARRATOR_BAN
+    gs = make_gs()
+    prompt = build_npc_system_prompt('usa', gs)
+    assert 'CRITICAL VOICE RULE' in prompt
+    assert 'RELATIONSHIP CONTEXT' in prompt
+    assert 'PRIOR AGREEMENTS' in prompt
+
+
+def test_build_npc_system_prompt_tone_hostile():
+    """Low relations produce hostile tone guidance."""
+    from npc_engine import build_npc_system_prompt
+    gs = make_gs(relations={'usa': 15, 'arabia': 45, 'eu': 60, 'dprg': 30, 'russia': 35, 'china': 40})
+    prompt = build_npc_system_prompt('usa', gs)
+    assert 'hostile and minimal' in prompt
+
+
+def test_build_npc_system_prompt_tone_partner():
+    """High relations produce partner tone guidance."""
+    from npc_engine import build_npc_system_prompt
+    gs = make_gs(relations={'usa': 95, 'arabia': 45, 'eu': 60, 'dprg': 30, 'russia': 35, 'china': 40})
+    prompt = build_npc_system_prompt('usa', gs)
+    assert 'trusted partner' in prompt
+
+
+def test_cable_fallback_toned():
+    """Cable fallback text is relationship-toned, not generic."""
+    from npc_engine import _build_cable_fallback
+    assert 'goodwill' in _build_cable_fallback('usa', 75)
+    assert 'routine' in _build_cable_fallback('usa', 50)
+    assert 'brief' in _build_cable_fallback('usa', 25)
+    assert 'No cable' in _build_cable_fallback('usa', 10)
