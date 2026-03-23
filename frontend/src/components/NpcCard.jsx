@@ -205,20 +205,23 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
             {/* GET INTEL button */}
             {onGetIntel && gs && (() => {
               const intelGated = (gs.intelligence_tier ?? 0) < MIN_INTEL_TIER
+              const alreadyGathered = (gs.intel_ops_today || []).some(op => op.target === npcKey)
               return (
                 <>
                   <button
-                    className={`npc-intel-btn ${intelGated ? 'locked' : ''}`}
+                    className={`npc-intel-btn ${intelGated || alreadyGathered ? 'locked' : ''}`}
                     onClick={() => onGetIntel(npcKey)}
-                    disabled={intelGated || intelLoading}
+                    disabled={intelGated || intelLoading || alreadyGathered}
                   >
                     {intelGated
                       ? `🔒 INTEL — Requires Intel Tier ${MIN_INTEL_TIER}`
-                      : intelLoading
-                        ? '📡 INTERCEPTING...'
-                        : `📡 GET INTEL — $${INTEL_COST}B`}
+                      : alreadyGathered
+                        ? '📡 Intel gathered today'
+                        : intelLoading
+                          ? '📡 INTERCEPTING...'
+                          : `📡 GET INTEL — $${INTEL_COST}B`}
                   </button>
-                  {!intelGated && (
+                  {!intelGated && !alreadyGathered && (
                     <div className="npc-intel-risk-text">Detection risk: 10%</div>
                   )}
                 </>

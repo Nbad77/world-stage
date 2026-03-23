@@ -5617,6 +5617,13 @@ def generate_diplomatic_cables(game_state) -> dict:
         if not system:
             return npc_id, f"{npc_label}: No cable available."
 
+        # Apply narrator ban to cable generation
+        system = system + "\n\n" + _NARRATOR_BAN + (
+            "\nWrite ONLY what this person would say or write in an official "
+            "diplomatic cable. No stage directions. No physical descriptions. "
+            "No narrator voice."
+        )
+
         user_prompt = (
             f"Game state:\n{json.dumps(context, indent=2)}\n\n"
             f"Recent activity affecting this relationship:\n{_recent_activity}\n\n"

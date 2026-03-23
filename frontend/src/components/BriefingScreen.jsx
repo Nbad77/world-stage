@@ -150,18 +150,20 @@ export default function BriefingScreen({
     deals_today: [],
   })
   const [morningBriefing, setMorningBriefing] = useState(null)
+  const [dealsRefreshing, setDealsRefreshing] = useState(false)
 
   // 10B-3: Refresh day-status when gameState changes (after deals)
   useEffect(() => {
     if (!sessionId) return
     const dealsLen = (gameState?.deals_today || []).length
     if (dealsLen > (dayStatus.deals_today?.length || 0)) {
+      setDealsRefreshing(true)
       api.briefingDayStatus(sessionId).then(status => {
         setDayStatus(prev => ({
           ...prev,
           deals_today: status.deals_today || [],
         }))
-      }).catch(() => {})
+      }).catch(() => {}).finally(() => setDealsRefreshing(false))
     }
   }, [gameState?.deals_today?.length])
   const [morningBriefingOpen, setMorningBriefingOpen] = useState(false)
@@ -734,9 +736,18 @@ export default function BriefingScreen({
       </div>
 
       {/* 10B-3: Today's Activity — completed deals */}
+      {dealsRefreshing && !(dayStatus?.deals_today?.length > 0) && (
+        <div className="todays-deals">
+          <h4 className="deals-header">TODAY'S DECISIONS</h4>
+          <div className="deals-loading"><span>Updating day record...</span></div>
+        </div>
+      )}
       {(dayStatus?.deals_today?.length > 0) && (
         <div className="todays-deals">
           <h4 className="deals-header">TODAY'S DECISIONS</h4>
+          {dealsRefreshing && (
+            <div className="deals-loading"><span>Updating day record...</span></div>
+          )}
           {dayStatus.deals_today.map(deal => {
             const flagMap = { usa: '🇺🇸', arabia: '🇸🇦', eu: '🇪🇺', dprg: '🇰🇵', russia: '🇷🇺', china: '🇨🇳' }
             const flag = flagMap[deal.npc_id] || '🏳️'
@@ -760,6 +771,24 @@ export default function BriefingScreen({
               </div>
             )
           })}
+
+          {/* FIX 5: Advisor notes on today's decisions */}
+          {gameState?.advisors_assigned_today?.length > 0 && (
+            <div className="advisor-notes-section">
+              <h5 className="advisor-notes-header">ADVISOR NOTES</h5>
+              {gameState.advisors_assigned_today.map(adv => {
+                const name = adv.name || adv.advisor_name || adv.type || 'Advisor'
+                const analysis = adv.cached_analysis || adv.latest_analysis || null
+                if (!analysis) return null
+                return (
+                  <div key={name} className="advisor-note-item">
+                    <span className="advisor-note-name">{name}:</span>
+                    <span className="advisor-note-text">{analysis}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 

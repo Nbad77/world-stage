@@ -8639,6 +8639,11 @@ async def get_npc_intel(session_id: str, request: Request, user: User = Depends(
     if intel_tier < 1:
         raise HTTPException(status_code=400, detail="Intel tier too low — requires Intel Tier 1")
 
+    # 10B-3: Cooldown — one intel op per NPC per day
+    _ops_today = getattr(gs, 'intel_ops_today', [])
+    if any(op.get("target") == target_npc for op in _ops_today):
+        raise HTTPException(status_code=400, detail="Intel already gathered on this target today.")
+
     INTEL_COST = 1.5
     if (gs.budget or 0) < INTEL_COST:
         raise HTTPException(status_code=400, detail=f"Insufficient budget (need ${INTEL_COST}B)")
