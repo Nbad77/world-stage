@@ -3305,6 +3305,30 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
                 entry["outcome"] = "accepted"
                 break
 
+    # 10B-3: Track deal in deals_today for Day Activity display
+    if npc_id:
+        import uuid as _uuid
+        _deal_text = counter.get('text', 'Diplomatic agreement')
+        _npc_name = ALL_NPC_NAMES.get(npc_id, npc_id.title())
+        _is_covert = counter.get('covert', False)
+        if not hasattr(gs, 'deals_today'):
+            gs.deals_today = []
+        gs.deals_today.append({
+            'id': f"deal_{gs.current_turn}_{npc_id}_{_uuid.uuid4().hex[:6]}",
+            'npc_id': npc_id,
+            'npc_name': _npc_name,
+            'deal_text': _deal_text,
+            'briefing_summary': f"Agreement with {_npc_name}: {_deal_text[:80]}",
+            'source': 'sidebar',
+            'day': gs.current_turn,
+            'is_backchannel': _is_covert,
+            'relation_delta': 3,
+        })
+        # Apply small positive relation signal for sidebar deal
+        # TODO: modify gate by soft_power_score
+        gs.update_relations(npc_id, 3)
+        print(f"  [10B-3] Deal tracked: {_npc_name} — {_deal_text[:60]}, +3 relations")
+
     _save_gs(session_id, gs)
     return {"status": "ok", "letter": letter, "covert": counter.get('covert', False)}
 

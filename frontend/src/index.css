@@ -4072,11 +4072,32 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   color: var(--ws-text);
   line-height: 1.4;
 }
+.deal-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
 .deal-source {
   font-family: var(--mono);
   font-size: 0.6rem;
   color: var(--muted);
   white-space: nowrap;
+}
+.deal-delta {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+.deal-delta.positive {
+  color: #4caf50;
+  background: rgba(76, 175, 80, 0.1);
+}
+.deal-delta.negative {
+  color: #ef5350;
+  background: rgba(239, 83, 80, 0.1);
 }
 
 /* 10B-2: Event Screen (situation room) */

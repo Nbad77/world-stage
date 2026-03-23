@@ -147,8 +147,23 @@ export default function BriefingScreen({
     events_resolved: 0,
     events_required: 3,
     can_end_day: false,
+    deals_today: [],
   })
   const [morningBriefing, setMorningBriefing] = useState(null)
+
+  // 10B-3: Refresh day-status when gameState changes (after deals)
+  useEffect(() => {
+    if (!sessionId) return
+    const dealsLen = (gameState?.deals_today || []).length
+    if (dealsLen > (dayStatus.deals_today?.length || 0)) {
+      api.briefingDayStatus(sessionId).then(status => {
+        setDayStatus(prev => ({
+          ...prev,
+          deals_today: status.deals_today || [],
+        }))
+      }).catch(() => {})
+    }
+  }, [gameState?.deals_today?.length])
   const [morningBriefingOpen, setMorningBriefingOpen] = useState(false)
   const [morningBriefingLoading, setMorningBriefingLoading] = useState(false)
   const [eventsLoading, setEventsLoading] = useState(false)
@@ -196,6 +211,7 @@ export default function BriefingScreen({
           events_resolved: status.events_resolved,
           events_required: status.events_required,
           can_end_day: status.can_end_day,
+          deals_today: status.deals_today || [],
         })
         if (status.morning_briefing_read) {
           setMorningBriefing('(already read)')
@@ -333,6 +349,7 @@ export default function BriefingScreen({
         events_resolved: result.events_resolved,
         events_required: result.events_required,
         can_end_day: result.can_end_day,
+        deals_today: result.deals_today || dayStatus.deals_today || [],
       })
       setActiveEvent({ ...activeEvent, resolved: true, resolution })
       console.log('[10B-2] Resolution consequences:', result.consequences)
@@ -719,16 +736,30 @@ export default function BriefingScreen({
       {/* 10B-3: Today's Activity — completed deals */}
       {(dayStatus?.deals_today?.length > 0) && (
         <div className="todays-deals">
-          <h4 className="deals-header">TODAY'S ACTIVITY</h4>
-          {dayStatus.deals_today.map(deal => (
-            <div key={deal.id} className="deal-item">
-              <span className="deal-npc">{deal.npc_name}</span>
-              <span className="deal-summary">{deal.briefing_summary}</span>
-              <span className="deal-source">
-                {deal.source === 'backchannel' ? '🔒 Covert' : '📋 Direct'}
-              </span>
-            </div>
-          ))}
+          <h4 className="deals-header">TODAY'S DECISIONS</h4>
+          {dayStatus.deals_today.map(deal => {
+            const flagMap = { usa: '🇺🇸', arabia: '🇸🇦', eu: '🇪🇺', dprg: '🇰🇵', russia: '🇷🇺', china: '🇨🇳' }
+            const flag = flagMap[deal.npc_id] || '🏳️'
+            const delta = deal.relation_delta
+            return (
+              <div key={deal.id} className="deal-item">
+                <span className="deal-npc">{flag} {deal.npc_name}</span>
+                <span className="deal-summary">{deal.briefing_summary}</span>
+                <span className="deal-meta">
+                  <span className="deal-source">
+                    {deal.is_backchannel ? '🔒 Covert'
+                      : deal.source === 'world_event' ? '🌐 Event'
+                      : '📋 Direct'}
+                  </span>
+                  {delta != null && delta !== 0 && (
+                    <span className={`deal-delta ${delta > 0 ? 'positive' : 'negative'}`}>
+                      {delta > 0 ? '+' : ''}{delta}
+                    </span>
+                  )}
+                </span>
+              </div>
+            )
+          })}
         </div>
       )}
 
