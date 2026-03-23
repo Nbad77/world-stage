@@ -3402,7 +3402,24 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
         # TODO: modify gate by soft_power_score
         print(f"  [10B-3] Deal tracked: {_npc_name} — {_deal_text[:60]}, relations delta: {_rel_delta}")
 
-    _save_gs(session_id, gs)
+    # Reload-and-patch: only update fields accept_counter owns,
+    # preserving events_resolved_today and other briefing state
+    gs_fresh = _load_gs(session_id)
+    gs_fresh.options_override = gs.options_override
+    gs_fresh.relations = gs.relations
+    gs_fresh.budget = gs.budget
+    gs_fresh.personal_wealth = gs.personal_wealth
+    gs_fresh.legitimacy_stability = gs.legitimacy_stability
+    gs_fresh.detection_heat = gs.detection_heat
+    gs_fresh.deals_today = gs.deals_today
+    gs_fresh.negotiation_log = gs.negotiation_log
+    if hasattr(gs, 'pending_gm_consequences'):
+        gs_fresh.pending_gm_consequences = gs.pending_gm_consequences
+    if hasattr(gs, '_latest_gm_consequence'):
+        gs_fresh._latest_gm_consequence = gs._latest_gm_consequence
+    if hasattr(gs, 'intel_activated_this_turn'):
+        gs_fresh.intel_activated_this_turn = gs.intel_activated_this_turn
+    _save_gs(session_id, gs_fresh)
     return {"status": "ok", "letter": letter, "covert": counter.get('covert', False)}
 
 
@@ -8939,20 +8956,27 @@ async def deal_consequences(session_id: str, request: Request, user: User = Depe
         if visible_npc in gs.relations and visible_npc != npc_id:
             gs.update_relations(visible_npc, -1)
 
-    # FIX 2: Do NOT append to deals_today — accept_counter already did that.
-    # Instead, update the existing deal record's gm_consequences if it exists.
+    # Update gm_consequences on the matching deal in deals_today
     _deals_today = getattr(gs, 'deals_today', [])
     for _d in reversed(_deals_today):
         if _d.get('npc_id') == npc_id:
             _d['gm_consequences'] = consequences
             break
 
-    _save_gs(session_id, gs)
+    # Reload-and-patch: only update fields this endpoint owns,
+    # preserving events_resolved_today and other briefing state
+    gs_fresh = _load_gs(session_id)
+    gs_fresh.relations = gs.relations
+    gs_fresh.budget = gs.budget
+    gs_fresh.personal_wealth = gs.personal_wealth
+    gs_fresh.legitimacy_stability = gs.legitimacy_stability
+    gs_fresh.deals_today = gs.deals_today  # has gm_consequences updated
+    _save_gs(session_id, gs_fresh)
 
-    print(f"  [10B-3] Deal consequences applied (reload-safe): {npc_id} — "
+    print(f"  [10B-3] Deal consequences applied (targeted-save): {npc_id} — "
           f"relations={relations_delta}, budget={budget_delta}, stability={stability_delta}")
 
     return {
         "consequences": consequences,
-        "game_state": gs.serialize(),
+        "game_state": gs_fresh.serialize(),
     }
