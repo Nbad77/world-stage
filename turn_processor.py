@@ -5676,6 +5676,21 @@ def apply_end_of_turn_effects(game_state):
     game_state.cables_generated_today = False
     game_state.diplomatic_cables = {}  # 10B-3: Clear cache — force fresh regeneration next day
     game_state.intel_ops_today = []
+    # 10B-3: Process completed deals before clearing — apply any pending payments
+    _deals = getattr(game_state, 'deals_today', [])
+    if _deals:
+        for _deal in _deals:
+            _gm = _deal.get('gm_consequences') or {}
+            # Apply budget_delta if not already applied at accept time
+            _bd = _gm.get('budget_delta', 0)
+            if _bd and isinstance(_bd, (int, float)):
+                game_state.budget = round((game_state.budget or 0) + _bd, 1)
+                print(f"  [EOT] Deal payment ({_deal.get('npc_name', '?')}): {'+' if _bd > 0 else ''}{_bd}B")
+        # Archive to deal_history
+        if not hasattr(game_state, 'deal_history'):
+            game_state.deal_history = []
+        game_state.deal_history.extend(_deals)
+        print(f"  [EOT] {len(_deals)} deal(s) archived to deal_history")
     game_state.deals_today = []  # 10B-3: Clear daily deals (deal_history persists)
     game_state.contact_requested = {}  # Reset daily contact requests
 

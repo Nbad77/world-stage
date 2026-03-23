@@ -605,6 +605,15 @@
   opacity: 0.3;
   cursor: not-allowed;
 }
+.npc-contact-cost {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.52rem;
+  color: var(--muted);
+  text-align: center;
+  margin-top: 0.1rem;
+  opacity: 0.6;
+}
 /* Model C: Crisis contact — red accent */
 .npc-contact-btn.crisis {
   background: rgba(239, 83, 80, 0.15);

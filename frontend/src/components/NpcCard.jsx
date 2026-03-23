@@ -156,14 +156,17 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
             {/* Model C: Contact / Request Meeting based on relations */}
             {canDirectContact ? (
               onContact && (
-                <button
-                  className={`npc-contact-btn ${isCrisis ? 'crisis' : ''}`}
-                  onClick={() => onContact(npcKey)}
-                  disabled={contactDisabled || contactLoading}
-                  title={contactDisabled ? 'Contact unavailable' : `Open diplomatic channel with ${label}`}
-                >
-                  {contactLoading ? 'Connecting...' : isCrisis ? '⚠ URGENT CONTACT' : 'CONTACT'}
-                </button>
+                <>
+                  <button
+                    className={`npc-contact-btn ${isCrisis ? 'crisis' : ''}`}
+                    onClick={() => onContact(npcKey)}
+                    disabled={contactDisabled || contactLoading}
+                    title={contactDisabled ? 'Contact unavailable' : `Open diplomatic channel with ${label}`}
+                  >
+                    {contactLoading ? 'Connecting...' : isCrisis ? '⚠ URGENT CONTACT' : 'CONTACT'}
+                  </button>
+                  <span className="npc-contact-cost">Negotiation fee: ${relation >= 60 ? '0.3' : relation >= 30 ? '0.5' : '0.8'}B</span>
+                </>
               )
             ) : (
               onContactRequest && (

@@ -2755,8 +2755,9 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
             print(f"  [api] NEGOTIATED DEAL WARNING FIELD: {npc_id} affects={_affected_co}")
 
     # Session 7A Feature 10: Store latest GM consequence on game state for EOT application
+    # 10B-3: Apply to ALL NPCs, not just Arabia
     _gm_consequence = result.get("gm_consequence", None)
-    if _gm_consequence and npc_id == 'arabia':
+    if _gm_consequence:
         gs._latest_gm_consequence = _gm_consequence
 
     # Session 3: Record this exchange in negotiation_log for export auditing.
@@ -2786,9 +2787,37 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
             npc: _get_discounted_negotiate_cost(gs, npc)[0]
             for npc in ALL_NPCS
         },
-        # Session 7A Feature 10: GM consequence object for energy proposals (Arabia only)
+        # Session 7A Feature 10: GM consequence object for all proposals
         "gm_consequence": result.get("gm_consequence", None),
+        # 10B-3: Conflict detection — check if new proposal conflicts with existing deals
+        "conflicts_with": _detect_deal_conflicts(gs, npc_id, result.get("counter_offer")),
     }
+
+
+def _detect_deal_conflicts(gs, npc_id, counter_offer):
+    """Check if a proposed deal conflicts with existing deals."""
+    if not counter_offer:
+        return []
+    conflicts = []
+    _deal_text = (counter_offer.get('text') or '').lower()
+    _deals = getattr(gs, 'deals_today', []) + getattr(gs, 'deal_history', [])
+    for d in _deals:
+        _d_npc = d.get('npc_id', d.get('npc', ''))
+        if _d_npc == npc_id:
+            continue  # same NPC — not a conflict
+        _d_text = (d.get('deal_text', d.get('summary', '')) or '').lower()
+        # Check for exclusivity conflicts
+        if 'exclusive' in _deal_text and 'exclusive' in _d_text:
+            conflicts.append(f"Existing exclusivity deal with {d.get('npc_name', _d_npc)}: {d.get('deal_text', _d_text)[:80]}")
+        # Check oil/energy conflicts
+        if any(k in _deal_text for k in ['oil', 'energy', 'petroleum']) and any(k in _d_text for k in ['oil', 'energy', 'petroleum']):
+            if _d_npc != npc_id:
+                conflicts.append(f"Existing energy deal with {d.get('npc_name', _d_npc)}: {d.get('deal_text', _d_text)[:80]}")
+        # Check military alignment conflicts
+        if any(k in _deal_text for k in ['military', 'defense', 'arms']) and any(k in _d_text for k in ['military', 'defense', 'arms']):
+            if _d_npc != npc_id:
+                conflicts.append(f"Existing military deal with {d.get('npc_name', _d_npc)}: {d.get('deal_text', _d_text)[:80]}")
+    return conflicts
 
 
 @app.post("/game/{session_id}/purchase_upgrade")
@@ -3285,9 +3314,9 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
 
     gs.options_override.append(counter)
 
-    # Session 7A Feature 10: Queue GM consequence for EOT application (Arabia energy deals)
+    # Session 7A Feature 10: Queue GM consequence for EOT application (all NPCs)
     npc_id = (counter.get("npc") or "").lower()
-    if npc_id == 'arabia' and hasattr(gs, '_latest_gm_consequence') and gs._latest_gm_consequence:
+    if hasattr(gs, '_latest_gm_consequence') and gs._latest_gm_consequence:
         if not hasattr(gs, 'pending_gm_consequences'):
             gs.pending_gm_consequences = []
         gs.pending_gm_consequences.append({
@@ -8866,6 +8895,7 @@ async def deal_consequences(session_id: str, request: Request, user: User = Depe
     gs = _load_gs(session_id)
 
     # Generate consequences
+    import asyncio
     from npc_engine import generate_deal_consequences
     consequences = await asyncio.to_thread(generate_deal_consequences, gs, npc_id, deal_text, is_backchannel)
 

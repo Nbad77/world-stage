@@ -395,9 +395,16 @@ export default function BriefingScreen({
     setBriefingState(canEnd ? 'free_action' : 'hub')
   }
 
-  function handleEndDay() {
+  const [endingDay, setEndingDay] = useState(false)
+
+  async function handleEndDay() {
+    setEndingDay(true)
     setBriefingState('end_day')
-    if (onEndDay) onEndDay()
+    try {
+      if (onEndDay) await onEndDay()
+    } finally {
+      setEndingDay(false)
+    }
   }
 
   // ── Render: Loading ──────────────────────────────────────────────────────
@@ -792,15 +799,23 @@ export default function BriefingScreen({
                             <span className="deal-affected-npc">{flagMap[ar.npc] || ''} {(ar.npc || '').toUpperCase()}</span>
                             <span className="deal-affected-reason">{ar.reason}</span>
                           </div>
-                        )) : Object.entries(gm.relations_delta || {}).map(([npc, d]) => (
-                          <div key={npc} className="deal-affected-item">
-                            <span className={`deal-direction-icon ${d > 0 ? 'positive' : d < 0 ? 'negative' : 'neutral'}`}>
-                              {d > 0 ? '▲' : d < 0 ? '▼' : '—'}
-                            </span>
-                            <span className="deal-affected-npc">{flagMap[npc] || ''} {npc.toUpperCase()}</span>
-                            <span className="deal-affected-reason">{d > 0 ? '+' : ''}{d} relations</span>
-                          </div>
-                        ))}
+                        )) : Object.entries(gm.relations_delta || {}).map(([npc, d]) => {
+                          const dir = d > 0 ? 'positive' : d < 0 ? 'negative' : 'neutral'
+                          const reason = d > 3 ? 'alignment strengthened'
+                            : d > 0 ? 'relations improve modestly'
+                            : d < -3 ? 'significant diplomatic strain'
+                            : d < 0 ? 'relations cool slightly'
+                            : 'monitoring situation'
+                          return (
+                            <div key={npc} className="deal-affected-item">
+                              <span className={`deal-direction-icon ${dir}`}>
+                                {d > 0 ? '▲' : d < 0 ? '▼' : '—'}
+                              </span>
+                              <span className="deal-affected-npc">{flagMap[npc] || ''} {npc.toUpperCase()}</span>
+                              <span className="deal-affected-reason">{reason}</span>
+                            </div>
+                          )
+                        })}
                       </div>
                     )}
                     {gm.historian_note && (
@@ -834,8 +849,12 @@ export default function BriefingScreen({
 
       {/* End day button */}
       {canEndDay && (
-        <button className="briefing-end-day-btn" onClick={handleEndDay}>
-          End Day {currentDay} {'\u2192'}
+        <button
+          className="briefing-end-day-btn"
+          onClick={handleEndDay}
+          disabled={endingDay}
+        >
+          {endingDay ? 'Processing...' : `End Day ${currentDay} \u2192`}
         </button>
       )}
     </div>

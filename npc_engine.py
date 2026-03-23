@@ -5859,7 +5859,7 @@ def generate_deal_consequences(game_state, npc_id: str, deal_text: str, is_backc
         '  "personal_wealth_delta": float,\n'
         '  "stability_delta": float,  // -5 to +5\n'
         '  "cross_npc_visibility": ["npc_ids who learn about this deal"],\n'
-        '  "historian_note": "one sentence in historian voice",\n'
+        '  "historian_note": "REQUIRED — see rules below",\n'
         '  "briefing_summary": "one sentence suitable for briefing item"\n'
         "}\n\n"
         "RULES:\n"
@@ -5868,8 +5868,16 @@ def generate_deal_consequences(game_state, npc_id: str, deal_text: str, is_backc
         "- Budget deltas should be modest (-3.0 to +3.0)\n"
         "- If backchannel (covert): cross_npc_visibility MUST be empty []\n"
         "- If public: include NPCs who would realistically learn about this deal\n"
-        "- historian_note should be detached, analytical, third-person\n"
-        "- briefing_summary should be concise and factual"
+        "- briefing_summary should be concise and factual\n"
+        "- historian_note MUST be 1-2 sentences that capture the SIGNIFICANCE and "
+        "IMPLICATIONS of this specific deal. Reference the actual terms agreed. "
+        "State what this reveals about Europa's strategic direction. Write as a "
+        "political historian observing from 20 years in the future.\n"
+        "  BAD: 'Europa concluded a deal with usa.'\n"
+        "  GOOD: 'The investment agreement with Washington, secured through energy "
+        "concessions, marked Europa's first formal alignment with Atlantic power "
+        "structures — a pivot that would shape its foreign policy for years.'\n"
+        "  Your note must be specific, not generic."
     )
 
     user_content = (
@@ -5925,7 +5933,7 @@ def _deal_consequences_fallback(npc_id: str, deal_text: str, is_backchannel: boo
         "personal_wealth_delta": 0.0,
         "stability_delta": 1.0,
         "cross_npc_visibility": [] if is_backchannel else list(_rivals.get(npc_id, [])),
-        "historian_note": f"Europa concluded a {'covert ' if is_backchannel else ''}deal with {npc_id}.",
+        "historian_note": f"A {'covert ' if is_backchannel else ''}diplomatic arrangement with {_NPC_DISPLAY_NAMES.get(npc_id, npc_id)} signaled Europa's evolving strategic posture — the full implications of which remained to be seen.",
         "briefing_summary": f"Deal completed with {npc_id} via {'backchannel' if is_backchannel else 'official channels'}.",
     }
 
