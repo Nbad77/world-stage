@@ -5938,6 +5938,93 @@ def _deal_consequences_fallback(npc_id: str, deal_text: str, is_backchannel: boo
     }
 
 
+def generate_advisor_deal_reactions(game_state, deal_text: str, npc_id: str) -> list:
+    """Generate advisor reactions to a completed deal. Returns list of reaction dicts.
+    Uses ThreadPoolExecutor for parallel generation."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    advisors = getattr(game_state, 'advisors_assigned_today', None) or []
+    if not advisors:
+        advisors_dict = getattr(game_state, 'advisors', {})
+        if advisors_dict:
+            advisors = [{'type': k, 'name': v.get('name', k), **v} for k, v in advisors_dict.items() if v]
+    if not advisors:
+        return []
+
+    npc_label = _NPC_DISPLAY_NAMES.get(npc_id, npc_id)
+    results = []
+
+    _ADVISOR_PERSPECTIVES = {
+        'finance_minister': "You focus on budget impact, fiscal risk, and economic return on investment.",
+        'diplomat': "You focus on diplomatic implications, alliance dynamics, and Western alignment concerns.",
+        'security_chief': "You focus on strategic and military implications, threat assessment, and national security.",
+        'technocrat': "You focus on economic development, infrastructure, and long-term institutional implications.",
+        'general': "You focus on military readiness, defense posture, and operational security.",
+    }
+
+    def _gen_reaction(advisor):
+        adv_type = advisor.get('type', advisor.get('advisor_type', 'unknown'))
+        adv_name = advisor.get('name', advisor.get('advisor_name', adv_type.replace('_', ' ').title()))
+        perspective = _ADVISOR_PERSPECTIVES.get(adv_type, "You give your professional assessment.")
+
+        system = (
+            f"You are {adv_name}, a senior advisor to the leader of Europa.\n"
+            f"{perspective}\n\n"
+            f"{_NARRATOR_BAN}\n\n"
+            "Return ONLY a JSON object. No preamble.\n"
+            '{"stance": "approve" or "neutral" or "oppose", '
+            '"reasoning": "1-2 sentences in your voice explaining your position"}'
+        )
+
+        user_prompt = (
+            f"A deal has been completed with {npc_label}:\n\"{deal_text}\"\n\n"
+            f"Current budget: ${round(game_state.budget, 1)}B\n"
+            f"Relations with {npc_label}: {(game_state.relations or {}).get(npc_id, 50)}/100\n\n"
+            "Give your reaction to this deal."
+        )
+
+        try:
+            response = _client.messages.create(
+                model=MODEL,
+                max_tokens=100,
+                temperature=0.7,
+                system=system,
+                messages=[{"role": "user", "content": user_prompt}]
+            )
+            _token_log["calls"] += 1
+            _token_log["input_tokens"] += response.usage.input_tokens
+            _token_log["output_tokens"] += response.usage.output_tokens
+
+            raw = response.content[0].text.strip()
+            parsed = json.loads(raw)
+            return {
+                "advisor_type": adv_type,
+                "advisor_name": adv_name,
+                "stance": parsed.get("stance", "neutral"),
+                "reasoning": parsed.get("reasoning", "No comment."),
+            }
+        except Exception as e:
+            print(f"  [10B-3] Advisor reaction failed for {adv_name}: {e}")
+            # Rule-based fallback
+            _stance = "approve" if (game_state.relations or {}).get(npc_id, 50) >= 50 else "neutral"
+            return {
+                "advisor_type": adv_type,
+                "advisor_name": adv_name,
+                "stance": _stance,
+                "reasoning": f"{adv_name} has noted the agreement.",
+            }
+
+    with ThreadPoolExecutor(max_workers=len(advisors)) as executor:
+        futures = [executor.submit(_gen_reaction, adv) for adv in advisors]
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                results.append(result)
+
+    print(f"  [10B-3] Advisor reactions generated: {len(results)}")
+    return results
+
+
 def generate_event_resolution_consequences(game_state, event: dict, resolution: str) -> dict:
     """10B-2: Generate consequences for resolving a world event.
     Returns dict with npc_reactions, stability_delta, budget_delta, interpretation.

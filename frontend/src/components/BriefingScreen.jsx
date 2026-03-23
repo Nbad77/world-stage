@@ -743,19 +743,19 @@ export default function BriefingScreen({
         )}
       </div>
 
-      {/* 10B-3: Today's Activity — completed deals */}
-      {dealsRefreshing && !(dayStatus?.deals_today?.length > 0) && (
-        <div className="todays-deals">
-          <h4 className="deals-header">TODAY'S DECISIONS</h4>
+      {/* 10B-3: Today's Decisions — always visible */}
+      <div className="todays-deals">
+        <h4 className="deals-header">TODAY'S DECISIONS</h4>
+        {dealsRefreshing && (
           <div className="deals-loading"><span>Updating day record...</span></div>
-        </div>
-      )}
-      {(dayStatus?.deals_today?.length > 0) && (
-        <div className="todays-deals">
-          <h4 className="deals-header">TODAY'S DECISIONS</h4>
-          {dealsRefreshing && (
-            <div className="deals-loading"><span>Updating day record...</span></div>
-          )}
+        )}
+        {!(dayStatus?.deals_today?.length > 0) && !dealsRefreshing && (
+          <div className="decisions-empty">
+            <span>No decisions recorded yet today.</span>
+          </div>
+        )}
+        {(dayStatus?.deals_today?.length > 0) && (<>
+
           {dayStatus.deals_today.map(deal => {
             const flagMap = { usa: '🇺🇸', arabia: '🇸🇦', eu: '🇪🇺', dprg: '🇰🇵', russia: '🇷🇺', china: '🇨🇳' }
             const flag = flagMap[deal.npc_id] || '🏳️'
@@ -821,6 +821,24 @@ export default function BriefingScreen({
                     {gm.historian_note && (
                       <div className="deal-historian-note">{gm.historian_note}</div>
                     )}
+                    {/* Advisor reactions */}
+                    {deal.advisor_reactions?.length > 0 && (
+                      <div className="advisor-reactions-section">
+                        <h5 className="deal-impact-header">ADVISOR REACTIONS</h5>
+                        {deal.advisor_reactions.map((ar, i) => {
+                          const icon = ar.stance === 'approve' ? '👍' : ar.stance === 'oppose' ? '👎' : '👋'
+                          const stanceClass = ar.stance === 'approve' ? 'stance-approve' : ar.stance === 'oppose' ? 'stance-oppose' : 'stance-neutral'
+                          return (
+                            <div key={i} className={`advisor-reaction-item ${stanceClass}`}>
+                              <span className="advisor-reaction-icon">{icon}</span>
+                              <span className="advisor-reaction-name">{ar.advisor_name}</span>
+                              <span className="advisor-reaction-type">({ar.advisor_type?.replace('_', ' ')})</span>
+                              <span className="advisor-reaction-text">{ar.reasoning}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -844,8 +862,8 @@ export default function BriefingScreen({
               })}
             </div>
           )}
-        </div>
-      )}
+        </>)}
+      </div>
 
       {/* End day button */}
       {canEndDay && (

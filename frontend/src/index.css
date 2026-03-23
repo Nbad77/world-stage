@@ -4099,6 +4099,34 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   color: #ef5350;
   background: rgba(239, 83, 80, 0.1);
 }
+.advisor-reactions-section {
+  margin-top: 0.5rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+.advisor-reaction-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.3rem;
+  padding: 0.25rem 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+.advisor-reaction-icon { min-width: 1.2rem; }
+.advisor-reaction-name { font-weight: 600; color: var(--ws-gold); white-space: nowrap; }
+.advisor-reaction-type { font-size: 0.6rem; color: var(--muted); white-space: nowrap; margin-right: 0.3rem; }
+.advisor-reaction-text { color: var(--ws-text); opacity: 0.85; }
+.stance-approve .advisor-reaction-text { color: #4caf50; }
+.stance-oppose .advisor-reaction-text { color: #ef5350; }
+.stance-neutral .advisor-reaction-text { color: var(--muted); }
+.decisions-empty {
+  padding: 0.75rem 0;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: var(--muted);
+  font-style: italic;
+  opacity: 0.5;
+}
 .deal-entry {
   border-radius: 6px;
   transition: background 0.15s;

@@ -3376,6 +3376,14 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
                 gs.legitimacy_stability += _sd
             _rel_delta = (_gm_consequences.get('relations_delta') or {}).get(npc_id, 3)
 
+        # Generate advisor reactions to this deal
+        _advisor_reactions = []
+        try:
+            from npc_engine import generate_advisor_deal_reactions
+            _advisor_reactions = generate_advisor_deal_reactions(gs, _deal_text, npc_id)
+        except Exception as _adv_err:
+            print(f"  [10B-3] Advisor reactions failed: {_adv_err}")
+
         if not hasattr(gs, 'deals_today'):
             gs.deals_today = []
         gs.deals_today.append({
@@ -3389,6 +3397,7 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
             'is_backchannel': _is_covert,
             'relation_delta': _rel_delta,
             'gm_consequences': _gm_consequences,
+            'advisor_reactions': _advisor_reactions,
         })
         # TODO: modify gate by soft_power_score
         print(f"  [10B-3] Deal tracked: {_npc_name} — {_deal_text[:60]}, relations delta: {_rel_delta}")
