@@ -5965,11 +5965,18 @@ def generate_advisor_deal_reactions(game_state, deal_text: str, npc_id: str) -> 
     import time as _time
     import anthropic as _anthropic_mod
 
-    advisors = getattr(game_state, 'advisors_assigned_today', None) or []
-    if not advisors:
-        advisors_dict = getattr(game_state, 'advisors', {})
-        if advisors_dict:
-            advisors = [{'type': k, 'name': v.get('name', k), **v} for k, v in advisors_dict.items() if v]
+    # advisor_assigned_today is a list of advisor keys (e.g. ['finance_minister', 'diplomat'])
+    assigned_keys = getattr(game_state, 'advisor_assigned_today', None) or []
+    if not assigned_keys:
+        return []  # No advisors assigned today — no reactions
+
+    # Look up full advisor info from gs.advisors dict (hired advisors)
+    all_advisors = getattr(game_state, 'advisors', {}) or {}
+    advisors = []
+    for key in assigned_keys:
+        adv_data = all_advisors.get(key)
+        if adv_data and isinstance(adv_data, dict):
+            advisors.append({'type': key, 'name': adv_data.get('name', key.replace('_', ' ').title()), **adv_data})
     if not advisors:
         return []
 
