@@ -5896,16 +5896,32 @@ def generate_deal_consequences(game_state, npc_id: str, deal_text: str, is_backc
             # Rule-based fallback
             return _deal_consequences_fallback(npc_id, deal_text, is_backchannel)
 
-        response = _client.messages.create(
-            model=MODEL,
-            max_tokens=300,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_content}],
-        )
-        text = response.content[0].text.strip()
-        result = json.loads(text)
-        _token_log["haiku_calls"] = _token_log.get("haiku_calls", 0) + 1
-        return result
+        import time as _time
+        import anthropic as _anthropic_mod
+
+        def _try_consequences():
+            resp = _client.messages.create(
+                model=MODEL,
+                max_tokens=300,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_content}],
+            )
+            txt = resp.content[0].text.strip()
+            if not txt:
+                raise ValueError("Empty response from Haiku")
+            _token_log["haiku_calls"] = _token_log.get("haiku_calls", 0) + 1
+            return json.loads(txt)
+
+        try:
+            return _try_consequences()
+        except (_anthropic_mod.RateLimitError, ValueError, json.JSONDecodeError) as e:
+            print(f"  [10B-3] Deal consequences first attempt failed: {e}, retrying in 2s...")
+            _time.sleep(2.0)
+            try:
+                return _try_consequences()
+            except Exception as e2:
+                print(f"  [10B-3] Deal consequences retry failed: {e2}")
+                return _deal_consequences_fallback(npc_id, deal_text, is_backchannel)
     except Exception as e:
         print(f"  [10B-3] Deal consequence generation failed: {e}")
         return _deal_consequences_fallback(npc_id, deal_text, is_backchannel)
@@ -5940,8 +5956,9 @@ def _deal_consequences_fallback(npc_id: str, deal_text: str, is_backchannel: boo
 
 def generate_advisor_deal_reactions(game_state, deal_text: str, npc_id: str) -> list:
     """Generate advisor reactions to a completed deal. Returns list of reaction dicts.
-    Uses ThreadPoolExecutor for parallel generation."""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    Sequential with retry to avoid rate limits."""
+    import time as _time
+    import anthropic as _anthropic_mod
 
     advisors = getattr(game_state, 'advisors_assigned_today', None) or []
     if not advisors:
@@ -5962,7 +5979,15 @@ def generate_advisor_deal_reactions(game_state, deal_text: str, npc_id: str) -> 
         'general': "You focus on military readiness, defense posture, and operational security.",
     }
 
-    def _gen_reaction(advisor):
+    _ADVISOR_FALLBACKS = {
+        'finance_minister': "The budget impact warrants careful monitoring.",
+        'diplomat': "The diplomatic implications for our Western relations are significant.",
+        'security_chief': "This arrangement has strategic implications worth tracking.",
+        'technocrat': "The economic terms require evaluation against our development goals.",
+        'general': "The strategic posture implications need assessment.",
+    }
+
+    for advisor in advisors:
         adv_type = advisor.get('type', advisor.get('advisor_type', 'unknown'))
         adv_name = advisor.get('name', advisor.get('advisor_name', adv_type.replace('_', ' ').title()))
         perspective = _ADVISOR_PERSPECTIVES.get(adv_type, "You give your professional assessment.")
@@ -5983,7 +6008,7 @@ def generate_advisor_deal_reactions(game_state, deal_text: str, npc_id: str) -> 
             "Give your reaction to this deal."
         )
 
-        try:
+        def _try_call():
             response = _client.messages.create(
                 model=MODEL,
                 max_tokens=100,
@@ -5994,32 +6019,54 @@ def generate_advisor_deal_reactions(game_state, deal_text: str, npc_id: str) -> 
             _token_log["calls"] += 1
             _token_log["input_tokens"] += response.usage.input_tokens
             _token_log["output_tokens"] += response.usage.output_tokens
-
             raw = response.content[0].text.strip()
-            parsed = json.loads(raw)
-            return {
+            if not raw:
+                raise ValueError("Empty response from Haiku")
+            return json.loads(raw)
+
+        try:
+            parsed = _try_call()
+            results.append({
                 "advisor_type": adv_type,
                 "advisor_name": adv_name,
                 "stance": parsed.get("stance", "neutral"),
                 "reasoning": parsed.get("reasoning", "No comment."),
-            }
+            })
+        except (_anthropic_mod.RateLimitError, ValueError) as e:
+            print(f"  [10B-3] Advisor reaction rate limited/empty for {adv_name}, retrying in 2s...")
+            _time.sleep(2.0)
+            try:
+                parsed = _try_call()
+                results.append({
+                    "advisor_type": adv_type,
+                    "advisor_name": adv_name,
+                    "stance": parsed.get("stance", "neutral"),
+                    "reasoning": parsed.get("reasoning", "No comment."),
+                })
+            except Exception as e2:
+                print(f"  [10B-3] Advisor reaction retry failed for {adv_name}: {e2}")
+                _fb_text = _ADVISOR_FALLBACKS.get(adv_type, f"{adv_name} has noted the agreement.")
+                _stance = "approve" if (game_state.relations or {}).get(npc_id, 50) >= 50 else "neutral"
+                results.append({
+                    "advisor_type": adv_type,
+                    "advisor_name": adv_name,
+                    "stance": _stance,
+                    "reasoning": _fb_text,
+                })
         except Exception as e:
             print(f"  [10B-3] Advisor reaction failed for {adv_name}: {e}")
-            # Rule-based fallback
+            _fb_text = _ADVISOR_FALLBACKS.get(adv_type, f"{adv_name} has noted the agreement.")
             _stance = "approve" if (game_state.relations or {}).get(npc_id, 50) >= 50 else "neutral"
-            return {
+            results.append({
                 "advisor_type": adv_type,
                 "advisor_name": adv_name,
                 "stance": _stance,
-                "reasoning": f"{adv_name} has noted the agreement.",
-            }
+                "reasoning": _fb_text,
+            })
 
-    with ThreadPoolExecutor(max_workers=len(advisors)) as executor:
-        futures = [executor.submit(_gen_reaction, adv) for adv in advisors]
-        for future in as_completed(futures):
-            result = future.result()
-            if result:
-                results.append(result)
+        # 500ms between advisor calls to avoid rate limits
+        if advisor != advisors[-1]:
+            _time.sleep(0.5)
 
     print(f"  [10B-3] Advisor reactions generated: {len(results)}")
     return results

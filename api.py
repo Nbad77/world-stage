@@ -8891,6 +8891,8 @@ async def deal_consequences(session_id: str, request: Request, user: User = Depe
     """
     10B-3: Generate and apply GM consequences for a sidebar deal.
     Called after a deal is completed via CONTACT/negotiate flow.
+    IMPORTANT: Does NOT append to deals_today (accept_counter already does that).
+    Reloads fresh gs before saving to avoid overwriting events_resolved_today.
     """
     _verify_game_ownership(session_id, user)
     body = await request.json()
@@ -8901,14 +8903,19 @@ async def deal_consequences(session_id: str, request: Request, user: User = Depe
     if not npc_id or not deal_text:
         raise HTTPException(status_code=400, detail="npc_id and deal_text required")
 
-    gs = _load_gs(session_id)
+    # Load gs for context only (used to generate consequences)
+    gs_for_context = _load_gs(session_id)
 
-    # Generate consequences
+    # Generate consequences using context gs (read-only)
     import asyncio
     from npc_engine import generate_deal_consequences
-    consequences = await asyncio.to_thread(generate_deal_consequences, gs, npc_id, deal_text, is_backchannel)
+    consequences = await asyncio.to_thread(generate_deal_consequences, gs_for_context, npc_id, deal_text, is_backchannel)
 
-    # Apply consequences
+    # RELOAD fresh gs before applying changes to avoid overwriting
+    # events_resolved_today, deals_today, or other briefing state
+    gs = _load_gs(session_id)
+
+    # Apply ONLY mechanical consequence fields
     relations_delta = consequences.get("relations_delta", {})
     for npc_key, delta in relations_delta.items():
         if isinstance(delta, (int, float)) and npc_key in gs.relations:
@@ -8930,33 +8937,22 @@ async def deal_consequences(session_id: str, request: Request, user: User = Depe
     cross_visible = consequences.get("cross_npc_visibility", [])
     for visible_npc in cross_visible:
         if visible_npc in gs.relations and visible_npc != npc_id:
-            # NPCs who learn about deals with rivals get slightly annoyed
             gs.update_relations(visible_npc, -1)
 
-    # Record deal in deals_today
-    _npc_labels = {'usa': 'Bill Hartwell', 'arabia': 'Sadam', 'eu': 'Marsha',
-                   'dprg': 'Ji-won Ryang', 'russia': 'Volkov', 'china': 'Wei Jianming'}
-    deal_record = {
-        "id": f"deal_{gs.current_turn}_{npc_id}_{len(getattr(gs, 'deals_today', []))}",
-        "npc_id": npc_id,
-        "npc_name": _npc_labels.get(npc_id, npc_id),
-        "deal_text": deal_text,
-        "briefing_summary": consequences.get("briefing_summary", deal_text[:80]),
-        "source": "backchannel" if is_backchannel else "sidebar",
-        "day": gs.current_turn,
-        "consequences": consequences,
-    }
-    if not hasattr(gs, 'deals_today'):
-        gs.deals_today = []
-    gs.deals_today.append(deal_record)
+    # FIX 2: Do NOT append to deals_today — accept_counter already did that.
+    # Instead, update the existing deal record's gm_consequences if it exists.
+    _deals_today = getattr(gs, 'deals_today', [])
+    for _d in reversed(_deals_today):
+        if _d.get('npc_id') == npc_id:
+            _d['gm_consequences'] = consequences
+            break
 
     _save_gs(session_id, gs)
 
-    print(f"  [10B-3] Deal consequences applied: {npc_id} — "
+    print(f"  [10B-3] Deal consequences applied (reload-safe): {npc_id} — "
           f"relations={relations_delta}, budget={budget_delta}, stability={stability_delta}")
 
     return {
         "consequences": consequences,
-        "deal_record": deal_record,
         "game_state": gs.serialize(),
     }
