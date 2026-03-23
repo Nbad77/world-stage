@@ -763,18 +763,24 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       await api.acceptCounter(sessionId, letter, counterOffer, covert)
       if (covert) console.log(`[GameScreen] Fix 24: Covert deal accepted with ${counterOffer?.npc}`)
 
-      // 10B-3: Sidebar deals get GM consequence resolution
+      // 10B-3: Sidebar deals get GM consequence resolution (non-blocking)
       const npcId = (counterOffer?.npc || '').toLowerCase()
       const dealText = counterOffer?.text || 'Diplomatic deal'
       if (npcId && activeTab === 'foreign') {
         try {
-          const conseqResult = await api.dealConsequences(sessionId, npcId, dealText, !!covert)
-          console.log('[10B-3] Deal consequences applied:', conseqResult)
-          // Refresh game state and day status
-          await getGame()
+          await api.dealConsequences(sessionId, npcId, dealText, !!covert)
+          console.log('[10B-3] Deal consequences applied')
         } catch (ce) {
           console.warn('[10B-3] deal-consequences failed (non-blocking):', ce.message)
         }
+      }
+
+      // ALWAYS refresh game state after accept_counter so BriefingScreen sees new deals_today
+      try {
+        const freshData = await api.getGame(sessionId)
+        if (freshData?.game_state) setGs(freshData.game_state)
+      } catch (re) {
+        console.warn('[10B-3] Game state refresh failed:', re.message)
       }
     } catch (e) {
       console.warn('acceptCounter failed:', e.message)
