@@ -5645,7 +5645,8 @@ def generate_diplomatic_cables(game_state) -> dict:
             raw = response.content[0].text.strip()
             text = raw.replace('**', '').replace('*', '').strip()
             return npc_id, text
-        except Exception:
+        except Exception as e:
+            print(f"[10B-2] Cable generation failed for {npc_id}: {type(e).__name__}: {e}")
             return npc_id, f"{npc_label} maintains a {temp} diplomatic posture toward Europa."
 
     with ThreadPoolExecutor(max_workers=6) as executor:
