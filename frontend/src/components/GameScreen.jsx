@@ -763,25 +763,49 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       await api.acceptCounter(sessionId, letter, counterOffer, covert)
       if (covert) console.log(`[GameScreen] Fix 24: Covert deal accepted with ${counterOffer?.npc}`)
 
-      // 10B-3: Sidebar deals get GM consequence resolution (non-blocking)
       const npcId = (counterOffer?.npc || '').toLowerCase()
       const dealText = counterOffer?.text || 'Diplomatic deal'
-      if (npcId && activeTab === 'foreign') {
-        try {
-          await api.dealConsequences(sessionId, npcId, dealText, !!covert)
-          console.log('[10B-3] Deal consequences applied')
-        } catch (ce) {
-          console.warn('[10B-3] deal-consequences failed (non-blocking):', ce.message)
-        }
+      const npcNames = { usa: 'Bill Hartwell', arabia: 'Sadam', eu: 'Marsha', dprg: 'Ji-won Ryang', russia: 'Volkov', china: 'Wei Jianming' }
+
+      // OPTIMISTIC UPDATE: Immediately add deal to gs.deals_today so
+      // BriefingScreen renders it without waiting for slow API calls
+      if (npcId) {
+        setGs(prev => {
+          if (!prev) return prev
+          const existingDeals = prev.deals_today || []
+          return {
+            ...prev,
+            deals_today: [...existingDeals, {
+              id: `deal_${prev.current_turn}_${npcId}_${Date.now()}`,
+              npc_id: npcId,
+              npc_name: npcNames[npcId] || npcId,
+              deal_text: dealText,
+              briefing_summary: `Agreement with ${npcNames[npcId] || npcId}: ${dealText.slice(0, 80)}`,
+              source: 'sidebar',
+              day: prev.current_turn,
+              is_backchannel: !!covert,
+              relation_delta: 3,
+            }]
+          }
+        })
+        console.log('[10B-3] Optimistic deal added to gs.deals_today')
       }
 
-      // ALWAYS refresh game state after accept_counter so BriefingScreen sees new deals_today
-      try {
-        const freshData = await api.getGame(sessionId)
-        if (freshData?.game_state) setGs(freshData.game_state)
-      } catch (re) {
-        console.warn('[10B-3] Game state refresh failed:', re.message)
+      // Background: GM consequences + full refresh (non-blocking, no await chain)
+      if (npcId && activeTab === 'foreign') {
+        api.dealConsequences(sessionId, npcId, dealText, !!covert)
+          .then(() => console.log('[10B-3] Deal consequences applied'))
+          .catch(ce => console.warn('[10B-3] deal-consequences failed:', ce.message))
       }
+
+      // Background: refresh full game state to get server-authoritative data
+      api.briefingDayStatus(sessionId)
+        .then(status => {
+          if (status?.deals_today?.length > 0) {
+            setGs(prev => prev ? { ...prev, deals_today: status.deals_today } : prev)
+          }
+        })
+        .catch(() => {})
     } catch (e) {
       console.warn('acceptCounter failed:', e.message)
     }

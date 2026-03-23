@@ -152,18 +152,27 @@ export default function BriefingScreen({
   const [morningBriefing, setMorningBriefing] = useState(null)
   const [dealsRefreshing, setDealsRefreshing] = useState(false)
 
-  // 10B-3: Refresh day-status when gameState changes (after deals)
+  // 10B-3: When gameState.deals_today changes, immediately show deals
+  // then background-refresh from server for authoritative data
   useEffect(() => {
     if (!sessionId) return
-    const dealsLen = (gameState?.deals_today || []).length
-    if (dealsLen > (dayStatus.deals_today?.length || 0)) {
-      setDealsRefreshing(true)
+    const gsDeals = gameState?.deals_today || []
+    const dsDeals = dayStatus.deals_today || []
+    if (gsDeals.length > dsDeals.length) {
+      // Immediately show optimistic deals from gameState prop
+      setDayStatus(prev => ({
+        ...prev,
+        deals_today: gsDeals,
+      }))
+      // Then refresh from server for authoritative data (non-blocking)
       api.briefingDayStatus(sessionId).then(status => {
-        setDayStatus(prev => ({
-          ...prev,
-          deals_today: status.deals_today || [],
-        }))
-      }).catch(() => {}).finally(() => setDealsRefreshing(false))
+        if (status?.deals_today?.length > 0) {
+          setDayStatus(prev => ({
+            ...prev,
+            deals_today: status.deals_today,
+          }))
+        }
+      }).catch(() => {})
     }
   }, [gameState?.deals_today?.length])
   const [morningBriefingOpen, setMorningBriefingOpen] = useState(false)
