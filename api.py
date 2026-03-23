@@ -8956,21 +8956,20 @@ async def deal_consequences(session_id: str, request: Request, user: User = Depe
         if visible_npc in gs.relations and visible_npc != npc_id:
             gs.update_relations(visible_npc, -1)
 
-    # Update gm_consequences on the matching deal in deals_today
-    _deals_today = getattr(gs, 'deals_today', [])
-    for _d in reversed(_deals_today):
-        if _d.get('npc_id') == npc_id:
-            _d['gm_consequences'] = consequences
-            break
-
-    # Reload-and-patch: only update fields this endpoint owns,
-    # preserving events_resolved_today and other briefing state
+    # Reload-and-patch: only update mechanical fields,
+    # preserving events_resolved_today, deals_today, and briefing state
     gs_fresh = _load_gs(session_id)
     gs_fresh.relations = gs.relations
     gs_fresh.budget = gs.budget
     gs_fresh.personal_wealth = gs.personal_wealth
     gs_fresh.legitimacy_stability = gs.legitimacy_stability
-    gs_fresh.deals_today = gs.deals_today  # has gm_consequences updated
+
+    # Update gm_consequences on the matching deal in FRESH deals_today
+    for _d in reversed(getattr(gs_fresh, 'deals_today', [])):
+        if _d.get('npc_id') == npc_id:
+            _d['gm_consequences'] = consequences
+            break
+
     _save_gs(session_id, gs_fresh)
 
     print(f"  [10B-3] Deal consequences applied (targeted-save): {npc_id} — "
