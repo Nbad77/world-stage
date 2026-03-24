@@ -8,6 +8,10 @@
 
 **Never create new branches. Never use git worktrees.**
 
+Never run `git reset --hard` when uncommitted changes
+exist in the working tree. Always run `git status` first.
+Uncommitted changes are silently and permanently lost.
+
 Always commit directly to main:
 ```
 git add -A
