@@ -8793,6 +8793,46 @@ async def get_diplomatic_cables(session_id: str, user: User = Depends(get_option
     return {"cables": cables, "cached": False}
 
 
+@app.post("/game/{session_id}/diplomacy/get-cable")
+async def get_single_cable(session_id: str, request: Request, user: User = Depends(get_optional_user)):
+    """Request a diplomatic briefing on a single NPC. Costs $0.3B budget."""
+    _verify_game_ownership(session_id, user)
+    body = await request.json()
+    npc_id = body.get("npc_id", "").lower()
+    if not npc_id:
+        raise HTTPException(status_code=400, detail="npc_id required")
+
+    gs = _load_gs(session_id)
+
+    BRIEFING_COST = 0.3
+    if (gs.budget or 0) < BRIEFING_COST:
+        raise HTTPException(status_code=400, detail=f"Insufficient budget (need ${BRIEFING_COST}B)")
+
+    # Check if already have a cable for this NPC today
+    existing = (getattr(gs, 'diplomatic_cables', {}) or {}).get(npc_id)
+    if existing:
+        return {"cable_text": existing, "cached": True, "cost": 0}
+
+    # Generate single cable
+    import asyncio
+    from npc_engine import generate_single_cable
+    cable_text = await asyncio.to_thread(generate_single_cable, gs, npc_id)
+
+    # Reload-and-patch to avoid race conditions
+    gs_fresh = _load_gs(session_id)
+    gs_fresh.budget = round((gs_fresh.budget or 0) - BRIEFING_COST, 1)
+    if not hasattr(gs_fresh, 'diplomatic_cables') or not gs_fresh.diplomatic_cables:
+        gs_fresh.diplomatic_cables = {}
+    gs_fresh.diplomatic_cables[npc_id] = cable_text
+    if not hasattr(gs_fresh, 'diplomatic_cable_types'):
+        gs_fresh.diplomatic_cable_types = {}
+    gs_fresh.diplomatic_cable_types[npc_id] = "requested"
+    _save_gs(session_id, gs_fresh)
+
+    print(f"  [10B-3] Briefing requested for {npc_id}: -${BRIEFING_COST}B")
+    return {"cable_text": cable_text, "cached": False, "cost": BRIEFING_COST}
+
+
 # ─── Model C Contact System ─────────────────────────────────────────────────
 
 @app.post("/game/{session_id}/diplomacy/contact-request")

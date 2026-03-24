@@ -806,6 +806,7 @@ class GameState:
 
         # 10B-3: Today's completed deals for briefing display
         self.deals_today = []           # [{id, npc_id, npc_name, deal_text, briefing_summary, source, day, consequences}]
+        self.diplomatic_cable_types = {} # {npc_id: "incoming" | "requested"}
 
         # 10B-2 Model C: Contact request tracking for low-relations NPCs
         self.contact_requested = {}     # {npc_id: day_requested}
@@ -1596,6 +1597,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'declaration_history': getattr(self, 'declaration_history', []),
             'event_dialogues': getattr(self, 'event_dialogues', {}),
             'diplomatic_cables': getattr(self, 'diplomatic_cables', {}),
+            'diplomatic_cable_types': getattr(self, 'diplomatic_cable_types', {}),
             'cables_generated_today': getattr(self, 'cables_generated_today', False),
             'intel_ops_today': getattr(self, 'intel_ops_today', []),
             'deals_today': getattr(self, 'deals_today', []),
@@ -2086,6 +2088,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.declaration_history = data.get('declaration_history', [])
         gs.event_dialogues = data.get('event_dialogues', {})
         gs.diplomatic_cables = data.get('diplomatic_cables', {})
+        gs.diplomatic_cable_types = data.get('diplomatic_cable_types', {})
         gs.cables_generated_today = data.get('cables_generated_today', False)
         gs.intel_ops_today = data.get('intel_ops_today', [])
         gs.deals_today = data.get('deals_today', [])

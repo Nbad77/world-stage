@@ -50,7 +50,7 @@ function getUrgentState(npcKey, gs) {
   return null
 }
 
-export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWarning, isPlaceholder, color, onContact, onContactRequest, contactDisabled, contactLoading, contactResult, onBackchannel, backchannelDisabled, onGetIntel, intelLoading, intelResult, cable, gs }) {
+export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWarning, isPlaceholder, color, onContact, onContactRequest, contactDisabled, contactLoading, contactResult, onBackchannel, backchannelDisabled, onGetIntel, intelLoading, intelResult, cable, gs, onRequestBriefing, briefingLoading }) {
   const [cableExpanded, setCableExpanded] = useState(false)
 
   // Determine health tier
@@ -134,9 +134,13 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
             {statusText} ({Math.round(relation)})
           </div>
 
-          {/* Diplomatic cable — expand/collapse with Read more link */}
-          {cableText && (
+          {/* Diplomatic cable / briefing display */}
+          {cableText ? (
             <div className={`npc-cable-area ${cableExpanded ? 'expanded' : ''}`}>
+              {/* INCOMING badge for EOT-generated communiqués */}
+              {(gs?.diplomatic_cable_types || {})[npcKey] === 'incoming' && (
+                <span className="npc-incoming-badge">INCOMING</span>
+              )}
               <span className="npc-cable-text">
                 {cableExpanded ? cableText : cableTeaser}
               </span>
@@ -149,6 +153,21 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
                 </button>
               )}
             </div>
+          ) : (
+            /* No cable yet — show Request Briefing button */
+            onRequestBriefing && (
+              <button
+                className="npc-briefing-btn"
+                onClick={() => onRequestBriefing(npcKey)}
+                disabled={briefingLoading || (gs?.budget || 0) < 0.3}
+              >
+                {briefingLoading
+                  ? '📋 Generating briefing...'
+                  : (gs?.budget || 0) < 0.3
+                    ? '📋 Insufficient budget'
+                    : '📋 REQUEST BRIEFING — $0.3B'}
+              </button>
+            )
           )}
 
           {/* Action buttons */}

@@ -5674,7 +5674,8 @@ def apply_end_of_turn_effects(game_state):
     game_state.todays_declaration = ""
     game_state.event_dialogues = {}
     game_state.cables_generated_today = False
-    game_state.diplomatic_cables = {}  # 10B-3: Clear cache — force fresh regeneration next day
+    game_state.diplomatic_cables = {}  # Clear player-requested cables; incoming set by EOT logic below
+    game_state.diplomatic_cable_types = {}  # Reset cable type tracking
     game_state.intel_ops_today = []
     # 10B-3: Process completed deals before clearing — apply any pending payments
     _deals = getattr(game_state, 'deals_today', [])

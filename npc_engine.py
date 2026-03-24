@@ -5565,14 +5565,13 @@ def generate_event_dialogue(game_state, event: dict) -> list:
 
 def generate_advisor_event_analysis(game_state, event: dict) -> list:
     """10B-2: Generate advisor analyses for a specific world event.
-    Only analyses for advisors assigned today. Parallel Haiku calls.
+    Single batched Haiku call for all assigned advisors.
     Returns list of {advisor_type, advisor_name, analysis_text}."""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import threading
+    import time as _time
 
     assigned = getattr(game_state, 'advisor_assigned_today', [])
-    advisors = getattr(game_state, 'advisors', {})
-    if not assigned or not advisors:
+    all_advisors = getattr(game_state, 'advisors', {})
+    if not assigned or not all_advisors:
         return []
 
     event_title = event.get("title", "Unknown Event")
@@ -5580,79 +5579,84 @@ def generate_advisor_event_analysis(game_state, event: dict) -> list:
     event_severity = event.get("severity", "moderate")
     event_category = event.get("category", "diplomatic")
 
+    # Build advisor list
+    advisors = []
+    for key in assigned:
+        adv = all_advisors.get(key, {})
+        if adv:
+            advisors.append({
+                'type': key,
+                'archetype': adv.get('archetype', key),
+                'name': adv.get('name', key.replace('_', ' ').title()),
+            })
+    if not advisors:
+        return []
+
+    advisor_list_text = "\n".join([
+        f"- {a['name']} ({a['archetype']})" for a in advisors
+    ])
+
     context = _build_context(game_state)
-    results = []
-    lock = threading.Lock()
 
-    def _call_advisor(advisor_key):
-        advisor = advisors.get(advisor_key, {})
-        if not advisor:
-            return None
-        archetype = advisor.get('archetype', 'unknown')
-        name = advisor.get('name', 'Advisor')
+    system = (
+        "You are generating analyses from multiple advisors on a world event.\n"
+        f"{_NARRATOR_BAN}\n\n"
+        "Return ONLY a JSON array. No preamble. Each entry:\n"
+        '[{"advisor_type": "archetype", "advisor_name": "Name", '
+        '"analysis_text": "2-3 sentences in that advisor\'s voice"}]'
+    )
 
-        sys_prompt = _ADVISOR_SYSTEM_PROMPTS.get(archetype, (
-            f"You are {name}, an advisor to the leader of Europa in a "
-            f"fictional geopolitical simulation. Provide analysis in character."
-        ))
+    user_prompt = (
+        f"Game state:\n{json.dumps(context, indent=2)}\n\n"
+        f"WORLD EVENT: {event_title}\n"
+        f"Severity: {event_severity} | Category: {event_category}\n"
+        f"Details: {event_summary}\n\n"
+        f"Advisors:\n{advisor_list_text}\n\n"
+        f"Generate {len(advisors)} analyses, one per advisor, as a JSON array."
+    )
 
-        user_prompt = (
-            f"Current situation:\n{json.dumps(context, indent=2)}\n\n"
-            f"WORLD EVENT: {event_title}\n"
-            f"Severity: {event_severity} | Category: {event_category}\n"
-            f"Details: {event_summary}\n\n"
-            f"Provide your brief assessment of this event from your perspective "
-            f"as {name} ({archetype}). What should the leader know? "
-            f"What do you recommend? 2-3 sentences max."
-        )
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return [{"advisor_type": a['archetype'], "advisor_name": a['name'],
+                 "analysis_text": f"{a['name']} is reviewing the situation."} for a in advisors]
 
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            return {
-                "advisor_type": archetype,
-                "advisor_name": name,
-                "analysis_text": f"{name} is reviewing the situation.",
-            }
-
+    for _attempt in range(2):
         try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=api_key)
-            response = client.messages.create(
+            response = _client.messages.create(
                 model=MODEL,
-                max_tokens=200,
+                max_tokens=400,
                 temperature=0.7,
-                system=sys_prompt,
+                system=system,
                 messages=[{"role": "user", "content": user_prompt}]
             )
-            with lock:
-                _token_log["calls"] += 1
-                _token_log["input_tokens"] += response.usage.input_tokens
-                _token_log["output_tokens"] += response.usage.output_tokens
+            _token_log["calls"] += 1
+            _token_log["input_tokens"] += response.usage.input_tokens
+            _token_log["output_tokens"] += response.usage.output_tokens
 
             raw = response.content[0].text.strip()
-            text = raw.replace('**', '').replace('*', '').strip()
-            print(f"  [10B-2] Advisor event analysis for {advisor_key}: {event_title}")
-            return {
-                "advisor_type": archetype,
-                "advisor_name": name,
-                "analysis_text": text,
-            }
+            parsed = json.loads(raw)
+            if not isinstance(parsed, list):
+                raise ValueError(f"Expected JSON array, got {type(parsed)}")
+
+            results = []
+            for entry in parsed:
+                text = entry.get("analysis_text", "No analysis available.")
+                text = text.replace('**', '').replace('*', '').strip()
+                results.append({
+                    "advisor_type": entry.get("advisor_type", "unknown"),
+                    "advisor_name": entry.get("advisor_name", "Advisor"),
+                    "analysis_text": text,
+                })
+            print(f"  [10B-2] Advisor event analyses generated (batch): {len(results)}")
+            return results
         except Exception as e:
-            print(f"  [10B-2] Advisor analysis failed for {advisor_key}: {e}")
-            return {
-                "advisor_type": archetype,
-                "advisor_name": name,
-                "analysis_text": f"{name} is still assessing the implications of this development.",
-            }
+            print(f"  [10B-2] Batch advisor event analysis attempt {_attempt+1}/2 failed: {e}")
+            if _attempt == 0:
+                _time.sleep(3.0)
 
-    with ThreadPoolExecutor(max_workers=len(assigned)) as executor:
-        futures = {executor.submit(_call_advisor, key): key for key in assigned}
-        for future in as_completed(futures):
-            result = future.result()
-            if result:
-                results.append(result)
-
-    return results
+    # Fallback
+    return [{"advisor_type": a['archetype'], "advisor_name": a['name'],
+             "analysis_text": f"{a['name']} is still assessing the implications of this development."} for a in advisors]
 
 
 def _build_cable_fallback(npc_id, rel):
@@ -5749,6 +5753,62 @@ def generate_diplomatic_cables(game_state) -> dict:
 
     print(f"  [10B-2] Diplomatic cables generated for {len(cables)} NPCs")
     return cables
+
+
+def generate_single_cable(game_state, npc_id: str) -> str:
+    """Generate a single diplomatic cable for one NPC on demand."""
+    import time as _time
+    import anthropic as _anthropic_mod
+
+    npc_label = _EVENT_NPC_NAMES.get(npc_id, npc_id)
+    rel = (game_state.relations or {}).get(npc_id, 50)
+    context = _build_context(game_state)
+
+    system = build_npc_system_prompt(npc_id, game_state, relations=rel)
+    if not system:
+        return _build_cable_fallback(npc_id, rel)
+
+    system += (
+        "\n\nWrite ONLY what this person would say or write in an official "
+        "diplomatic cable. No stage directions. No physical descriptions. "
+        "No narrator voice."
+    )
+
+    user_prompt = (
+        f"Game state:\n{json.dumps(context, indent=2)}\n\n"
+        f"Generate a 1-2 sentence diplomatic cable in YOUR specific voice. "
+        f"Be specific about what you want from Europa right now. "
+        f"Reference current game state details — budgets, relations, recent events. "
+        f"Do NOT write generic diplomatic language. Sound like yourself, not a press release."
+    )
+
+    def _try():
+        response = _client.messages.create(
+            model=MODEL,
+            max_tokens=100,
+            temperature=0.7,
+            system=system,
+            messages=[{"role": "user", "content": user_prompt}]
+        )
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
+        raw = response.content[0].text.strip()
+        if not raw:
+            raise ValueError("Empty response")
+        return raw.replace('**', '').replace('*', '').strip()
+
+    try:
+        return _try()
+    except (_anthropic_mod.RateLimitError, ValueError):
+        _time.sleep(2.0)
+        try:
+            return _try()
+        except Exception:
+            return _build_cable_fallback(npc_id, rel)
+    except Exception as e:
+        print(f"[10B-3] Single cable generation failed for {npc_id}: {type(e).__name__}: {e}")
+        return _build_cable_fallback(npc_id, rel)
 
 
 def generate_declaration_consequences(game_state, declaration_text: str) -> dict:
@@ -5972,126 +6032,108 @@ def _deal_consequences_fallback(npc_id: str, deal_text: str, is_backchannel: boo
 
 def generate_advisor_deal_reactions(game_state, deal_text: str, npc_id: str) -> list:
     """Generate advisor reactions to a completed deal. Returns list of reaction dicts.
-    Sequential with retry to avoid rate limits."""
+    Single batched Haiku call for all advisors at once."""
     import time as _time
-    import anthropic as _anthropic_mod
 
-    # advisor_assigned_today is a list of advisor keys (e.g. ['finance_minister', 'diplomat'])
     assigned_keys = getattr(game_state, 'advisor_assigned_today', None) or []
     if not assigned_keys:
-        return []  # No advisors assigned today — no reactions
+        return []
 
-    # Look up full advisor info from gs.advisors dict (hired advisors)
     all_advisors = getattr(game_state, 'advisors', {}) or {}
     advisors = []
     for key in assigned_keys:
         adv_data = all_advisors.get(key)
         if adv_data and isinstance(adv_data, dict):
-            advisors.append({'type': key, 'name': adv_data.get('name', key.replace('_', ' ').title()), **adv_data})
+            advisors.append({'type': key, 'name': adv_data.get('name', key.replace('_', ' ').title())})
     if not advisors:
         return []
 
     npc_label = _NPC_DISPLAY_NAMES.get(npc_id, npc_id)
-    results = []
 
-    _ADVISOR_PERSPECTIVES = {
-        'finance_minister': "You focus on budget impact, fiscal risk, and economic return on investment.",
-        'diplomat': "You focus on diplomatic implications, alliance dynamics, and Western alignment concerns.",
-        'security_chief': "You focus on strategic and military implications, threat assessment, and national security.",
-        'technocrat': "You focus on economic development, infrastructure, and long-term institutional implications.",
-        'general': "You focus on military readiness, defense posture, and operational security.",
+    _PERSPECTIVES = {
+        'finance_minister': "budget impact, fiscal risk, economic ROI",
+        'diplomat': "diplomatic implications, alliance dynamics, Western alignment",
+        'security_chief': "strategic/military implications, threat assessment",
+        'technocrat': "economic development, infrastructure, institutional impact",
+        'general': "military readiness, defense posture, operational security",
     }
 
-    _ADVISOR_FALLBACKS = {
-        'finance_minister': "The budget impact warrants careful monitoring.",
-        'diplomat': "The diplomatic implications for our Western relations are significant.",
-        'security_chief': "This arrangement has strategic implications worth tracking.",
-        'technocrat': "The economic terms require evaluation against our development goals.",
-        'general': "The strategic posture implications need assessment.",
-    }
+    advisor_list_text = "\n".join([
+        f"- {a['name']} ({a['type']}): focuses on {_PERSPECTIVES.get(a['type'], 'general assessment')}"
+        for a in advisors
+    ])
 
-    for advisor in advisors:
-        adv_type = advisor.get('type', advisor.get('advisor_type', 'unknown'))
-        adv_name = advisor.get('name', advisor.get('advisor_name', adv_type.replace('_', ' ').title()))
-        perspective = _ADVISOR_PERSPECTIVES.get(adv_type, "You give your professional assessment.")
+    system = (
+        "You are generating reactions from multiple advisors to a diplomatic deal.\n"
+        f"{_NARRATOR_BAN}\n\n"
+        "Return ONLY a JSON array. No preamble. Each entry:\n"
+        '[{"advisor_type": "...", "advisor_name": "...", "stance": "approve"|"neutral"|"oppose", '
+        '"reasoning": "1-2 sentences in that advisor\'s voice"}]'
+    )
 
-        system = (
-            f"You are {adv_name}, a senior advisor to the leader of Europa.\n"
-            f"{perspective}\n\n"
-            f"{_NARRATOR_BAN}\n\n"
-            "Return ONLY a JSON object. No preamble.\n"
-            '{"stance": "approve" or "neutral" or "oppose", '
-            '"reasoning": "1-2 sentences in your voice explaining your position"}'
+    user_prompt = (
+        f"A deal has been completed with {npc_label}:\n\"{deal_text}\"\n\n"
+        f"Current budget: ${round(game_state.budget, 1)}B\n"
+        f"Relations with {npc_label}: {(game_state.relations or {}).get(npc_id, 50)}/100\n\n"
+        f"Advisors to react:\n{advisor_list_text}\n\n"
+        f"Generate {len(advisors)} reactions, one per advisor, as a JSON array."
+    )
+
+    def _try_batch():
+        response = _client.messages.create(
+            model=MODEL,
+            max_tokens=300,
+            temperature=0.7,
+            system=system,
+            messages=[{"role": "user", "content": user_prompt}]
         )
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
+        raw = response.content[0].text.strip()
+        if not raw:
+            raise ValueError("Empty response from Haiku")
+        parsed = json.loads(raw)
+        if not isinstance(parsed, list):
+            raise ValueError(f"Expected JSON array, got {type(parsed)}")
+        return parsed
 
-        user_prompt = (
-            f"A deal has been completed with {npc_label}:\n\"{deal_text}\"\n\n"
-            f"Current budget: ${round(game_state.budget, 1)}B\n"
-            f"Relations with {npc_label}: {(game_state.relations or {}).get(npc_id, 50)}/100\n\n"
-            "Give your reaction to this deal."
-        )
-
-        def _try_call():
-            response = _client.messages.create(
-                model=MODEL,
-                max_tokens=100,
-                temperature=0.7,
-                system=system,
-                messages=[{"role": "user", "content": user_prompt}]
-            )
-            _token_log["calls"] += 1
-            _token_log["input_tokens"] += response.usage.input_tokens
-            _token_log["output_tokens"] += response.usage.output_tokens
-            raw = response.content[0].text.strip()
-            if not raw:
-                raise ValueError("Empty response from Haiku")
-            return json.loads(raw)
-
-        # 3 attempts with increasing delays
-        _success = False
-        for _attempt in range(3):
-            try:
-                parsed = _try_call()
+    # 2 attempts
+    for _attempt in range(2):
+        try:
+            parsed_list = _try_batch()
+            results = []
+            for entry in parsed_list:
                 results.append({
-                    "advisor_type": adv_type,
-                    "advisor_name": adv_name,
-                    "stance": parsed.get("stance", "neutral"),
-                    "reasoning": parsed.get("reasoning", "No comment."),
+                    "advisor_type": entry.get("advisor_type", "unknown"),
+                    "advisor_name": entry.get("advisor_name", "Advisor"),
+                    "stance": entry.get("stance", "neutral"),
+                    "reasoning": entry.get("reasoning", "No comment."),
                 })
-                _success = True
-                break
-            except (_anthropic_mod.RateLimitError, ValueError, json.JSONDecodeError) as e:
-                _wait = 4.0 if _attempt > 0 else 4.0
-                print(f"  [10B-3] Advisor reaction attempt {_attempt+1}/3 failed for {adv_name}: {e}, waiting {_wait}s...")
-                _time.sleep(_wait)
-            except Exception as e:
-                print(f"  [10B-3] Advisor reaction failed for {adv_name}: {e}")
-                break
+            print(f"  [10B-3] Advisor reactions generated (batch): {len(results)}")
+            return results
+        except Exception as e:
+            print(f"  [10B-3] Batch advisor reaction attempt {_attempt+1}/2 failed: {e}")
+            if _attempt == 0:
+                _time.sleep(3.0)
 
-        if not _success:
-            _npc_label_fb = _NPC_DISPLAY_NAMES.get(npc_id, npc_id)
-            _deal_preview = deal_text[:40]
-            _fb_map = {
-                'finance_minister': f"The {_deal_preview}... deal carries budget implications that need monitoring.",
-                'diplomat': f"This agreement with {_npc_label_fb} will reshape our diplomatic positioning.",
-                'security_chief': f"The strategic implications of this {_npc_label_fb} deal require assessment.",
-                'technocrat': f"The economic terms here need evaluation against our development priorities.",
-                'general': f"The military implications of this {_npc_label_fb} arrangement need review.",
-            }
-            _fb_text = _fb_map.get(adv_type, f"This deal with {_npc_label_fb} warrants careful consideration.")
-            _stance = "approve" if (game_state.relations or {}).get(npc_id, 50) >= 50 else "neutral"
-            results.append({
-                "advisor_type": adv_type,
-                "advisor_name": adv_name,
-                "stance": _stance,
-                "reasoning": _fb_text,
-            })
-
-        # 1.5s between advisor calls to avoid rate limits
-        if advisor != advisors[-1]:
-            _time.sleep(1.5)
-
-    print(f"  [10B-3] Advisor reactions generated: {len(results)}")
+    # Fallback: rule-based reactions for all advisors
+    _deal_preview = deal_text[:40]
+    _fb_map = {
+        'finance_minister': f"The {_deal_preview}... deal carries budget implications that need monitoring.",
+        'diplomat': f"This agreement with {npc_label} will reshape our diplomatic positioning.",
+        'security_chief': f"The strategic implications of this {npc_label} deal require assessment.",
+        'technocrat': f"The economic terms here need evaluation against our development priorities.",
+        'general': f"The military implications of this {npc_label} arrangement need review.",
+    }
+    _stance = "approve" if (game_state.relations or {}).get(npc_id, 50) >= 50 else "neutral"
+    results = [{
+        "advisor_type": a['type'],
+        "advisor_name": a['name'],
+        "stance": _stance,
+        "reasoning": _fb_map.get(a['type'], f"This deal with {npc_label} warrants consideration."),
+    } for a in advisors]
+    print(f"  [10B-3] Advisor reactions fallback: {len(results)}")
     return results
 
 

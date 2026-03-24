@@ -70,7 +70,7 @@ function getFallbackCable(npcKey, relation) {
   return templates.cool
 }
 
-export default function RightSidebar({ gs, onContact, onContactRequest, contactLoading, contactResults, negotiatingNpc, contactsDisabled, onBackchannel, backchannelDisabled, onGetIntel, intelLoading, intelResults, dialogue }) {
+export default function RightSidebar({ gs, onContact, onContactRequest, contactLoading, contactResults, negotiatingNpc, contactsDisabled, onBackchannel, backchannelDisabled, onGetIntel, intelLoading, intelResults, dialogue, onRequestBriefing, briefingLoading }) {
   if (!gs) return null
 
   const rel = gs.relations || {}
@@ -121,6 +121,8 @@ export default function RightSidebar({ gs, onContact, onContactRequest, contactL
           intelResult={intelResults?.[npc.key] || null}
           cable={cables[npc.key] || null}
           gs={gs}
+          onRequestBriefing={onRequestBriefing}
+          briefingLoading={briefingLoading?.[npc.key] || false}
         />
       ))}
     </div>

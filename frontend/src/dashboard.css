@@ -614,6 +614,46 @@
   margin-top: 0.1rem;
   opacity: 0.6;
 }
+/* Request Briefing button */
+.npc-briefing-btn {
+  display: block;
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  background: rgba(74, 144, 217, 0.1);
+  border: 1px solid rgba(74, 144, 217, 0.3);
+  border-radius: 4px;
+  color: var(--ws-blue);
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  margin-top: 0.3rem;
+}
+.npc-briefing-btn:hover:not(:disabled) {
+  background: rgba(74, 144, 217, 0.2);
+  border-color: rgba(74, 144, 217, 0.5);
+}
+.npc-briefing-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+/* INCOMING badge for NPC cards */
+.npc-incoming-badge {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  background: rgba(255, 183, 77, 0.15);
+  border: 1px solid rgba(255, 183, 77, 0.4);
+  border-radius: 3px;
+  color: #ffb74d;
+  font-family: var(--mono);
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.25rem;
+}
 /* Model C: Crisis contact — red accent */
 .npc-contact-btn.crisis {
   background: rgba(239, 83, 80, 0.15);

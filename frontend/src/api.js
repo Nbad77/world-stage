@@ -424,6 +424,10 @@ export const api = {
       npc_id: npcId, deal_text: dealText, is_backchannel: isBackchannel,
     }),
 
+  /** POST /diplomacy/get-cable — request single NPC briefing ($0.3B) */
+  getCable: (id, npcId) =>
+    request('POST', `/game/${id}/diplomacy/get-cable`, { npc_id: npcId }),
+
   // ── 10B-2: Event screen, declarations, intel ───────────────────────────────
 
   /** POST /game/{id}/briefing/event-dialogue — NPC communiqués for event */

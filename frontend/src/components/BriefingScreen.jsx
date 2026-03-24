@@ -281,18 +281,11 @@ export default function BriefingScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, currentDay])
 
-  // FIX 4: Fetch diplomatic cables on day start — backend caches in gs
+  // Cables are now on-demand via REQUEST BRIEFING button — no auto-fetch
+  // Incoming communiqués are populated by EOT in gs.pending_npc_contacts
   useEffect(() => {
-    if (!sessionId) return
-    if (gameState?.cables_generated_today && gameState?.diplomatic_cables &&
-        Object.keys(gameState.diplomatic_cables).length > 0) return
-    api.briefingCables(sessionId)
-      .then(async () => {
-        // Cables are now saved in backend gs — refresh to pick them up
-        const data = await api.getGame(sessionId)
-        if (data.game_state && onGsUpdate) onGsUpdate(data.game_state)
-      })
-      .catch(e => console.error('[10B-2] Cable fetch failed:', e))
+    // No-op: kept for future use if needed
+    void 0
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, currentDay])
 

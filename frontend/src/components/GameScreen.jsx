@@ -850,6 +850,22 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     }
   }
 
+  // ── Request Briefing: on-demand single NPC cable ───────────────────────
+  const [briefingLoading, setBriefingLoading] = useState({})
+  async function handleRequestBriefing(npcKey) {
+    setBriefingLoading(prev => ({ ...prev, [npcKey]: true }))
+    try {
+      const result = await api.getCable(sessionId, npcKey)
+      console.log('[10B-3] Briefing for', npcKey, ':', result.cable_text?.slice(0, 60))
+      // Refresh gs to get updated budget and diplomatic_cables
+      await getGame()
+    } catch (e) {
+      console.error('[10B-3] Briefing request failed:', e)
+    } finally {
+      setBriefingLoading(prev => ({ ...prev, [npcKey]: false }))
+    }
+  }
+
   // ── Negotiation opener: inject communiqué as NPC's first message ─────────
   function handleStartNegotiation(npcKey, communiqueText) {
     if (npcKey === null) {
@@ -1379,7 +1395,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         />
       </div>
 
-      <DashboardLayout gs={gs} onShadowCabinet={() => setShadowCabinetOpen(true)} negotiatingNpc={negotiatingNpc} onHistorian={handleHistorianAssessment} historianLoading={historianLoading} onBiography={() => { console.log('[9B] opening draft biography from sidebar'); setShowBiography(true) }} onContact={!loading && (phase === PHASE.DIALOGUE || activeTab === 'foreign') ? handleDirectContact : null} onContactRequest={handleContactRequest} contactLoading={contactLoading} contactResults={contactResults} contactsDisabled={loading} activeTab={activeTab} onTabChange={setActiveTab} domesticContent={<DomesticTab gs={gs} sessionId={sessionId} onGsUpdate={setGs} />} onBackchannel={!loading && (phase === PHASE.DIALOGUE || activeTab === 'foreign') ? handleOpenBackchannel : null} backchannelDisabled={loading} onGetIntel={handleGetIntel} intelLoading={intelLoading} intelResults={intelResults} dialogue={dialogue}>
+      <DashboardLayout gs={gs} onShadowCabinet={() => setShadowCabinetOpen(true)} negotiatingNpc={negotiatingNpc} onHistorian={handleHistorianAssessment} historianLoading={historianLoading} onBiography={() => { console.log('[9B] opening draft biography from sidebar'); setShowBiography(true) }} onContact={!loading && (phase === PHASE.DIALOGUE || activeTab === 'foreign') ? handleDirectContact : null} onContactRequest={handleContactRequest} contactLoading={contactLoading} contactResults={contactResults} contactsDisabled={loading} activeTab={activeTab} onTabChange={setActiveTab} domesticContent={<DomesticTab gs={gs} sessionId={sessionId} onGsUpdate={setGs} />} onBackchannel={!loading && (phase === PHASE.DIALOGUE || activeTab === 'foreign') ? handleOpenBackchannel : null} backchannelDisabled={loading} onGetIntel={handleGetIntel} intelLoading={intelLoading} intelResults={intelResults} dialogue={dialogue} onRequestBriefing={handleRequestBriefing} briefingLoading={briefingLoading}>
 
       {/* Session 7E: Summit replaces center panel content when open */}
       {summitOpen ? (
