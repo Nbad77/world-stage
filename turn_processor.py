@@ -5718,8 +5718,21 @@ def apply_end_of_turn_effects(game_state):
         # Archive to deal_history
         if not hasattr(game_state, 'deal_history'):
             game_state.deal_history = []
-        game_state.deal_history.extend(_deals)
-        print(f"  [EOT] {len(_deals)} deal(s) archived to deal_history")
+        for _d in _deals:
+            _archived = dict(_d)
+            if 'npc' not in _archived:
+                _archived['npc'] = _archived.get('npc_id', '')
+            if 'turn_accepted' not in _archived:
+                _archived['turn_accepted'] = _archived.get('day', game_state.current_turn)
+            if 'broken' not in _archived:
+                _archived['broken'] = False
+            if 'expires_turn' not in _archived:
+                _gm = _archived.get('gm_consequences') or {}
+                _duration = _gm.get('deal_duration_turns', 10)
+                _archived['expires_turn'] = game_state.current_turn + _duration
+            game_state.deal_history.append(_archived)
+        print(f"[DEALS] archived {len(_deals)} deals to history "
+              f"with normalized keys")
     game_state.deals_today = []  # 10B-3: Clear daily deals (deal_history persists)
     game_state.contact_requested = {}  # Reset daily contact requests
 
