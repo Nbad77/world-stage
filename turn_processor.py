@@ -5716,6 +5716,10 @@ def apply_end_of_turn_effects(game_state):
             if _bd and isinstance(_bd, (int, float)):
                 game_state.budget = round((game_state.budget or 0) + _bd, 1)
                 print(f"  [EOT] Deal payment ({_deal.get('npc_name', '?')}): {'+' if _bd > 0 else ''}{_bd}B")
+                messages.append(
+                    f"\U0001f4b0 Deal: {_deal.get('npc_name', '?')} — "
+                    f"{'+' if _bd > 0 else ''}{_bd}B"
+                )
         # Archive to deal_history
         if not hasattr(game_state, 'deal_history'):
             game_state.deal_history = []
