@@ -668,18 +668,32 @@ export default function BriefingScreen({
               </div>
             )}
             {/* Hired advisor cards */}
-            {(advisorBriefings || []).map(advisor => (
-              <div key={advisor.id} className="advisor-briefing-card">
-                <div className="advisor-briefing-header">
-                  <span className="advisor-briefing-icon">{advisor.icon}</span>
-                  <div className="advisor-briefing-meta">
-                    <span className="advisor-briefing-name">{advisor.name}</span>
-                    <span className="advisor-briefing-label">{advisor.label}</span>
+            {(advisorBriefings || []).map(advisor => {
+              const ROLE_COLORS = {
+                finance_minister: '#5a8a5a',
+                security_chief: '#8a5a5a',
+                diplomat: '#7a6a9a',
+                technocrat: '#5a7a8a',
+                propagandist: '#8a7a5a',
+                oligarch: '#7a5a3a',
+                general: '#6a6a5a',
+                fixer: '#5a5a6a',
+              }
+              return (
+                <div key={advisor.id}
+                     className="advisor-briefing-card"
+                     style={{ borderLeftColor: ROLE_COLORS[advisor.role] || 'rgba(255,255,255,0.15)' }}>
+                  <div className="advisor-briefing-header">
+                    <span className="advisor-briefing-icon">{advisor.icon}</span>
+                    <div className="advisor-briefing-meta">
+                      <span className="advisor-briefing-name">{advisor.name}</span>
+                      <span className="advisor-briefing-label">{advisor.label}</span>
+                    </div>
                   </div>
+                  <div className="advisor-briefing-text">{advisor.text}</div>
                 </div>
-                <div className="advisor-briefing-text">{advisor.text}</div>
-              </div>
-            ))}
+              )
+            })}
             {/* Empty advisor slots */}
             {(() => {
               const maxAdvisors = 3
