@@ -137,6 +137,7 @@ export default function BriefingScreen({
   onEndDay,
   onEventResolved,
   onGsUpdate,
+  dealsRefreshing,
   onSwitchToAdvisors,
   // existing content to wrap in event_active state
   existingDiplomaticContent,
@@ -153,7 +154,6 @@ export default function BriefingScreen({
   const [advisorBriefings, setAdvisorBriefings] = useState(null)
   const [chiefOfStaff, setChiefOfStaff] = useState(null)
   const [councilOpen, setCouncilOpen] = useState(true)
-  const [dealsRefreshing, setDealsRefreshing] = useState(false)
 
   // 10B-3: When gameState.deals_today changes, immediately show deals
   // then background-refresh from server for authoritative data

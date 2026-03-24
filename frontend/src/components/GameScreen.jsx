@@ -97,6 +97,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   const [intercepts, setIntercepts] = useState([])
   const [eotMessages, setEotMessages] = useState([])
   const [dealsThisTurn, setDealsThisTurn] = useState([])
+  const [dealsRefreshing, setDealsRefreshing] = useState(false)
 
   // 8D: The Leak crisis modal
   const [showLeakCrisis, setShowLeakCrisis] = useState(false)
@@ -761,37 +762,14 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   // fixes_13 Fix 24: Accept covert flag for Ji-won transactions
   async function handleCounterOffer(letter, counterOffer, covert = false) {
     setCounterOffers(prev => ({ ...prev, [letter]: counterOffer }))
+    setDealsRefreshing(true)
+    console.log('[DEAL_ACCEPT] dealsRefreshing=true')
     try {
       await api.acceptCounter(sessionId, letter, counterOffer, covert)
       if (covert) console.log(`[GameScreen] Fix 24: Covert deal accepted with ${counterOffer?.npc}`)
 
       const npcId = (counterOffer?.npc || '').toLowerCase()
       const dealText = counterOffer?.text || 'Diplomatic deal'
-      const npcNames = { usa: 'Bill Hartwell', arabia: 'Sadam', eu: 'Marsha', dprg: 'Ji-won Ryang', russia: 'Volkov', china: 'Wei Jianming' }
-
-      // OPTIMISTIC UPDATE: Immediately add deal to gs.deals_today so
-      // BriefingScreen renders it without waiting for slow API calls
-      if (npcId) {
-        setGs(prev => {
-          if (!prev) return prev
-          const existingDeals = prev.deals_today || []
-          return {
-            ...prev,
-            deals_today: [...existingDeals, {
-              id: `deal_${prev.current_turn}_${npcId}_${Date.now()}`,
-              npc_id: npcId,
-              npc_name: npcNames[npcId] || npcId,
-              deal_text: dealText,
-              briefing_summary: `Agreement with ${npcNames[npcId] || npcId}: ${dealText.slice(0, 80)}`,
-              source: 'sidebar',
-              day: prev.current_turn,
-              is_backchannel: !!covert,
-              relation_delta: 3,
-            }]
-          }
-        })
-        console.log('[10B-3] Optimistic deal added to gs.deals_today')
-      }
 
       // Background: GM consequences + full refresh (non-blocking, no await chain)
       if (npcId && activeTab === 'foreign') {
@@ -808,8 +786,14 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
           }
         })
         .catch(() => {})
+        .finally(() => {
+          setDealsRefreshing(false)
+          console.log('[DEAL_ACCEPT] dealsRefreshing=false')
+        })
     } catch (e) {
       console.warn('acceptCounter failed:', e.message)
+      setDealsRefreshing(false)
+      console.log('[DEAL_ACCEPT] dealsRefreshing=false')
     }
   }
 
@@ -1499,6 +1483,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
                 }
               }}
               onGsUpdate={setGs}
+              dealsRefreshing={dealsRefreshing}
               onSwitchToAdvisors={() => setActiveTab('domestic')}
             />
 
