@@ -18,14 +18,10 @@ All game logic lives in Python. Claude generates flavor text only.
 import json
 import os
 import re
-import threading
 import traceback
 from pathlib import Path
 from dotenv import load_dotenv
 from gm_engine import is_energy_proposal, run_gm_inference
-
-# Global semaphore: cap concurrent Haiku calls at 3 (Tier 1 limit is 5)
-_haiku_semaphore = threading.Semaphore(3)
 
 # Load API key from .env for local dev.
 # override=True only when the env var is absent or empty — this lets Railway's
@@ -915,14 +911,13 @@ def _call_npc(system_prompt, context_dict, npc_name, extra_instruction=""):
     # Inject narrator ban into every NPC call
     _full_system = system_prompt + "\n\n" + _NARRATOR_BAN if _NARRATOR_BAN not in system_prompt else system_prompt
 
-    with _haiku_semaphore:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=MAX_TOKENS,
-            temperature=TEMPERATURE,
-            system=_full_system,
-            messages=[{"role": "user", "content": user_content}]
-        )
+    response = client.messages.create(
+        model=MODEL,
+        max_tokens=MAX_TOKENS,
+        temperature=TEMPERATURE,
+        system=_full_system,
+        messages=[{"role": "user", "content": user_content}]
+    )
 
     # Track token usage
     _token_log["calls"] += 1
@@ -5527,14 +5522,13 @@ def generate_event_dialogue(game_state, event: dict) -> list:
         )
 
         try:
-            with _haiku_semaphore:
-                response = _client.messages.create(
-                    model=MODEL,
-                    max_tokens=250,
-                    temperature=TEMPERATURE,
-                    system=system,
-                    messages=[{"role": "user", "content": user_prompt}]
-                )
+            response = _client.messages.create(
+                model=MODEL,
+                max_tokens=250,
+                temperature=TEMPERATURE,
+                system=system,
+                messages=[{"role": "user", "content": user_prompt}]
+            )
             with lock:
                 _token_log["calls"] += 1
                 _token_log["input_tokens"] += response.usage.input_tokens
@@ -5722,14 +5716,13 @@ def generate_diplomatic_cables(game_state) -> dict:
         )
 
         def _try_cable():
-            with _haiku_semaphore:
-                response = _client.messages.create(
-                    model=MODEL,
-                    max_tokens=100,
-                    temperature=0.7,
-                    system=system,
-                    messages=[{"role": "user", "content": user_prompt}]
-                )
+            response = _client.messages.create(
+                model=MODEL,
+                max_tokens=100,
+                temperature=0.7,
+                system=system,
+                messages=[{"role": "user", "content": user_prompt}]
+            )
             _token_log["calls"] += 1
             _token_log["input_tokens"] += response.usage.input_tokens
             _token_log["output_tokens"] += response.usage.output_tokens
@@ -5750,7 +5743,9 @@ def generate_diplomatic_cables(game_state) -> dict:
             print(f"[10B-2] Cable generation failed for {npc_id}: {type(e).__name__}: {e}")
             cables[npc_id] = _build_cable_fallback(npc_id, rel)
 
-        # Semaphore handles throttling — no sleep needed
+        # 500ms between calls to avoid rate limits
+        if npc_id != npc_ids[-1]:
+            _time.sleep(0.5)
 
     print(f"  [10B-2] Diplomatic cables generated for {len(cables)} NPCs")
     return cables
@@ -5921,13 +5916,12 @@ def generate_deal_consequences(game_state, npc_id: str, deal_text: str, is_backc
         import anthropic as _anthropic_mod
 
         def _try_consequences():
-            with _haiku_semaphore:
-                resp = _client.messages.create(
-                    model=MODEL,
-                    max_tokens=300,
-                    system=system_prompt,
-                    messages=[{"role": "user", "content": user_content}],
-                )
+            resp = _client.messages.create(
+                model=MODEL,
+                max_tokens=300,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_content}],
+            )
             txt = resp.content[0].text.strip()
             if not txt:
                 raise ValueError("Empty response from Haiku")
@@ -6038,14 +6032,13 @@ def generate_advisor_deal_reactions(game_state, deal_text: str, npc_id: str) -> 
         )
 
         def _try_call():
-            with _haiku_semaphore:
-                response = _client.messages.create(
-                    model=MODEL,
-                    max_tokens=100,
-                    temperature=0.7,
-                    system=system,
-                    messages=[{"role": "user", "content": user_prompt}]
-                )
+            response = _client.messages.create(
+                model=MODEL,
+                max_tokens=100,
+                temperature=0.7,
+                system=system,
+                messages=[{"role": "user", "content": user_prompt}]
+            )
             _token_log["calls"] += 1
             _token_log["input_tokens"] += response.usage.input_tokens
             _token_log["output_tokens"] += response.usage.output_tokens
@@ -6094,7 +6087,9 @@ def generate_advisor_deal_reactions(game_state, deal_text: str, npc_id: str) -> 
                 "reasoning": _fb_text,
             })
 
-        # Semaphore handles throttling — no sleep needed
+        # 1.5s between advisor calls to avoid rate limits
+        if advisor != advisors[-1]:
+            _time.sleep(1.5)
 
     print(f"  [10B-3] Advisor reactions generated: {len(results)}")
     return results
@@ -6144,14 +6139,13 @@ def generate_event_resolution_consequences(game_state, event: dict, resolution: 
     )
 
     try:
-        with _haiku_semaphore:
-            response = _client.messages.create(
-                model=MODEL,
-                max_tokens=300,
-                temperature=0.6,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}]
-            )
+        response = _client.messages.create(
+            model=MODEL,
+            max_tokens=300,
+            temperature=0.6,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}]
+        )
         _token_log["calls"] += 1
         _token_log["input_tokens"] += response.usage.input_tokens
         _token_log["output_tokens"] += response.usage.output_tokens
