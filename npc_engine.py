@@ -1352,12 +1352,12 @@ def generate_model_c_contact(game_state, npc_id):
         f"{base_prompt}\n\n"
         f"DIRECT CONTACT MODE: Europa's President has opened a direct channel with you. "
         f"{tone_instruction}\n"
-        f"{_NARRATOR_BAN}\n"
         f"Prior deals completed this session:\n{_prior_deals_text}\n"
         f"Do not offer something already given this session.\n\n"
         f"Write 2-4 sentences responding to the contact. Stay in character. "
         f"Reference something specific about the current state of affairs. "
-        f"Plain text only, no markdown, no asterisks, no stage directions."
+        f"Plain text only, no markdown, no asterisks, no stage directions.\n\n"
+        f"{_NARRATOR_BAN}"
     )
     user_content = (
         f"Relations: {rel}/100. Europa stability: {stability}%. Regime: {regime}.\n"
@@ -1388,6 +1388,7 @@ def generate_model_c_contact(game_state, npc_id):
         text = re.sub(r'^-{3,}$', '', text, flags=re.MULTILINE)
         text = re.sub(r'\n{2,}', '\n', text).strip()
         _token_log["haiku_calls"] = _token_log.get("haiku_calls", 0) + 1
+        print(f"[CONTACT] {npc_id} opening message generated, narrator_ban=end")
         return text if text else f"{npc_name} acknowledges the contact."
     except Exception as e:
         print(f"  [npc_engine] Model C contact failed for {npc_id}: {e}")
@@ -1680,21 +1681,13 @@ def generate_world_event(game_state, last_action_type: str = ""):
 # ─────────────────────────────────────────────────────────────────────────────
 
 # 10B-3: Shared narrator ban — appended to ALL negotiation/contact prompts
-_NARRATOR_BAN = """
-CRITICAL VOICE RULE: Speak ONLY in first person, directly to the player.
-Never use third-person narrative framing. Never describe physical actions or scene-setting.
-Never write "You lean back" or "He pauses" or any narrator voice.
-Never use stage directions like *he pauses* or *leans forward*.
-Speak as this person, not as a narrator describing this person.
-Wrong: "You lean back in your chair. 'I can offer $0.8B,' he says."
-Wrong: *He pauses, considering.* "Perhaps we can find common ground."
-Right: "I can offer $0.8B. Here's what I need in return."
-
-CRITICAL: Never show your reasoning process in brackets or parentheses.
-Never write [I'm evaluating...] or [Sadam would...] or any internal thought process.
-Speak ONLY as the character. Your output is the character's words, nothing else.
-No stage directions. No meta-commentary. No internal monologue.
-"""
+_NARRATOR_BAN = (
+    "VOICE RULE: You are speaking directly. Output your words only. "
+    "First person only. No physical descriptions, no scene-setting, no action beats. "
+    "No stage directions in any form — not in asterisks, not in plain text. "
+    "No narrator framing. No internal monologue. No bracketed reasoning. "
+    "Your output is the character's spoken words and nothing else."
+)
 
 # ── NPC base prompt lookup ────────────────────────────────────────────────────
 _NPC_BASE_PROMPTS = {
