@@ -5069,6 +5069,12 @@ def apply_end_of_turn_effects(game_state):
     except ImportError:
         pass
 
+    # Pre-compute broken deals this turn (used in 13e soft_power penalty and 13f reliability)
+    _broken_this_turn = sum(
+        1 for d in game_state.deal_history
+        if d.get('broken') and d.get('broken_turn') == game_state.current_turn
+    )
+
     # ──────────────────────────────────────────
     # 13e. SESSION 5: LATENT STATS — SOFT POWER + DIPLOMATIC CAPITAL
     # Computed from current state, not accumulated. Display-only.
@@ -5078,7 +5084,7 @@ def apply_end_of_turn_effects(game_state):
         _sp += min(25, max(0, game_state.relations.get(_npc_k, 50)) // 4)
     _sp += min(10, int(getattr(game_state, 'tech_level', 0)) // 10)
     _sp += min(15, game_state.public_approval // 7)
-    game_state.soft_power = min(100, max(0, _sp))
+    game_state.soft_power = min(100, max(0, _sp - (_broken_this_turn * 5)))
 
     _dc = 0
     _deal_h = getattr(game_state, 'deal_history', [])
@@ -5089,6 +5095,21 @@ def apply_end_of_turn_effects(game_state):
         _dc += min(10, len(_lev) * 5)
     _dc += min(20, sum(1 for v in game_state.relations.values() if v >= 60) * 5)
     game_state.diplomatic_capital = min(100, max(0, _dc))
+
+    # ──────────────────────────────────────────
+    # 13f. RELIABILITY SCORE
+    # ──────────────────────────────────────────
+    _kept_this_turn = sum(
+        1 for p in getattr(game_state, 'binding_promises', [])
+        if p.get('kept') and p.get('kept_turn') == game_state.current_turn
+    )
+    _reliability_delta = (_kept_this_turn * 4) - (_broken_this_turn * 12) + 1.0
+    game_state.reliability_score = max(0.0, min(100.0,
+        game_state.reliability_score + _reliability_delta
+    ))
+    print(f"[RELIABILITY] EOT: broken={_broken_this_turn}, "
+          f"kept={_kept_this_turn}, soft_power={game_state.soft_power}, "
+          f"new_reliability={game_state.reliability_score:.1f}")
 
     # ──────────────────────────────────────────
     # 13e-ii. SESSION 5 PHASE C: RELATIONS MILESTONE MEMORY HOOKS

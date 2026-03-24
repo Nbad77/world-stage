@@ -1754,6 +1754,42 @@ def build_npc_system_prompt(npc_id, gs=None, relations=None):
 
     return "\n\n".join(parts)
 
+# ── Deal tier constants ──────────────────────────────────────────────────────
+# t0 = minimum relations for ANY deal, t3 = alliance-level bonus threshold
+# Keyed by character name; use _NPC_ID_TO_NAME for lookup from npc_id.
+_NPC_ID_TO_NAME = {
+    'usa': 'bill', 'eu': 'marsha', 'arabia': 'sadam',
+    'dprg': 'dprg', 'russia': 'volkov', 'china': 'wei',
+}
+NPC_DEAL_TIERS = {
+    'bill':   {'t0': 20, 't3': 70},
+    'marsha': {'t0': 15, 't3': 65},
+    'sadam':  {'t0': 10, 't3': 60},
+    'dprg':   {'t0': 25, 't3': 75},
+    'volkov': {'t0': 15, 't3': 65},
+    'wei':    {'t0': 10, 't3': 70},
+}
+NPC_DEAL_TIER_DEFAULT = {'t0': 15, 't3': 65}
+NPC_REFUSAL_LINES = {
+    'bill':   "We're not at a place where I can put "
+              "something on the table. Work on the "
+              "relationship first.",
+    'marsha': "The current state of our relations "
+              "doesn't allow for formal arrangements.",
+    'sadam':  "Come back when there is more between "
+              "us, my friend.",
+    'dprg':   "You do not have standing to make "
+              "proposals here.",
+    'volkov': "There is nothing to discuss at "
+              "this distance.",
+    'wei':    "Patience builds bridges. We are not "
+              "ready for this conversation.",
+}
+NPC_REFUSAL_DEFAULT = (
+    "We are not in a position to discuss "
+    "arrangements at this time."
+)
+
 # Call 1 prompts — dialogue only (character prompt + negotiation context + prose-only rule)
 _NEGOTIATION_DIALOGUE_PROMPTS = {
     'usa': f"""{USA_SYSTEM_PROMPT}
@@ -2875,7 +2911,19 @@ def calculate_willingness(game_state, npc_id: str, static_deal_value: float = 0.
     else:
         budget_mod = 1.4
 
-    willingness = round(base * rel_mod * aid_mod * budget_mod, 1)
+    # Reliability modifier — how much this NPC cares about Europa's track record
+    _NPC_RELIABILITY_WEIGHTS = {
+        'eu': 0.85, 'usa': 0.70, 'china': 0.60,
+        'arabia': 0.25, 'russia': 0.20, 'dprg': 0.10,
+    }
+    raw_score = getattr(game_state, 'reliability_score', 100.0)
+    npc_weight = _NPC_RELIABILITY_WEIGHTS.get(npc_id, 0.50)
+    reliability_mod = 1.0 + (npc_weight * ((raw_score - 60) / 100))
+    reliability_mod = max(0.50, min(1.50, reliability_mod))
+    print(f"[WILLINGNESS] {npc_id} reliability_mod={reliability_mod:.3f} "
+          f"(reliability_score={raw_score}, weight={npc_weight})")
+
+    willingness = round(base * rel_mod * aid_mod * budget_mod * reliability_mod, 1)
 
     # ITEM 5: DPRG ceiling increase at high relations.
     # Makes sustained DPRG investment meaningfully rewarding.
@@ -2958,16 +3006,50 @@ def calculate_willingness(game_state, npc_id: str, static_deal_value: float = 0.
             if max_with_tranches > _eu_tech_ceiling:
                 max_with_tranches = _eu_tech_ceiling
 
+    # ── Relation tier floor — gate deal access by relations level ──
+    _current_relations = relation  # already read above for rel_mod
+    _char_name = _NPC_ID_TO_NAME.get(npc_id, npc_id)
+    _tiers = NPC_DEAL_TIERS.get(_char_name, NPC_DEAL_TIER_DEFAULT)
+    _t0 = _tiers['t0']
+    _t1 = _t0 + 20
+    _t3 = _tiers['t3']
+
+    if _current_relations < _t0:
+        _tier = 0
+        _tier_multiplier = 0.0
+    elif _current_relations < _t1:
+        _tier = 1
+        _tier_multiplier = 0.20
+    elif _current_relations >= _t3:
+        _tier = 3
+        _tier_multiplier = 1.20
+    else:
+        _tier = 2
+        _tier_multiplier = 1.0
+
+    # Apply tier multiplier to ceiling, opening, and max_with_tranches
+    ceiling = round(ceiling * _tier_multiplier, 1)
+    opening = round(opening * _tier_multiplier, 1)
+    max_with_tranches = round(max_with_tranches * _tier_multiplier, 1)
+
+    print(f"[WILLINGNESS] {npc_id} tier={_tier} "
+          f"relations={_current_relations} "
+          f"multiplier={_tier_multiplier} "
+          f"ceiling={ceiling:.2f}B")
+
     return {
         'base': base,
         'relation_mod': rel_mod,
         'prior_aid_mod': aid_mod,
         'budget_mod': budget_mod,
+        'reliability_mod': reliability_mod,
         'willingness': willingness,
         'opening': opening,
         'ceiling': ceiling,
         'max_with_tranches': max_with_tranches,
         'rapport_score': rapport_score,
+        'relation_tier': _tier,
+        'npc_refuses_deal': (_tier == 0),
     }
 
 
@@ -3039,6 +3121,18 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
     # PRE-SESSION 4 FIX (BUG M): Pass the static deal's budget value as floor
     _static_budget = getattr(game_state, '_static_deal_budget', 0)
     willingness_data = calculate_willingness(game_state, npc_id, static_deal_value=_static_budget)
+
+    # Tier 0 gate: NPC refuses to deal if relations too low
+    if willingness_data.get('npc_refuses_deal'):
+        _char_name = _NPC_ID_TO_NAME.get(npc_id, npc_id)
+        _refusal = NPC_REFUSAL_LINES.get(_char_name, NPC_REFUSAL_DEFAULT)
+        print(f"[DEAL_GATE] {npc_id} refused — relations below tier 0 floor")
+        return {
+            "response": _refusal,
+            "rapport_score": 0,
+            "refused": True,
+        }
+
     _npc_resistance = {
         'usa': {
             'opening': "Congress won't approve more than ${opening}B right now.",
@@ -3079,6 +3173,14 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
         f"{'Tranche (multi-turn) payments are available since rapport is 4+.' if willingness_data['rapport_score'] >= 4 else 'Tranche payments are NOT available — rapport must reach 4+.'} "
         f"At opening resistance, say something like: \"{_resist.get('opening', 'That is our starting position.').replace('{opening}', str(willingness_data['opening']))}\" "
         f"At ceiling, say something like: \"{_resist.get('ceiling', 'This is our final offer.')}\" "
+        + {
+            'eu': "Europa's track record on commitments weighs heavily in this assessment.",
+            'usa': "Europa's reliability with past partners is a factor Congress considers.",
+            'china': "Beijing takes the long view on whether partners honor their word.",
+            'arabia': "Past deals are past — what matters is what is on the table today.",
+            'russia': "History is history. What can you offer now?",
+            'dprg': "We do not concern ourselves with your other arrangements.",
+        }.get(npc_id, "")
     )
 
     # 8B: Education-based negotiation modifiers — NPCs react to education level

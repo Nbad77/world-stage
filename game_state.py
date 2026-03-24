@@ -499,6 +499,7 @@ class GameState:
         self.summit_history = []              # closed summits: {era, day, player_declaration, npc_reactions, commitments_made}
         self.active_summit_commitments = []   # unresolved public commitments: {commitment_text, day_made, era_made, broken}
         self.summit_credibility = 100.0       # starts 100, drops when commitments broken
+        self.reliability_score = 100.0       # 0-100, tracks commitment follow-through
 
         # ── Advisor System (v2: full 9-archetype system with gate-based pool) ──
         self.advisors = {}  # dict keyed by archetype: {archetype, name, background, trust, competence, loyalty, ...}
@@ -1421,6 +1422,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'summit_history': getattr(self, 'summit_history', []),
             'active_summit_commitments': getattr(self, 'active_summit_commitments', []),
             'summit_credibility': getattr(self, 'summit_credibility', 100.0),
+            'reliability_score': getattr(self, 'reliability_score', 100.0),
             # Advisor System (restored 9-archetype pool)
             'advisors': getattr(self, 'advisors', {}),
             'advisor_slots_available': getattr(self, 'advisor_slots_available', 2),
@@ -1866,6 +1868,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.summit_history = data.get('summit_history', [])
         gs.active_summit_commitments = data.get('active_summit_commitments', [])
         gs.summit_credibility = data.get('summit_credibility', 100.0)
+        gs.reliability_score = data.get('reliability_score', 100.0)
         # Advisor System v2: full 9-archetype with gates
         _raw_advisors = data.get('advisors', {})
         # Migration: old formats -> v2 archetype dict

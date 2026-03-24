@@ -335,7 +335,9 @@ def _load_gs(session_id: str) -> GameState:
     data = load_session(session_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Session not found or expired")
-    return GameState.deserialize(data)
+    gs = GameState.deserialize(data)
+    print(f"[RELIABILITY] field present, value={gs.reliability_score}")
+    return gs
 
 
 def _save_gs(session_id: str, gs: GameState):
@@ -2776,6 +2778,10 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
     })
     _save_gs(session_id, gs)
 
+    _conflicts = _detect_deal_conflicts(gs, npc_id, result.get("counter_offer"))
+    print(f"[CONFLICTS] {npc_id} detected "
+          f"{len(_conflicts)} conflict(s): {_conflicts}")
+
     return {
         "npc_id": npc_id,
         "response": npc_response,
@@ -2790,7 +2796,7 @@ def post_negotiate(session_id: str, body: NegotiateRequest):
         # Session 7A Feature 10: GM consequence object for all proposals
         "gm_consequence": result.get("gm_consequence", None),
         # 10B-3: Conflict detection — check if new proposal conflicts with existing deals
-        "conflicts_with": _detect_deal_conflicts(gs, npc_id, result.get("counter_offer")),
+        "conflicts_with": _conflicts,
     }
 
 
