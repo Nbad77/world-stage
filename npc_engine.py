@@ -3491,9 +3491,19 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
         return {"response": fallbacks.get(npc_id, "…"), "counter_offer": None, "gm_consequence": _gm_result}
 
     # ── CALL 2: Deal extraction (conditional) ────────────────────────────────
-    # Only fires when the dialogue contains deal-signal keywords.
+    # Only fires when BOTH: (a) NPC dialogue contains deal-signal keywords
+    # AND (b) player's message contains a concrete proposal (numbers, amounts,
+    # or explicit agreement language). Questions and vague statements get
+    # dialogue-only responses — no counter-offer box.
+    import re as _re_co
+    _player_has_proposal = bool(_re_co.search(
+        r'\$[\d.]+|\d+\s*(billion|million|B|M|turn|%)',
+        message, _re_co.IGNORECASE
+    )) or any(w in message.lower() for w in
+        ['deal', 'agree', 'accept', 'offer', 'propose', 'give you',
+         'pay', 'provide', 'commit', 'willing to', 'prepared to'])
     counter_offer = None
-    if _has_deal_signals(dialogue_text):
+    if _has_deal_signals(dialogue_text) and (_player_has_proposal or player_initiated):
         try:
             npc_rules = _DEAL_EXTRACTION_NPC_RULES.get(npc_id, "")
             extraction_prompt = (
@@ -6036,17 +6046,9 @@ def generate_advisor_deal_reactions(game_state, deal_text: str, npc_id: str) -> 
                 raise ValueError("Empty response from Haiku")
             return json.loads(raw)
 
-        try:
-            parsed = _try_call()
-            results.append({
-                "advisor_type": adv_type,
-                "advisor_name": adv_name,
-                "stance": parsed.get("stance", "neutral"),
-                "reasoning": parsed.get("reasoning", "No comment."),
-            })
-        except (_anthropic_mod.RateLimitError, ValueError) as e:
-            print(f"  [10B-3] Advisor reaction rate limited/empty for {adv_name}, retrying in 2s...")
-            _time.sleep(2.0)
+        # 3 attempts with increasing delays
+        _success = False
+        for _attempt in range(3):
             try:
                 parsed = _try_call()
                 results.append({
@@ -6055,19 +6057,27 @@ def generate_advisor_deal_reactions(game_state, deal_text: str, npc_id: str) -> 
                     "stance": parsed.get("stance", "neutral"),
                     "reasoning": parsed.get("reasoning", "No comment."),
                 })
-            except Exception as e2:
-                print(f"  [10B-3] Advisor reaction retry failed for {adv_name}: {e2}")
-                _fb_text = _ADVISOR_FALLBACKS.get(adv_type, f"{adv_name} has noted the agreement.")
-                _stance = "approve" if (game_state.relations or {}).get(npc_id, 50) >= 50 else "neutral"
-                results.append({
-                    "advisor_type": adv_type,
-                    "advisor_name": adv_name,
-                    "stance": _stance,
-                    "reasoning": _fb_text,
-                })
-        except Exception as e:
-            print(f"  [10B-3] Advisor reaction failed for {adv_name}: {e}")
-            _fb_text = _ADVISOR_FALLBACKS.get(adv_type, f"{adv_name} has noted the agreement.")
+                _success = True
+                break
+            except (_anthropic_mod.RateLimitError, ValueError, json.JSONDecodeError) as e:
+                _wait = 4.0 if _attempt > 0 else 4.0
+                print(f"  [10B-3] Advisor reaction attempt {_attempt+1}/3 failed for {adv_name}: {e}, waiting {_wait}s...")
+                _time.sleep(_wait)
+            except Exception as e:
+                print(f"  [10B-3] Advisor reaction failed for {adv_name}: {e}")
+                break
+
+        if not _success:
+            _npc_label_fb = _NPC_DISPLAY_NAMES.get(npc_id, npc_id)
+            _deal_preview = deal_text[:40]
+            _fb_map = {
+                'finance_minister': f"The {_deal_preview}... deal carries budget implications that need monitoring.",
+                'diplomat': f"This agreement with {_npc_label_fb} will reshape our diplomatic positioning.",
+                'security_chief': f"The strategic implications of this {_npc_label_fb} deal require assessment.",
+                'technocrat': f"The economic terms here need evaluation against our development priorities.",
+                'general': f"The military implications of this {_npc_label_fb} arrangement need review.",
+            }
+            _fb_text = _fb_map.get(adv_type, f"This deal with {_npc_label_fb} warrants careful consideration.")
             _stance = "approve" if (game_state.relations or {}).get(npc_id, 50) >= 50 else "neutral"
             results.append({
                 "advisor_type": adv_type,
@@ -6076,9 +6086,9 @@ def generate_advisor_deal_reactions(game_state, deal_text: str, npc_id: str) -> 
                 "reasoning": _fb_text,
             })
 
-        # 500ms between advisor calls to avoid rate limits
+        # 1.5s between advisor calls to avoid rate limits
         if advisor != advisors[-1]:
-            _time.sleep(0.5)
+            _time.sleep(1.5)
 
     print(f"  [10B-3] Advisor reactions generated: {len(results)}")
     return results
