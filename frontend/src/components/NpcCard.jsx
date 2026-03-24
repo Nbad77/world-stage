@@ -90,8 +90,9 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
   const canDirectContact = relation >= 40 || isCrisis
   const alreadyRequested = !!(gs?.contact_requested || {})[npcKey]
 
-  // Cable display — teaser at 120 chars, sentence-aware truncation
-  const cableText = cable || ''
+  // Cable display — only show text when diplomatic_cable_types has an entry
+  const cableType = (gs?.diplomatic_cable_types || {})[npcKey]
+  const cableText = cableType ? (cable || '') : ''
   const showExpandToggle = cableText.length > 120
   const cableTeaser = showExpandToggle ? cableText.slice(0, 117) + '...' : cableText
 
@@ -135,7 +136,7 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
           </div>
 
           {/* Incoming communiqué — auto-displayed from EOT logic */}
-          {(gs?.diplomatic_cable_types || {})[npcKey] === 'incoming' && cableText && (
+          {cableType === 'incoming' && cableText && (
             <div className={`npc-cable-area npc-cable-incoming ${cableExpanded ? 'expanded' : ''}`}>
               <span className="npc-incoming-badge">INCOMING</span>
               <span className="npc-cable-text">
@@ -153,7 +154,7 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
           )}
 
           {/* Player-requested communiqué — displayed after clicking button */}
-          {(gs?.diplomatic_cable_types || {})[npcKey] === 'requested' && cableText && (
+          {cableType === 'requested' && cableText && (
             <div className={`npc-cable-area ${cableExpanded ? 'expanded' : ''}`}>
               <span className="npc-cable-text">
                 {cableExpanded ? cableText : cableTeaser}
@@ -170,7 +171,7 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
           )}
 
           {/* No communiqué yet — show request button */}
-          {!(gs?.diplomatic_cable_types || {})[npcKey] && onRequestBriefing && (
+          {!cableType && onRequestBriefing && (
             <button
               className="npc-briefing-btn"
               onClick={() => onRequestBriefing(npcKey)}
