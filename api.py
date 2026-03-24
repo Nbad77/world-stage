@@ -338,6 +338,7 @@ def _load_gs(session_id: str) -> GameState:
     gs = GameState.deserialize(data)
     print(f"[RELIABILITY] field present, value={gs.reliability_score}")
     print(f"[MORNING] chief_of_staff_intro_done={gs.chief_of_staff_intro_done}")
+    print(f"[DIALOGUE_CACHE] loaded {len(gs.turn_dialogues)} cached entries")
     return gs
 
 
@@ -1250,6 +1251,12 @@ async def new_game(user: User = Depends(get_optional_user)):
     from advisor_engine import generate_advisor_pool
     gs.advisor_pool = generate_advisor_pool(gs)
     dialogue = npc_engine.generate_dialogue(gs)
+    # Cache Turn 1 dialogue so first GET skips Haiku calls
+    _npc_order_new = ['usa', 'arabia', 'eu', 'dprg']
+    for _i_new, _npc_new in enumerate(_npc_order_new):
+        if _i_new < len(dialogue):
+            gs.turn_dialogues[f"{_npc_new}_{gs.current_turn}"] = dialogue[_i_new]
+    print(f"[DIALOGUE_CACHE] new game cached {len(dialogue)} entries for turn={gs.current_turn}")
     blackmail_active = _check_blackmail(gs)
     offers = _build_offers(gs)
     skim_options = _build_skim_options(gs)
@@ -1304,8 +1311,26 @@ async def get_game(session_id: str, user: User = Depends(get_optional_user)):
     status = _game_status(gs)
     ending = _build_ending(gs) if status != "active" else None
 
-    # Generate dialogue so snapshot loads and resumes have communiqués
-    dialogue = npc_engine.generate_dialogue(gs) if status == "active" else None
+    # Generate dialogue — use cache if available for this turn
+    dialogue = None
+    if status == "active":
+        _npc_order = ['usa', 'arabia', 'eu', 'dprg']
+        _turn = gs.current_turn
+        _cache_keys = [f"{npc}_{_turn}" for npc in _npc_order]
+        _all_cached = all(k in gs.turn_dialogues for k in _cache_keys)
+        if _all_cached:
+            print(f"[DIALOGUE_CACHE] HIT turn={_turn}, skipping generate_dialogue()")
+            dialogue = [gs.turn_dialogues[k] for k in _cache_keys]
+        else:
+            print(f"[DIALOGUE_CACHE] MISS turn={_turn}, generating dialogue")
+            dialogue = npc_engine.generate_dialogue(gs)
+            # Cache results — reload-and-patch to avoid overwriting concurrent state
+            gs_fresh = _load_gs(session_id)
+            for i, npc_id in enumerate(_npc_order):
+                if i < len(dialogue):
+                    gs_fresh.turn_dialogues[f"{npc_id}_{_turn}"] = dialogue[i]
+            _save_gs(session_id, gs_fresh)
+            print(f"[DIALOGUE_CACHE] cached {len(dialogue)} entries for turn={_turn}")
     blackmail_active = _check_blackmail(gs) if status == "active" else False
 
     return {
@@ -2254,6 +2279,13 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
             gs.current_event = None
 
         next_dialogue = npc_engine.generate_dialogue(gs)
+        # Cache dialogue for the new turn so GET requests skip Haiku calls
+        _npc_order_eot = ['usa', 'arabia', 'eu', 'dprg']
+        _next_turn = gs.current_turn
+        for _i_eot, _npc_eot in enumerate(_npc_order_eot):
+            if _i_eot < len(next_dialogue):
+                gs.turn_dialogues[f"{_npc_eot}_{_next_turn}"] = next_dialogue[_i_eot]
+        print(f"[DIALOGUE_CACHE] EOT cached {len(next_dialogue)} entries for turn={_next_turn}")
         # fixes_11 Fix 5: Generate dedicated contact dialogue for pending NPC contacts
         for _pc in getattr(gs, 'pending_npc_contacts', []):
             if not _pc.get('dialogue'):
@@ -2487,6 +2519,13 @@ def post_inject(session_id: str, body: InjectRequest):
             gs.current_event = None
 
         next_dialogue = npc_engine.generate_dialogue(gs)
+        # Cache dialogue for the new turn (inject path)
+        _npc_order_inj = ['usa', 'arabia', 'eu', 'dprg']
+        _next_turn_inj = gs.current_turn
+        for _i_inj, _npc_inj in enumerate(_npc_order_inj):
+            if _i_inj < len(next_dialogue):
+                gs.turn_dialogues[f"{_npc_inj}_{_next_turn_inj}"] = next_dialogue[_i_inj]
+        print(f"[DIALOGUE_CACHE] inject cached {len(next_dialogue)} entries for turn={_next_turn_inj}")
         # fixes_11 Fix 5: Generate dedicated contact dialogue for pending NPC contacts
         for _pc in getattr(gs, 'pending_npc_contacts', []):
             if not _pc.get('dialogue'):

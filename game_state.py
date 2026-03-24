@@ -509,6 +509,7 @@ class GameState:
         self.advisor_actions_log = []  # betrayal/elimination event log
         self.advisor_distortions = {}  # computed stat distortions for frontend
         self.advisor_analyses = {}  # cached analysis text per archetype key, persists for the turn
+        self.turn_dialogues = {}   # cached NPC dialogue per turn: {"usa_5": "text", ...}
         self.advisor_assigned_today = []  # list of unique advisor keys assigned this turn (acts as Set for JSON compat)
 
         # ── Session 5: Economic Development Model ──────────────────────────
@@ -1432,6 +1433,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'advisor_actions_log': getattr(self, 'advisor_actions_log', []),
             'advisor_distortions': self._compute_advisor_distortions(),
             'advisor_analyses': getattr(self, 'advisor_analyses', {}),
+            'turn_dialogues': getattr(self, 'turn_dialogues', {}),
             'advisor_assigned_today': getattr(self, 'advisor_assigned_today', []),
             '_general_coup_boost_turns': getattr(self, '_general_coup_boost_turns', 0),
             '_general_elim_decay_turns': getattr(self, '_general_elim_decay_turns', 0),
@@ -1910,6 +1912,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.advisor_actions_log = data.get('advisor_actions_log', [])
         gs.advisor_distortions = data.get('advisor_distortions', {})
         gs.advisor_analyses = data.get('advisor_analyses', {})
+        gs.turn_dialogues = data.get('turn_dialogues', {})
         gs.advisor_assigned_today = data.get('advisor_assigned_today', [])
         gs._general_coup_boost_turns = data.get('_general_coup_boost_turns', 0)
         gs._general_elim_decay_turns = data.get('_general_elim_decay_turns', 0)
