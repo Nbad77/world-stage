@@ -3373,9 +3373,27 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
             for _cn, _cd in (_gm_consequences.get('relations_delta') or {}).items():
                 if _cn in gs.relations and isinstance(_cd, (int, float)):
                     gs.update_relations(_cn, _cd)
-            _bd = _gm_consequences.get('budget_delta', 0)
-            if _bd and isinstance(_bd, (int, float)):
+            _bd = (_gm_consequences or {}).get('budget_delta', 0)
+            _inst_amount = (_gm_consequences or {}).get('installment_amount')
+            _inst_turns  = (_gm_consequences or {}).get('installment_turns')
+            if _inst_amount and _inst_turns and int(_inst_turns) > 1:
+                _inst_amount = float(_inst_amount)
+                _inst_turns  = int(_inst_turns)
+                for _i in range(_inst_turns):
+                    gs.active_installments.append({
+                        'amount': _inst_amount,
+                        'turns_remaining': _inst_turns - _i,
+                        'start_turn': gs.current_turn + _i + 1,
+                        'registered_turn': gs.current_turn,
+                        'description': (f"Deal payment — {_npc_name} "
+                                        f"(turn {_i+1} of {_inst_turns})"),
+                        'npc': npc_id,
+                    })
+                print(f"[INSTALLMENTS] registered {_inst_turns} payments "
+                      f"of ${_inst_amount}B for {npc_id} deal")
+            elif _bd and isinstance(_bd, (int, float)):
                 gs.update_budget(_bd)
+                print(f"[INSTALLMENTS] lump sum ${_bd}B applied for {npc_id}")
             _pwd = _gm_consequences.get('personal_wealth_delta', 0)
             if _pwd and isinstance(_pwd, (int, float)):
                 gs.personal_wealth += _pwd
@@ -3409,6 +3427,9 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
         })
         # TODO: modify gate by soft_power_score
         print(f"  [10B-3] Deal tracked: {_npc_name} — {_deal_text[:60]}, relations delta: {_rel_delta}")
+        print(f"[INSTALLMENTS] deal archived: npc={npc_id} "
+              f"active_installments_count="
+              f"{len(getattr(gs, 'active_installments', []))}")
 
     # Reload-and-patch: only update fields accept_counter owns,
     # preserving events_resolved_today and other briefing state
