@@ -134,13 +134,26 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
             {statusText} ({Math.round(relation)})
           </div>
 
-          {/* INCOMING badge — always visible when type is incoming */}
-          {(gs?.diplomatic_cable_types || {})[npcKey] === 'incoming' && (
-            <span className="npc-incoming-badge">INCOMING</span>
+          {/* Incoming communiqué — auto-displayed from EOT logic */}
+          {(gs?.diplomatic_cable_types || {})[npcKey] === 'incoming' && cableText && (
+            <div className={`npc-cable-area npc-cable-incoming ${cableExpanded ? 'expanded' : ''}`}>
+              <span className="npc-incoming-badge">INCOMING</span>
+              <span className="npc-cable-text">
+                {cableExpanded ? cableText : cableTeaser}
+              </span>
+              {showExpandToggle && (
+                <button
+                  className="npc-cable-toggle-link"
+                  onClick={(e) => { e.stopPropagation(); setCableExpanded(!cableExpanded) }}
+                >
+                  {cableExpanded ? 'Show less ▲' : 'Read more ▼'}
+                </button>
+              )}
+            </div>
           )}
 
-          {/* Diplomatic cable / briefing display */}
-          {cableText ? (
+          {/* Player-requested communiqué — displayed after clicking button */}
+          {(gs?.diplomatic_cable_types || {})[npcKey] === 'requested' && cableText && (
             <div className={`npc-cable-area ${cableExpanded ? 'expanded' : ''}`}>
               <span className="npc-cable-text">
                 {cableExpanded ? cableText : cableTeaser}
@@ -154,21 +167,21 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
                 </button>
               )}
             </div>
-          ) : (
-            /* No cable — show Request Briefing button */
-            onRequestBriefing && (
-              <button
-                className="npc-briefing-btn"
-                onClick={() => onRequestBriefing(npcKey)}
-                disabled={briefingLoading || (gs?.budget || 0) < 0.3}
-              >
-                {briefingLoading
-                  ? '📋 Generating briefing...'
-                  : (gs?.budget || 0) < 0.3
-                    ? '📋 Insufficient budget'
-                    : '📋 REQUEST BRIEFING — $0.3B'}
-              </button>
-            )
+          )}
+
+          {/* No communiqué yet — show request button */}
+          {!(gs?.diplomatic_cable_types || {})[npcKey] && onRequestBriefing && (
+            <button
+              className="npc-briefing-btn"
+              onClick={() => onRequestBriefing(npcKey)}
+              disabled={briefingLoading || (gs?.budget || 0) < 0.3}
+            >
+              {briefingLoading
+                ? '📨 Receiving communiqué...'
+                : (gs?.budget || 0) < 0.3
+                  ? '📨 Insufficient budget'
+                  : '📨 RECEIVE COMMUNIQUÉ — $0.3B'}
+            </button>
           )}
 
           {/* Action buttons */}
