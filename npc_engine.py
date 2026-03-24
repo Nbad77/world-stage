@@ -3182,6 +3182,12 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
             'dprg': "We do not concern ourselves with your other arrangements.",
         }.get(npc_id, "")
     )
+    context["willingness_note"] += (
+        " You are speaking with the leader of Europa. "
+        "You know who they are. Do not ask them to "
+        "identify themselves."
+    )
+    print(f"[IDENTITY] injected into {npc_id} negotiate prompt")
 
     # 8B: Education-based negotiation modifiers — NPCs react to education level
     _edu_level_neg = getattr(game_state, 'education_level', 0)
