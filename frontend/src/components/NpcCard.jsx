@@ -134,13 +134,14 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
             {statusText} ({Math.round(relation)})
           </div>
 
+          {/* INCOMING badge — always visible when type is incoming */}
+          {(gs?.diplomatic_cable_types || {})[npcKey] === 'incoming' && (
+            <span className="npc-incoming-badge">INCOMING</span>
+          )}
+
           {/* Diplomatic cable / briefing display */}
           {cableText ? (
             <div className={`npc-cable-area ${cableExpanded ? 'expanded' : ''}`}>
-              {/* INCOMING badge for EOT-generated communiqués */}
-              {(gs?.diplomatic_cable_types || {})[npcKey] === 'incoming' && (
-                <span className="npc-incoming-badge">INCOMING</span>
-              )}
               <span className="npc-cable-text">
                 {cableExpanded ? cableText : cableTeaser}
               </span>
@@ -154,7 +155,7 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
               )}
             </div>
           ) : (
-            /* No cable yet — show Request Briefing button */
+            /* No cable — show Request Briefing button */
             onRequestBriefing && (
               <button
                 className="npc-briefing-btn"

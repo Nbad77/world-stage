@@ -76,19 +76,8 @@ export default function RightSidebar({ gs, onContact, onContactRequest, contactL
   const rel = gs.relations || {}
   const apiCables = gs.diplomatic_cables || {}
 
-  // Build cables: API cables > daily dialogue > relation-based fallback
-  const cables = {}
-  for (const npc of NPC_LIST) {
-    const r = rel[npc.key] ?? 50
-    if (apiCables[npc.key]) {
-      cables[npc.key] = apiCables[npc.key]
-    } else if (dialogue && dialogue[NPC_DIALOGUE_INDEX[npc.key]]) {
-      cables[npc.key] = _extractCableFromDialogue(dialogue[NPC_DIALOGUE_INDEX[npc.key]])
-    } else {
-      // Always show something in NPC voice
-      cables[npc.key] = getFallbackCable(npc.key, r)
-    }
-  }
+  // Cables come only from gs.diplomatic_cables — no fallbacks
+  const cables = apiCables
 
   return (
     <div className="right-sidebar">
