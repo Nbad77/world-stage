@@ -337,6 +337,7 @@ def _load_gs(session_id: str) -> GameState:
         raise HTTPException(status_code=404, detail="Session not found or expired")
     gs = GameState.deserialize(data)
     print(f"[RELIABILITY] field present, value={gs.reliability_score}")
+    print(f"[MORNING] chief_of_staff_intro_done={gs.chief_of_staff_intro_done}")
     return gs
 
 
@@ -8558,30 +8559,49 @@ async def get_day_status(session_id: str, user: User = Depends(get_optional_user
 @app.post("/game/{session_id}/briefing/morning")
 async def get_morning_briefing(session_id: str, user: User = Depends(get_optional_user)):
     """
-    Returns intelligence summary scaled to intel_tier.
-    Called when player clicks the morning briefing card.
+    Returns Advisory Council morning briefing.
+    Chief of Staff (Mike Sorel) always speaks; hired advisors add domain views.
     """
     _verify_game_ownership(session_id, user)
     gs = _load_gs(session_id)
 
-    # Determine intel level from intelligence_tier
-    intel_tier = getattr(gs, 'intelligence_tier', 1)
-    from npc_engine import INTEL_BRIEFING_TIERS, generate_morning_briefing
-    intel_level = INTEL_BRIEFING_TIERS.get(intel_tier, "vague")
-
+    from npc_engine import generate_advisor_morning_briefing
     import asyncio
-    briefing_text = await asyncio.to_thread(generate_morning_briefing, gs, intel_level)
+    briefings = await asyncio.to_thread(generate_advisor_morning_briefing, gs)
 
-    # Reload from DB before saving to avoid overwriting concurrent changes
-    # (e.g., generate-events may have saved daily_events while we were generating)
-    fresh_gs = _load_gs(session_id)
-    fresh_gs.morning_briefing_read = True
-    _save_gs(session_id, fresh_gs)
+    # Mark Chief of Staff intro done after Day 1
+    if not getattr(gs, 'chief_of_staff_intro_done', False):
+        gs_fresh = _load_gs(session_id)
+        gs_fresh.chief_of_staff_intro_done = True
+        _save_gs(session_id, gs_fresh)
+
+    # Build advisor briefing list from gs.advisors (keyed by archetype)
+    advisor_briefings = []
+    for archetype, advisor in (gs.advisors or {}).items():
+        advisor_briefings.append({
+            'id': advisor.get('id', archetype),
+            'name': advisor.get('name', ''),
+            'role': archetype,
+            'label': advisor.get('label', archetype.replace('_', ' ').title()),
+            'icon': advisor.get('icon', '\U0001f464'),
+            'text': briefings.get(archetype),
+        })
+
+    print(f"[MORNING] endpoint returning: "
+          f"advisors={len(advisor_briefings)} "
+          f"intro_done={getattr(gs, 'chief_of_staff_intro_done', False)}")
 
     return {
-        "briefing_text": briefing_text,
-        "intel_level": intel_level,
-        "game_state": fresh_gs.serialize(),
+        "chief_of_staff": {
+            "name": "Mikhail 'Mike' Sorel",
+            "role": "chief_of_staff",
+            "label": "Chief of Staff",
+            "icon": "\U0001f9ed",
+            "text": briefings.get("chief_of_staff"),
+        },
+        "advisor_briefings": advisor_briefings,
+        "intro_done": getattr(gs, 'chief_of_staff_intro_done', False),
+        "game_state": gs.serialize(),
     }
 
 

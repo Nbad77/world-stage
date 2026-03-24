@@ -792,6 +792,7 @@ class GameState:
 
         # Morning briefing
         self.morning_briefing_read = False      # Resets each day
+        self.chief_of_staff_intro_done = False  # Flips True after Day 1 advisor briefing
 
         # Declaration gating (10B-2 will use these)
         self.declarations_available = 0         # 0 until day 5, then 1/day
@@ -1592,6 +1593,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'day_events_generated': getattr(self, 'day_events_generated', False),
             'communique_days_without_response': getattr(self, 'communique_days_without_response', {}),
             'morning_briefing_read': getattr(self, 'morning_briefing_read', False),
+            'chief_of_staff_intro_done': getattr(self, 'chief_of_staff_intro_done', False),
             'declarations_available': getattr(self, 'declarations_available', 0),
             'declaration_used_today': getattr(self, 'declaration_used_today', False),
             # 10B-2: Event dialogue, cables, declarations, intel
@@ -2084,6 +2086,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.day_events_generated = data.get('day_events_generated', False)
         gs.communique_days_without_response = data.get('communique_days_without_response', {})
         gs.morning_briefing_read = data.get('morning_briefing_read', False)
+        gs.chief_of_staff_intro_done = data.get('chief_of_staff_intro_done', False)
         gs.declarations_available = data.get('declarations_available', 0)
         gs.declaration_used_today = data.get('declaration_used_today', False)
         # 10B-2: Event dialogue, cables, declarations, intel

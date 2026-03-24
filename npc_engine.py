@@ -6551,3 +6551,195 @@ def _fallback_briefing(intel_level: str) -> str:
             "Our assets report concrete developments that may require your attention within the "
             "coming days. A full assessment is available through your intelligence chief."
         )
+
+
+# ── Advisory Council Morning Briefing ─────────────────────────────────────────
+
+def generate_advisor_morning_briefing(gs) -> dict:
+    """
+    Generate morning briefing text from the Advisory Council.
+    Chief of Staff (Mike Sorel) always speaks. Hired advisors add domain views.
+    Returns dict keyed by role: {chief_of_staff: str, finance_minister: str|None, ...}
+    """
+    hired = gs.advisors or {}
+    intel_tier = getattr(gs, 'intelligence_tier', 1)
+    intel_level = INTEL_BRIEFING_TIERS.get(intel_tier, "vague")
+
+    # ── Build user prompt sections ────────────────────────────────────────
+    sections = []
+
+    # Chief of Staff — always present
+    if not gs.chief_of_staff_intro_done:
+        sections.append(
+            "MIKHAIL 'MIKE' SOREL — Chief of Staff\n"
+            "This is Day 1. Write his introduction: he introduces himself as the player's "
+            "constant advisor, explains that the events panel below requires daily attention, "
+            "notes that hiring additional specialists will add their domain views alongside his, "
+            "and that until then he covers all ground as best he can. Under 100 words. Direct, "
+            "slightly wry, not a help tooltip. First person."
+        )
+    else:
+        sections.append(
+            "MIKHAIL 'MIKE' SOREL — Chief of Staff\n"
+            "Daily synthesis. What matters today, what is being neglected, what yesterday's "
+            "choices mean. 60-80 words. Terse, direct, first person. Defer to hired specialists "
+            "on their domains."
+        )
+
+    # Per-advisor prompts by archetype
+    _ADVISOR_PROMPTS = {
+        'finance_minister': (
+            "{name} — Finance Minister\n"
+            "Domain: budget trajectory, deal payments due, oil cost pressure, revenue outlook. "
+            "60-80 words in their voice. First person. Competence: {competence}/100."
+        ),
+        'security_chief': (
+            "{name} — Security Chief\n"
+            "Domain: military decay, coup risk, militia status, active intel threats. "
+            "60-80 words in their voice. First person. Competence: {competence}/100."
+        ),
+        'diplomat': (
+            "{name} — Diplomatic Aide\n"
+            "Domain: NPC relationship temperature, who is drifting, communiqué backlog. "
+            "60-80 words in their voice. First person. Competence: {competence}/100."
+        ),
+    }
+
+    for arch_key, adv_data in hired.items():
+        if not isinstance(adv_data, dict):
+            continue
+        name = adv_data.get('name', arch_key.replace('_', ' ').title())
+        competence = adv_data.get('competence', 60)
+        template = _ADVISOR_PROMPTS.get(arch_key)
+        if template:
+            sections.append(template.format(name=name, competence=competence))
+        else:
+            label = adv_data.get('label', arch_key.replace('_', ' ').title())
+            sections.append(
+                f"{name} — {label}\n"
+                f"Apply your domain expertise to the current game state. "
+                f"60-80 words in your voice. First person. Competence: {competence}/100."
+            )
+
+    # Game state context
+    rels = gs.relations or {}
+    daily_events = getattr(gs, 'daily_events', [])
+    recent_events = [e.get('title', 'event') for e in daily_events[-3:]] if daily_events else []
+    recent_str = f"Recent events: {', '.join(recent_events)}" if recent_events else "No recent events."
+
+    state_section = (
+        f"Current state:\n"
+        f"Day {gs.current_day}, Era {getattr(gs, 'current_era', 1)}\n"
+        f"Budget: ${gs.budget:.1f}B\n"
+        f"Stability: {gs.stability}%\n"
+        f"Approval: {gs.public_approval}%\n"
+        f"Relations: USA {rels.get('usa', 50)} | Arabia {rels.get('arabia', 50)} | "
+        f"EU {rels.get('eu', 50)} | DPRG {rels.get('dprg', 50)} | "
+        f"Russia {rels.get('russia', 50)} | China {rels.get('china', 50)}\n"
+        f"Hired advisors: {list(hired.keys()) or 'none'}\n"
+        f"Intel level: {intel_level}\n"
+        f"{recent_str}"
+    )
+
+    # Return format instruction
+    _ALL_ROLES = ['chief_of_staff', 'finance_minister', 'security_chief', 'diplomat',
+                  'propagandist', 'technocrat', 'oligarch', 'general', 'fixer']
+    format_section = (
+        "Return this exact JSON structure:\n"
+        "{\n"
+        + ",\n".join(f'  "{r}": "text or null"' for r in _ALL_ROLES) +
+        "\n}\n"
+        "Return null for any advisor not in the hired advisors list above."
+    )
+
+    user_prompt = "\n\n".join(sections) + f"\n\n{state_section}\n\n{format_section}"
+
+    system_prompt = (
+        "You generate morning briefing text for Europa's advisory council. "
+        "Return valid JSON only. No markdown, no preamble, no explanation."
+    )
+
+    # ── Call Haiku ─────────────────────────────────────────────────────────
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return _advisor_morning_fallback(gs)
+
+    try:
+        response = _client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=600,
+            temperature=0.7,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
+
+        raw = response.content[0].text.strip()
+        # Strip code fences if present
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            raw = "\n".join(lines)
+
+        result = json.loads(raw)
+        print(f"[MORNING] advisor briefings generated: "
+              f"keys={list(result.keys())} "
+              f"intro_done={gs.chief_of_staff_intro_done}")
+        return result
+
+    except Exception as e:
+        print(f"[MORNING] advisor briefing generation failed: {e}")
+        return _advisor_morning_fallback(gs)
+
+
+def _advisor_morning_fallback(gs) -> dict:
+    """Static fallback when Haiku API unavailable."""
+    hired = gs.advisors or {}
+    rels = gs.relations or {}
+
+    if not gs.chief_of_staff_intro_done:
+        cos_text = (
+            "Good morning. I am Mikhail Sorel, your Chief of Staff. "
+            "I will brief you each day on Europa's situation. "
+            "Hire specialists to expand this council's depth."
+        )
+    else:
+        cos_text = (
+            f"Budget at ${gs.budget:.1f}B. "
+            f"Review today's events and tend to any overdue communiqués."
+        )
+
+    result = {
+        'chief_of_staff': cos_text,
+        'finance_minister': None,
+        'security_chief': None,
+        'diplomat': None,
+        'propagandist': None,
+        'technocrat': None,
+        'oligarch': None,
+        'general': None,
+        'fixer': None,
+    }
+
+    # Fill hired advisor slots with static domain text
+    _FALLBACK_LINES = {
+        'finance_minister': f"National treasury stands at ${gs.budget:.1f}B. I am reviewing expenditure commitments.",
+        'security_chief': f"Stability at {gs.stability}%. Monitoring internal security posture.",
+        'diplomat': f"Relations summary: USA {rels.get('usa', 50)}, EU {rels.get('eu', 50)}, Arabia {rels.get('arabia', 50)}. Reviewing communiqué status.",
+        'propagandist': f"Public approval at {gs.public_approval}%. Monitoring domestic narrative.",
+        'technocrat': f"Infrastructure and development programs proceeding. Budget allocation under review.",
+        'oligarch': f"Financial networks are operational. Monitoring extraction opportunities.",
+        'general': f"Military readiness within expected parameters. No immediate threats detected.",
+        'fixer': f"Operational channels clear. No outstanding issues requiring intervention.",
+    }
+
+    for arch_key in hired:
+        if arch_key in _FALLBACK_LINES:
+            result[arch_key] = _FALLBACK_LINES[arch_key]
+
+    print(f"[MORNING] advisor briefings generated (fallback): "
+          f"keys={list(result.keys())} "
+          f"intro_done={gs.chief_of_staff_intro_done}")
+    return result

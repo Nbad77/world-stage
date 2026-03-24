@@ -149,7 +149,9 @@ export default function BriefingScreen({
     can_end_day: false,
     deals_today: [],
   })
-  const [morningBriefing, setMorningBriefing] = useState(null)
+  const [advisorBriefings, setAdvisorBriefings] = useState(null)
+  const [chiefOfStaff, setChiefOfStaff] = useState(null)
+  const [councilOpen, setCouncilOpen] = useState(true)
   const [dealsRefreshing, setDealsRefreshing] = useState(false)
 
   // 10B-3: When gameState.deals_today changes, immediately show deals
@@ -175,7 +177,6 @@ export default function BriefingScreen({
       }).catch(() => {})
     }
   }, [gameState?.deals_today?.length])
-  const [morningBriefingOpen, setMorningBriefingOpen] = useState(false)
   const [morningBriefingLoading, setMorningBriefingLoading] = useState(false)
   const [eventsLoading, setEventsLoading] = useState(false)
   const [resolving, setResolving] = useState(false)
@@ -227,9 +228,7 @@ export default function BriefingScreen({
             ? status.deals_today
             : prev.deals_today || [],
         }))
-        if (status.morning_briefing_read) {
-          setMorningBriefing('(already read)')
-        }
+        // morning_briefing_read check removed — advisory council handles its own state
       } else {
         // Generate new events
         const result = await api.briefingGenerateEvents(sessionId)
@@ -250,8 +249,9 @@ export default function BriefingScreen({
       lastDayRef.current = currentDay
       setBriefingState('hub')
       setActiveEvent(null)
-      setMorningBriefing(null)
-      setMorningBriefingOpen(false)
+      setAdvisorBriefings(null)
+      setChiefOfStaff(null)
+      setCouncilOpen(true)
       loadEvents()
     }
   }, [currentDay, loadEvents])
@@ -262,20 +262,27 @@ export default function BriefingScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // FIX 3: Auto-generate morning briefing on mount / day change
+  // Advisory Council: auto-fetch morning briefings on mount / day change
   useEffect(() => {
-    if (!sessionId || morningBriefing || morningBriefingLoading) return
+    if (!sessionId || advisorBriefings || morningBriefingLoading) return
     setMorningBriefingLoading(true)
     api.briefingMorning(sessionId)
       .then(result => {
-        setMorningBriefing(result.briefing_text)
-        setMorningBriefingOpen(true)
+        setChiefOfStaff(result.chief_of_staff)
+        setAdvisorBriefings(result.advisor_briefings || [])
+        setCouncilOpen(!result.intro_done ? true : true)
         if (result.game_state && onGsUpdate) onGsUpdate(result.game_state)
       })
       .catch(e => {
-        console.error('[BRIEFING] Auto morning briefing failed:', e)
-        setMorningBriefing('Intelligence services were unable to compile a briefing at this time.')
-        setMorningBriefingOpen(true)
+        console.error('[BRIEFING] Advisor morning briefing failed:', e)
+        setChiefOfStaff({
+          name: "Mikhail 'Mike' Sorel",
+          role: "chief_of_staff",
+          label: "Chief of Staff",
+          icon: "\uD83E\uDDED",
+          text: "Intelligence services unavailable."
+        })
+        setAdvisorBriefings([])
       })
       .finally(() => setMorningBriefingLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -290,28 +297,6 @@ export default function BriefingScreen({
   }, [sessionId, currentDay])
 
   // ── Handlers ─────────────────────────────────────────────────────────────
-  async function handleMorningBriefing() {
-    if (morningBriefing && morningBriefing !== '(already read)') {
-      setMorningBriefingOpen(!morningBriefingOpen)
-      return
-    }
-    setMorningBriefingLoading(true)
-    try {
-      const result = await api.briefingMorning(sessionId)
-      setMorningBriefing(result.briefing_text)
-      setMorningBriefingOpen(true)
-      if (result.game_state && onGsUpdate) {
-        onGsUpdate(result.game_state)
-      }
-    } catch (e) {
-      console.error('[BRIEFING] Morning briefing failed:', e)
-      setMorningBriefing('Intelligence services were unable to compile a briefing at this time.')
-      setMorningBriefingOpen(true)
-    } finally {
-      setMorningBriefingLoading(false)
-    }
-  }
-
   function handleOpenEvent(event) {
     if (event.resolved) return
     setActiveEvent(event)
@@ -651,32 +636,66 @@ export default function BriefingScreen({
         </div>
       )}
 
-      {/* Morning briefing card */}
-      <button
-        className="briefing-morning-card"
-        onClick={handleMorningBriefing}
-        disabled={morningBriefingLoading}
-      >
-        <span className="briefing-morning-label">
-          {'\u25CF'} MORNING BRIEFING
-        </span>
-        <span className="briefing-morning-subtitle">
-          Intelligence summary — {intelLevelLabel}
-        </span>
-        {morningBriefing && morningBriefing !== '(already read)' && (
-          <span className="briefing-morning-read">{'\u2713'} Read</span>
-        )}
-        {morningBriefingLoading && (
-          <span className="briefing-morning-loading">Loading...</span>
-        )}
-      </button>
-
-      {/* Morning briefing expanded text */}
-      {morningBriefingOpen && morningBriefing && morningBriefing !== '(already read)' && (
-        <div className="briefing-morning-text">
-          {morningBriefing}
+      {/* Advisory Council Panel */}
+      <div className="advisory-council-panel">
+        <div className="advisory-council-header" onClick={() => setCouncilOpen(!councilOpen)}>
+          <span className="advisory-council-title">ADVISORY COUNCIL</span>
+          <span className="advisory-council-toggle">{councilOpen ? '\u2212' : '+'}</span>
         </div>
-      )}
+        {councilOpen && (
+          <div className="advisory-council-body">
+            {morningBriefingLoading && (
+              <div className="advisory-council-loading">Assembling briefings...</div>
+            )}
+            {/* Chief of Staff — always shown */}
+            {chiefOfStaff && (
+              <div className="advisor-briefing-card advisor-briefing-card--chief">
+                <div className="advisor-briefing-header">
+                  <span className="advisor-briefing-icon">{chiefOfStaff.icon}</span>
+                  <div className="advisor-briefing-meta">
+                    <span className="advisor-briefing-name">{chiefOfStaff.name}</span>
+                    <span className="advisor-briefing-label">{chiefOfStaff.label}</span>
+                  </div>
+                </div>
+                <div className="advisor-briefing-text">{chiefOfStaff.text}</div>
+              </div>
+            )}
+            {/* Hired advisor cards */}
+            {(advisorBriefings || []).map(advisor => (
+              <div key={advisor.id} className="advisor-briefing-card">
+                <div className="advisor-briefing-header">
+                  <span className="advisor-briefing-icon">{advisor.icon}</span>
+                  <div className="advisor-briefing-meta">
+                    <span className="advisor-briefing-name">{advisor.name}</span>
+                    <span className="advisor-briefing-label">{advisor.label}</span>
+                  </div>
+                </div>
+                <div className="advisor-briefing-text">{advisor.text}</div>
+              </div>
+            ))}
+            {/* Empty advisor slots */}
+            {(() => {
+              const maxAdvisors = 3
+              const hiredCount = (advisorBriefings || []).length
+              const emptySlots = maxAdvisors - hiredCount
+              if (emptySlots <= 0) return null
+              return Array.from({ length: emptySlots }).map((_, i) => (
+                <div key={`empty-slot-${i}`}
+                     className="advisor-briefing-card advisor-briefing-card--empty"
+                     title="Visit the Advisors panel to hire specialists">
+                  <div className="advisor-briefing-header">
+                    <span className="advisor-briefing-icon">+</span>
+                    <div className="advisor-briefing-meta">
+                      <span className="advisor-briefing-name">Hire Advisor</span>
+                      <span className="advisor-briefing-label">$0.5B — expand your council</span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            })()}
+          </div>
+        )}
+      </div>
 
       {/* 10B-2: Declaration panel */}
       {declarationsAvailable && !declarationUsedToday && (
