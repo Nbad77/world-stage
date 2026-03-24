@@ -5736,7 +5736,7 @@ def apply_end_of_turn_effects(game_state):
             if 'expires_turn' not in _archived:
                 _gm_raw = _archived.get('gm_consequences')
                 _gm = _gm_raw if isinstance(_gm_raw, dict) else {}
-                _duration = _gm.get('deal_duration_turns', 10)
+                _duration = _gm.get('deal_duration_turns') or 10
                 _archived['expires_turn'] = game_state.current_turn + _duration
             game_state.deal_history.append(_archived)
         print(f"[DEALS] archived {len(_deals)} deals to history "
