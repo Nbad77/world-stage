@@ -857,8 +857,21 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     try {
       const result = await api.getCable(sessionId, npcKey)
       console.log('[10B-3] Briefing for', npcKey, ':', result.cable_text?.slice(0, 60))
-      // Refresh gs to get updated budget and diplomatic_cables
-      await getGame()
+      // Optimistic update so NpcCard sees the cable immediately
+      setGs(prev => ({
+        ...prev,
+        budget: Math.round(((prev.budget || 0) - (result.cost || 0)) * 10) / 10,
+        diplomatic_cables: {
+          ...(prev.diplomatic_cables || {}),
+          [npcKey]: result.cable_text
+        },
+        diplomatic_cable_types: {
+          ...(prev.diplomatic_cable_types || {}),
+          [npcKey]: 'requested'
+        }
+      }))
+      // Background refresh for full state sync
+      getGame()
     } catch (e) {
       console.error('[10B-3] Briefing request failed:', e)
     } finally {
