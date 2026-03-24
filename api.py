@@ -8494,6 +8494,7 @@ async def generate_briefing_events(session_id: str, user: User = Depends(get_opt
     """
     Generates daily events if not already generated today.
     Idempotent — returns existing events if already generated.
+    Uses optimistic flag to prevent race condition on concurrent requests.
     """
     _verify_game_ownership(session_id, user)
     gs = _load_gs(session_id)
@@ -8505,18 +8506,35 @@ async def generate_briefing_events(session_id: str, user: User = Depends(get_opt
             "game_state": gs.serialize(),
         }
 
+    # Set flag BEFORE the await — closes the race window
+    # Reload to catch any concurrent request that beat us
+    gs_lock = _load_gs(session_id)
+    if gs_lock.day_events_generated:
+        # Another request beat us here — return its events
+        print(f"[EVENTS] race avoided — events already generated")
+        return {
+            "events": gs_lock.daily_events,
+            "already_generated": True,
+            "game_state": gs_lock.serialize(),
+        }
+    gs_lock.day_events_generated = True
+    _save_gs(session_id, gs_lock)
+    print(f"[EVENTS] flag set optimistically, generating events")
+
+    # Now safe to await — any concurrent request will see flag=True
     import gm_engine
     import asyncio
     events = await asyncio.to_thread(gm_engine.generate_daily_events, gs)
 
-    gs.daily_events = events
-    gs.day_events_generated = True
-    _save_gs(session_id, gs)
+    # Reload-and-patch: write only events, don't overwrite other state
+    gs_fresh = _load_gs(session_id)
+    gs_fresh.daily_events = events
+    _save_gs(session_id, gs_fresh)
 
     return {
         "events": events,
         "already_generated": False,
-        "game_state": gs.serialize(),
+        "game_state": gs_fresh.serialize(),
     }
 
 

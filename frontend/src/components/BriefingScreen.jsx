@@ -182,6 +182,7 @@ export default function BriefingScreen({
   const [resolving, setResolving] = useState(false)
   const [expandedDealId, setExpandedDealId] = useState(null)
   const lastDayRef = useRef(null)
+  const eventsLoadingRef = useRef(false)
 
   // 10B-2: Event screen state
   const [eventDialogues, setEventDialogues] = useState([])
@@ -214,6 +215,11 @@ export default function BriefingScreen({
   // ── Load events on mount / day change ────────────────────────────────────
   const loadEvents = useCallback(async () => {
     if (!sessionId) return
+    if (eventsLoadingRef.current) {
+      console.log('[EVENTS] loadEvents() skipped — already in flight')
+      return
+    }
+    eventsLoadingRef.current = true
     setEventsLoading(true)
     try {
       // First check if already generated
@@ -241,6 +247,7 @@ export default function BriefingScreen({
       console.error('[BRIEFING] Failed to load events:', e)
     } finally {
       setEventsLoading(false)
+      eventsLoadingRef.current = false
     }
   }, [sessionId, onGsUpdate])
 
