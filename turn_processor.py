@@ -5709,7 +5709,8 @@ def apply_end_of_turn_effects(game_state):
     _deals = getattr(game_state, 'deals_today', [])
     if _deals:
         for _deal in _deals:
-            _gm = _deal.get('gm_consequences') or {}
+            _gm_raw = _deal.get('gm_consequences')
+            _gm = _gm_raw if isinstance(_gm_raw, dict) else {}
             # Apply budget_delta if not already applied at accept time
             _bd = _gm.get('budget_delta', 0)
             if _bd and isinstance(_bd, (int, float)):
@@ -5726,8 +5727,15 @@ def apply_end_of_turn_effects(game_state):
                 _archived['turn_accepted'] = _archived.get('day', game_state.current_turn)
             if 'broken' not in _archived:
                 _archived['broken'] = False
+            if 'summary' not in _archived:
+                _archived['summary'] = (
+                    _archived.get('briefing_summary')
+                    or _archived.get('deal_text', '')[:80]
+                    or 'Diplomatic arrangement'
+                )
             if 'expires_turn' not in _archived:
-                _gm = _archived.get('gm_consequences') or {}
+                _gm_raw = _archived.get('gm_consequences')
+                _gm = _gm_raw if isinstance(_gm_raw, dict) else {}
                 _duration = _gm.get('deal_duration_turns', 10)
                 _archived['expires_turn'] = game_state.current_turn + _duration
             game_state.deal_history.append(_archived)
