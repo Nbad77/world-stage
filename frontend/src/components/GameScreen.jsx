@@ -96,6 +96,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   const [patriotMessage, setPatriotMessage] = useState(null)
   const [intercepts, setIntercepts] = useState([])
   const [eotMessages, setEotMessages] = useState([])
+  const [dealsThisTurn, setDealsThisTurn] = useState([])
 
   // 8D: The Leak crisis modal
   const [showLeakCrisis, setShowLeakCrisis] = useState(false)
@@ -464,6 +465,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
         console.log('[leak] Crisis card detected in EOT effects')
       }
       setEotMessages(eotMsgs)
+      setDealsThisTurn(res.deals_this_turn || [])
       // fixes_18 Fix C: Pipe approval trace logs to browser console
       eotMsgs.filter(m => m.startsWith('[APPROVAL]')).forEach(m => console.log(m))
       // Session 2 Item 6: surface broken deal messages as diplomatic crisis modal
@@ -1937,6 +1939,28 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
                 >
                   ADDRESS CRISIS
                 </button>
+              </div>
+            )}
+
+            {dealsThisTurn.length > 0 && (
+              <div className="panel">
+                <div className="panel-header">Deals Concluded</div>
+                <ul className="msg-list">
+                  {dealsThisTurn.map((deal, i) => {
+                    const budgetDelta = deal.gm_consequences?.budget_delta;
+                    const budgetStr = budgetDelta && budgetDelta !== 0
+                      ? ` | Budget: ${budgetDelta > 0 ? '+' : ''}${budgetDelta}B`
+                      : '';
+                    const relationStr = deal.relation_delta
+                      ? ` | Relations: ${deal.relation_delta > 0 ? '+' : ''}${deal.relation_delta}`
+                      : '';
+                    return (
+                      <li key={i}>
+                        <strong>{deal.npc_name}</strong> — {deal.summary}{relationStr}{budgetStr}
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
             )}
 

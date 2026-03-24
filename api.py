@@ -2297,11 +2297,18 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
 
     _save_gs(session_id, gs)
 
+    _deals_this_turn = [
+        d for d in (gs.deal_history or [])
+        if d.get('turn_accepted') == gs.current_turn - 1
+    ]
+    print(f"[EOT_DEALS] {len(_deals_this_turn)} deals this turn")
+
     return {
         "skim_messages": skim_messages,
         "corruption_alert": corruption_alert,
         "intercepts": intercepts,
         "eot_effects": eot_messages,
+        "deals_this_turn": _deals_this_turn,
         "status": status,
         "ending": ending,
         "next_dialogue": next_dialogue,
