@@ -3394,16 +3394,49 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
         _npc_name = ALL_NPC_NAMES.get(npc_id, npc_id.title())
         _is_covert = counter.get('covert', False)
 
-        # Generate GM consequences for the deal
+        # Generate GM consequences + advisor reactions (combined single Haiku call)
         _gm_consequences = None
+        _advisor_reactions = []
         try:
-            from npc_engine import generate_deal_consequences
-            _gm_consequences = generate_deal_consequences(gs, npc_id, _deal_text, _is_covert)
-            print(f"  [10B-3] GM consequences generated for {npc_id} deal")
+            from npc_engine import generate_deal_consequences_and_reactions, generate_deal_consequences, generate_advisor_deal_reactions
+            _combined_cons, _combined_reacts = generate_deal_consequences_and_reactions(gs, npc_id, _deal_text, _is_covert)
+
+            # Independent fallbacks — each falls back separately
+            if _combined_cons is not None:
+                _gm_consequences = _combined_cons
+            else:
+                print("[DEAL_COMBINED] consequences fallback -> separate call")
+                try:
+                    _gm_consequences = generate_deal_consequences(gs, npc_id, _deal_text, _is_covert)
+                except Exception as _fb_err:
+                    print(f"[DEAL_COMBINED] separate consequences also failed: {_fb_err}")
+
+            if _combined_reacts is not None:
+                _advisor_reactions = _combined_reacts
+            else:
+                print("[DEAL_COMBINED] reactions fallback -> separate call")
+                try:
+                    _advisor_reactions = generate_advisor_deal_reactions(gs, _deal_text, npc_id)
+                except Exception as _fb_err2:
+                    print(f"[DEAL_COMBINED] separate reactions also failed: {_fb_err2}")
+
         except Exception as _gm_err:
-            print(f"[GM_DEAL_ERROR] generate_deal_consequences "
+            print(f"[GM_DEAL_ERROR] generate_deal_consequences_and_reactions "
                   f"threw: {type(_gm_err).__name__}: {_gm_err}")
-            print(f"  [10B-3] GM consequence generation failed: {_gm_err}")
+            # Full fallback to separate calls
+            try:
+                from npc_engine import generate_deal_consequences, generate_advisor_deal_reactions
+                _gm_consequences = generate_deal_consequences(gs, npc_id, _deal_text, _is_covert)
+            except Exception:
+                pass
+            try:
+                from npc_engine import generate_advisor_deal_reactions
+                _advisor_reactions = generate_advisor_deal_reactions(gs, _deal_text, npc_id)
+            except Exception:
+                pass
+
+        if not _gm_consequences:
+            print(f"  [10B-3] GM consequence generation failed — using inline fallback")
             _gm_consequences = {
                 'relations_delta': {npc_id: 3},
                 'budget_delta': 0,
@@ -3413,6 +3446,8 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
                 'historian_note': f'A diplomatic agreement was reached with {_npc_name}.',
                 'briefing_summary': f'Agreement with {_npc_name}: {_deal_text[:80]}',
             }
+        else:
+            print(f"  [10B-3] GM consequences generated for {npc_id} deal")
 
         # Apply consequences from GM
         _rel_delta = 3  # default
@@ -3448,14 +3483,6 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
             if _sd and isinstance(_sd, (int, float)):
                 gs.legitimacy_stability += _sd
             _rel_delta = (_gm_consequences.get('relations_delta') or {}).get(npc_id, 3)
-
-        # Generate advisor reactions to this deal
-        _advisor_reactions = []
-        try:
-            from npc_engine import generate_advisor_deal_reactions
-            _advisor_reactions = generate_advisor_deal_reactions(gs, _deal_text, npc_id)
-        except Exception as _adv_err:
-            print(f"  [10B-3] Advisor reactions failed: {_adv_err}")
 
         if not hasattr(gs, 'deals_today'):
             gs.deals_today = []

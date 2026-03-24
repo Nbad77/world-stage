@@ -6015,6 +6015,159 @@ def generate_declaration_consequences(game_state, declaration_text: str) -> dict
         }
 
 
+def generate_deal_consequences_and_reactions(game_state, npc_id: str, deal_text: str, is_backchannel: bool = False) -> tuple:
+    """
+    Combined single-call version: generates both deal consequences AND advisor reactions
+    in one Haiku call. Returns (consequences_dict, reactions_list) — either can be None
+    independently if parsing fails.
+    """
+    _npc_names = {
+        'usa': 'United States', 'arabia': 'Arabia', 'eu': 'European Union',
+        'dprg': 'DPRG', 'russia': 'Russia', 'china': 'China'
+    }
+    npc_label = _npc_names.get(npc_id, npc_id)
+    rel = game_state.relations.get(npc_id, 50)
+    regime = getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy')
+    channel_type = "backchannel (covert)" if is_backchannel else "official diplomatic channel (public)"
+    other_npcs = [k for k in game_state.relations.keys() if k != npc_id]
+
+    # Build advisor context
+    assigned_keys = getattr(game_state, 'advisor_assigned_today', None) or []
+    all_advisors = getattr(game_state, 'advisors', {}) or {}
+    advisors = []
+    for key in assigned_keys:
+        adv_data = all_advisors.get(key)
+        if adv_data and isinstance(adv_data, dict):
+            advisors.append({'type': key, 'name': adv_data.get('name', key.replace('_', ' ').title())})
+
+    _PERSPECTIVES = {
+        'finance_minister': "budget impact, fiscal risk, economic ROI",
+        'diplomat': "diplomatic implications, alliance dynamics, Western alignment",
+        'security_chief': "strategic/military implications, threat assessment",
+        'technocrat': "economic development, infrastructure, institutional impact",
+        'general': "military readiness, defense posture, operational security",
+    }
+
+    advisor_section = ""
+    if advisors:
+        advisor_list = "\n".join([
+            f"  - {a['name']} ({a['type']}): focuses on {_PERSPECTIVES.get(a['type'], 'general assessment')}"
+            for a in advisors
+        ])
+        advisor_section = (
+            f'\n\n"advisor_reactions" must be a JSON array. Each entry:\n'
+            f'{{"advisor_type": "...", "advisor_name": "...", "stance": "approve"|"neutral"|"oppose", '
+            f'"reasoning": "1-2 sentences in that advisor\'s voice"}}\n'
+            f"Active advisors:\n{advisor_list}\n"
+            f"Generate exactly {len(advisors)} reactions."
+        )
+    else:
+        advisor_section = '\n\n"advisor_reactions" must be an empty array [].'
+
+    system_prompt = (
+        "You are the GM for World Stage. A deal has been accepted. "
+        "Return a JSON object with exactly two keys: \"consequences\" and \"advisor_reactions\".\n\n"
+        "\"consequences\" must be a JSON object with ALL of these fields "
+        "(use 0 or null if not applicable, never omit):\n"
+        '  "relations_delta": {"npc_id": integer},\n'
+        '  "budget_delta": float,\n'
+        '  "personal_wealth_delta": float,\n'
+        '  "stability_delta": float,\n'
+        '  "cross_npc_visibility": ["npc_ids"],\n'
+        '  "historian_note": "1-2 sentences, past tense, specific to this deal",\n'
+        '  "briefing_summary": "one sentence",\n'
+        '  "installment_amount": float or null,\n'
+        '  "installment_turns": int or null,\n'
+        '  "deal_duration_turns": int or null\n\n'
+        "RULES:\n"
+        "- relations_delta keys from: usa, arabia, eu, dprg, russia, china\n"
+        "- Values between -10 and +10\n"
+        "- Budget deltas modest (-3.0 to +3.0)\n"
+        f"- {'Backchannel: cross_npc_visibility MUST be empty []' if is_backchannel else 'Include NPCs who would learn about this deal'}\n"
+        "- historian_note must be specific, not generic\n"
+        "- If recurring payments: set installment_amount/installment_turns, budget_delta=0\n"
+        "- deal_duration_turns: 5 short, 10 standard, 20 long-term, null permanent"
+        f"{advisor_section}\n\n"
+        "Return JSON only. No markdown, no preamble."
+    )
+
+    user_content = (
+        f"Deal made with: {npc_label} ({npc_id})\n"
+        f"Channel: {channel_type}\n"
+        f"Deal text: {deal_text}\n"
+        f"Current relations with {npc_label}: {rel}/100\n"
+        f"Europa regime: {regime}\n"
+        f"Budget: ${game_state.budget:.1f}B\n"
+        f"Other NPCs: {', '.join(other_npcs)}\n"
+        f"Determine consequences and advisor reactions."
+    )
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return (None, None)
+
+    try:
+        resp = _client.messages.create(
+            model=MODEL,
+            max_tokens=500,
+            temperature=0.5,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += resp.usage.input_tokens
+        _token_log["output_tokens"] += resp.usage.output_tokens
+
+        raw = resp.content[0].text.strip()
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            raw = "\n".join(lines)
+
+        result = json.loads(raw)
+
+        # Extract consequences — validate required fields
+        consequences = result.get("consequences")
+        if isinstance(consequences, dict):
+            _required = ['relations_delta', 'budget_delta', 'historian_note']
+            if not all(k in consequences for k in _required):
+                print(f"[DEAL_COMBINED] consequences missing required fields: "
+                      f"{[k for k in _required if k not in consequences]}")
+                consequences = None
+            else:
+                # Ensure defaults for optional fields
+                consequences.setdefault('personal_wealth_delta', 0)
+                consequences.setdefault('stability_delta', 0)
+                consequences.setdefault('cross_npc_visibility', [])
+                consequences.setdefault('briefing_summary', f"Deal with {npc_label}")
+                consequences.setdefault('installment_amount', None)
+                consequences.setdefault('installment_turns', None)
+                consequences.setdefault('deal_duration_turns', None)
+        else:
+            consequences = None
+
+        # Extract advisor reactions — forgiving validation
+        advisor_reactions = result.get("advisor_reactions")
+        if isinstance(advisor_reactions, list):
+            # Normalize entries
+            advisor_reactions = [{
+                "advisor_type": e.get("advisor_type", "unknown"),
+                "advisor_name": e.get("advisor_name", "Advisor"),
+                "stance": e.get("stance", "neutral"),
+                "reasoning": e.get("reasoning", "No comment."),
+            } for e in advisor_reactions if isinstance(e, dict)]
+        else:
+            advisor_reactions = None
+
+        print(f"[DEAL_COMBINED] consequences={'ok' if consequences else 'FAIL'} "
+              f"reactions={'ok' if advisor_reactions else 'FAIL'}")
+        return (consequences, advisor_reactions)
+
+    except Exception as e:
+        print(f"[DEAL_COMBINED] combined call failed: {type(e).__name__}: {e}")
+        return (None, None)
+
+
 def generate_deal_consequences(game_state, npc_id: str, deal_text: str, is_backchannel: bool = False) -> dict:
     """
     10B-3: Generate GM consequences for a sidebar deal.
