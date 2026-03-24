@@ -137,6 +137,7 @@ export default function BriefingScreen({
   onEndDay,
   onEventResolved,
   onGsUpdate,
+  onSwitchToAdvisors,
   // existing content to wrap in event_active state
   existingDiplomaticContent,
 }) {
@@ -703,7 +704,8 @@ export default function BriefingScreen({
               return Array.from({ length: emptySlots }).map((_, i) => (
                 <div key={`empty-slot-${i}`}
                      className="advisor-briefing-card advisor-briefing-card--empty"
-                     title="Visit the Advisors panel to hire specialists">
+                     onClick={() => { console.log('[COUNCIL] empty slot clicked — switching to advisors tab'); if (onSwitchToAdvisors) onSwitchToAdvisors() }}
+                     title="Switch to Domestic tab to hire specialists">
                   <div className="advisor-briefing-header">
                     <span className="advisor-briefing-icon">+</span>
                     <div className="advisor-briefing-meta">

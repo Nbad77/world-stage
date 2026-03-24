@@ -1499,6 +1499,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
                 }
               }}
               onGsUpdate={setGs}
+              onSwitchToAdvisors={() => setActiveTab('domestic')}
             />
 
             {/* 10B-2: When Foreign Affairs tab is active, BriefingScreen handles everything.
