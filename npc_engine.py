@@ -3503,7 +3503,8 @@ def generate_negotiation_response(game_state, npc_id: str, message: str, history
         ['deal', 'agree', 'accept', 'offer', 'propose', 'give you',
          'pay', 'provide', 'commit', 'willing to', 'prepared to'])
     counter_offer = None
-    if _has_deal_signals(dialogue_text) and (_player_has_proposal or player_initiated):
+    is_player_initiated = len(history) <= 1
+    if _has_deal_signals(dialogue_text) and (_player_has_proposal or is_player_initiated):
         try:
             npc_rules = _DEAL_EXTRACTION_NPC_RULES.get(npc_id, "")
             extraction_prompt = (
