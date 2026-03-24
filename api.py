@@ -8811,8 +8811,13 @@ async def get_single_cable(session_id: str, request: Request, user: User = Depen
     gs = _load_gs(session_id)
 
     BRIEFING_COST = 0.3
-    if (gs.budget or 0) < BRIEFING_COST:
+    _was_incoming = (getattr(gs, 'diplomatic_cable_types', {}) or {}).get(npc_id) == "incoming"
+
+    if not _was_incoming and (gs.budget or 0) < BRIEFING_COST:
         raise HTTPException(status_code=400, detail=f"Insufficient budget (need ${BRIEFING_COST}B)")
+
+    print(f"[CABLE] {npc_id} type={'incoming' if _was_incoming else 'requested'} "
+          f"cost={'waived' if _was_incoming else '$0.3B'}")
 
     # Check if already have a cable for this NPC today
     existing = (getattr(gs, 'diplomatic_cables', {}) or {}).get(npc_id)
@@ -8826,17 +8831,20 @@ async def get_single_cable(session_id: str, request: Request, user: User = Depen
 
     # Reload-and-patch to avoid race conditions
     gs_fresh = _load_gs(session_id)
-    gs_fresh.budget = round((gs_fresh.budget or 0) - BRIEFING_COST, 1)
+    if not _was_incoming:
+        gs_fresh.budget = round((gs_fresh.budget or 0) - BRIEFING_COST, 1)
     if not hasattr(gs_fresh, 'diplomatic_cables') or not gs_fresh.diplomatic_cables:
         gs_fresh.diplomatic_cables = {}
     gs_fresh.diplomatic_cables[npc_id] = cable_text
     if not hasattr(gs_fresh, 'diplomatic_cable_types'):
         gs_fresh.diplomatic_cable_types = {}
-    gs_fresh.diplomatic_cable_types[npc_id] = "requested"
+    if not _was_incoming:
+        gs_fresh.diplomatic_cable_types[npc_id] = "requested"
     _save_gs(session_id, gs_fresh)
 
-    print(f"  [10B-3] Briefing requested for {npc_id}: -${BRIEFING_COST}B")
-    return {"cable_text": cable_text, "cached": False, "cost": BRIEFING_COST}
+    print(f"  [10B-3] Briefing {'incoming' if _was_incoming else 'requested'} for {npc_id}: "
+          f"{'$0 (incoming)' if _was_incoming else f'-${BRIEFING_COST}B'}")
+    return {"cable_text": cable_text, "cached": False, "cost": 0 if _was_incoming else BRIEFING_COST}
 
 
 # ─── Model C Contact System ─────────────────────────────────────────────────

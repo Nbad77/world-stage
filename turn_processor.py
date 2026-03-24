@@ -5188,6 +5188,13 @@ def apply_end_of_turn_effects(game_state):
             'tone': tone,
         })
         _contact_history[trigger_key] = _current_turn
+        # Flag cable as incoming so frontend shows INCOMING badge and cost is waived
+        if not hasattr(game_state, 'diplomatic_cable_types'):
+            game_state.diplomatic_cable_types = {}
+        game_state.diplomatic_cable_types[npc] = "incoming"
+        if hasattr(game_state, 'diplomatic_cables') and game_state.diplomatic_cables:
+            game_state.diplomatic_cables.pop(npc, None)
+        print(f"[INCOMING] {npc} flagged as incoming cable")
 
     # fixes_16 Fix A: Trace logging for INCOMING block
     print(f"  [turn_processor] INCOMING BLOCK REACHED — turn {game_state.current_turn}")
