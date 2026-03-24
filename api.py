@@ -3354,6 +3354,8 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
             _gm_consequences = generate_deal_consequences(gs, npc_id, _deal_text, _is_covert)
             print(f"  [10B-3] GM consequences generated for {npc_id} deal")
         except Exception as _gm_err:
+            print(f"[GM_DEAL_ERROR] generate_deal_consequences "
+                  f"threw: {type(_gm_err).__name__}: {_gm_err}")
             print(f"  [10B-3] GM consequence generation failed: {_gm_err}")
             _gm_consequences = {
                 'relations_delta': {npc_id: 3},

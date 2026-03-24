@@ -6044,7 +6044,10 @@ def generate_deal_consequences(game_state, npc_id: str, deal_text: str, is_backc
         '  "stability_delta": float,  // -5 to +5\n'
         '  "cross_npc_visibility": ["npc_ids who learn about this deal"],\n'
         '  "historian_note": "REQUIRED — see rules below",\n'
-        '  "briefing_summary": "one sentence suitable for briefing item"\n'
+        '  "briefing_summary": "one sentence suitable for briefing item",\n'
+        '  "installment_amount": float or null,  // per-turn payment if multi-turn deal\n'
+        '  "installment_turns": int or null,  // number of turns for installment payments\n'
+        '  "deal_duration_turns": int or null  // how long the deal remains active\n'
         "}\n\n"
         "RULES:\n"
         "- relations_delta keys must be from: usa, arabia, eu, dprg, russia, china\n"
@@ -6061,7 +6064,18 @@ def generate_deal_consequences(game_state, npc_id: str, deal_text: str, is_backc
         "  GOOD: 'The investment agreement with Washington, secured through energy "
         "concessions, marked Europa's first formal alignment with Atlantic power "
         "structures — a pivot that would shape its foreign policy for years.'\n"
-        "  Your note must be specific, not generic."
+        "  Your note must be specific, not generic.\n"
+        "- If the deal involves recurring payments over multiple turns "
+        "(phrases like 'per turn', 'over X turns', 'each turn', 'annually', "
+        "'monthly', 'in installments', '$X × Y turns'), set installment_amount "
+        "to the per-turn value and installment_turns to the number of turns. "
+        "Set budget_delta to 0.0 in this case — installments replace the lump "
+        "sum, do not double-count. If the deal is ambiguous or a one-time "
+        "payment, leave both null and use budget_delta as normal.\n"
+        "- For deal_duration_turns: how many turns this deal remains active "
+        "for adversary conflict checking. Use 5 for short deals, 10 for "
+        "standard agreements, 20 for long-term partnerships, null for "
+        "permanent or open-ended arrangements."
     )
 
     user_content = (
@@ -6074,11 +6088,23 @@ def generate_deal_consequences(game_state, npc_id: str, deal_text: str, is_backc
         f"Determine consequences."
     )
 
+    def _log_and_return(result):
+        try:
+            print(f"[GM_DEAL] {npc_id} "
+                  f"budget_delta={result.get('budget_delta')} "
+                  f"installment={result.get('installment_amount')}x"
+                  f"{result.get('installment_turns')} "
+                  f"duration={result.get('deal_duration_turns')}")
+        except Exception as _log_err:
+            print(f"[GM_DEAL] {npc_id} log_error={_log_err} "
+                  f"result_keys={list(result.keys()) if result else 'None'}")
+        return result
+
     try:
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             # Rule-based fallback
-            return _deal_consequences_fallback(npc_id, deal_text, is_backchannel)
+            return _log_and_return(_deal_consequences_fallback(npc_id, deal_text, is_backchannel))
 
         import time as _time
         import anthropic as _anthropic_mod
@@ -6097,18 +6123,18 @@ def generate_deal_consequences(game_state, npc_id: str, deal_text: str, is_backc
             return json.loads(txt)
 
         try:
-            return _try_consequences()
+            return _log_and_return(_try_consequences())
         except (_anthropic_mod.RateLimitError, ValueError, json.JSONDecodeError) as e:
             print(f"  [10B-3] Deal consequences first attempt failed: {e}, retrying in 2s...")
             _time.sleep(2.0)
             try:
-                return _try_consequences()
+                return _log_and_return(_try_consequences())
             except Exception as e2:
                 print(f"  [10B-3] Deal consequences retry failed: {e2}")
-                return _deal_consequences_fallback(npc_id, deal_text, is_backchannel)
+                return _log_and_return(_deal_consequences_fallback(npc_id, deal_text, is_backchannel))
     except Exception as e:
         print(f"  [10B-3] Deal consequence generation failed: {e}")
-        return _deal_consequences_fallback(npc_id, deal_text, is_backchannel)
+        return _log_and_return(_deal_consequences_fallback(npc_id, deal_text, is_backchannel))
 
 
 def _deal_consequences_fallback(npc_id: str, deal_text: str, is_backchannel: bool) -> dict:
@@ -6135,6 +6161,9 @@ def _deal_consequences_fallback(npc_id: str, deal_text: str, is_backchannel: boo
         "cross_npc_visibility": [] if is_backchannel else list(_rivals.get(npc_id, [])),
         "historian_note": f"A {'covert ' if is_backchannel else ''}diplomatic arrangement with {_NPC_DISPLAY_NAMES.get(npc_id, npc_id)} signaled Europa's evolving strategic posture — the full implications of which remained to be seen.",
         "briefing_summary": f"Deal completed with {npc_id} via {'backchannel' if is_backchannel else 'official channels'}.",
+        "installment_amount": None,
+        "installment_turns": None,
+        "deal_duration_turns": None,
     }
 
 
