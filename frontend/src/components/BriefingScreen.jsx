@@ -9,6 +9,20 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '../api'
 
+// ── Advisor role colors ──────────────────────────────────────────────────────
+const ROLE_COLORS = {
+  finance_minister: '#5a8a5a',
+  security_chief: '#8a5a5a',
+  diplomat: '#7a6a9a',
+  technocrat: '#5a7a8a',
+  propagandist: '#8a7a5a',
+  oligarch: '#7a5a3a',
+  general: '#6a6a5a',
+  fixer: '#5a5a6a',
+  spy_chief: '#4a6a8a',
+  militia_commander: '#7a4a4a',
+}
+
 // ── NPC display info for event communiqués ─────────────────────────────────
 const NPC_DISPLAY = {
   usa:    { flag: '\u{1F1FA}\u{1F1F8}', name: 'Bill Hartwell',   color: '#1a3a5c' },
@@ -810,18 +824,6 @@ export default function BriefingScreen({
             )}
             {/* Hired advisor cards */}
             {(advisorBriefings || []).map(advisor => {
-              const ROLE_COLORS = {
-                finance_minister: '#5a8a5a',
-                security_chief: '#8a5a5a',
-                diplomat: '#7a6a9a',
-                technocrat: '#5a7a8a',
-                propagandist: '#8a7a5a',
-                oligarch: '#7a5a3a',
-                general: '#6a6a5a',
-                fixer: '#5a5a6a',
-                spy_chief: '#5a6a7a',
-                militia_commander: '#6a5a5a',
-              }
               return (
                 <div key={advisor.id}
                      className="advisor-briefing-card"
