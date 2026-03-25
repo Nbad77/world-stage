@@ -97,6 +97,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   const [intercepts, setIntercepts] = useState([])
   const [eotMessages, setEotMessages] = useState([])
   const [dealsThisTurn, setDealsThisTurn] = useState([])
+  const [eotData, setEotData] = useState(null)
   const [dealsRefreshing, setDealsRefreshing] = useState(false)
 
   // 8D: The Leak crisis modal
@@ -467,6 +468,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
       }
       setEotMessages(eotMsgs)
       setDealsThisTurn(res.deals_this_turn || [])
+      setEotData(res.eot_data || null)
       // fixes_18 Fix C: Pipe approval trace logs to browser console
       eotMsgs.filter(m => m.startsWith('[APPROVAL]')).forEach(m => console.log(m))
       // Session 2 Item 6: surface broken deal messages as diplomatic crisis modal
@@ -1950,7 +1952,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               </div>
             )}
 
-            <EotPanel messages={eotMessages} />
+            <EotPanel messages={eotMessages} eotData={eotData} />
 
             {/* Session 7A Step 5: Era transition suggestion card */}
             {eraTransitionSuggestion && !ending && (

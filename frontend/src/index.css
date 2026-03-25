@@ -839,6 +839,88 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   margin-top: 0.1rem;
 }
 
+/* Structured EOT body — override padding for nested content */
+.eot-structured-body {
+  padding: 0.35rem 0.4rem 0.35rem 1.2rem;
+}
+
+/* ── Sub-accordion (nested inside Treasury) ──────────────────────────────── */
+.eot-sub { margin-bottom: 2px; }
+.eot-sub-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  padding: 0.25rem 0.3rem;
+  cursor: pointer;
+  font-family: var(--mono);
+  color: var(--text);
+  transition: background 0.1s;
+}
+.eot-sub-header:hover { background: rgba(255,255,255,0.03); }
+.eot-sub-chevron { font-size: 0.55rem; color: rgba(255,255,255,0.3); width: 10px; flex-shrink: 0; }
+.eot-sub-label {
+  font-size: 0.65rem; font-weight: 600; letter-spacing: 0.06em;
+  text-transform: uppercase; color: rgba(255,255,255,0.45); flex-shrink: 0;
+}
+.eot-sub-total {
+  flex: 1; text-align: right;
+  font-size: 0.75rem; font-family: var(--mono); font-weight: 600;
+}
+.eot-sub-body { padding: 0.15rem 0 0.15rem 1.1rem; }
+
+/* ── Row (key-value line) ────────────────────────────────────────────────── */
+.eot-row {
+  display: flex; align-items: baseline; gap: 0.5rem;
+  padding: 0.1rem 0;
+  font-size: 0.72rem; font-family: var(--mono);
+}
+.eot-row--indent { padding-left: 0.5rem; }
+.eot-row-label { flex: 1; color: rgba(255,255,255,0.55); }
+.eot-row--muted .eot-row-label { color: rgba(255,255,255,0.3); font-size: 0.65rem; }
+.eot-row-value {
+  flex-shrink: 0; font-weight: 600; text-align: right;
+  min-width: 60px;
+}
+
+/* ── State metrics table ─────────────────────────────────────────────────── */
+.eot-state-table { display: flex; flex-direction: column; gap: 1px; }
+.eot-state-row {
+  display: flex; align-items: baseline; gap: 0.5rem;
+  padding: 0.2rem 0;
+  font-size: 0.72rem; font-family: var(--mono);
+}
+.eot-state-label { flex: 1; color: rgba(255,255,255,0.55); }
+.eot-state-value { min-width: 50px; text-align: right; color: rgba(255,255,255,0.75); font-weight: 600; }
+.eot-state-delta { min-width: 55px; text-align: right; font-weight: 500; }
+.eot-state-note { font-size: 0.62rem; color: rgba(255,255,255,0.3); margin-left: 0.3rem; }
+
+/* ── Relations list ──────────────────────────────────────────────────────── */
+.eot-relations-list { display: flex; flex-direction: column; gap: 1px; }
+.eot-relations-row {
+  display: flex; align-items: baseline; gap: 0.4rem;
+  padding: 0.2rem 0;
+  font-size: 0.72rem; font-family: var(--mono);
+}
+.eot-relations-arrow { width: 14px; text-align: center; font-weight: 700; flex-shrink: 0; }
+.eot-relations-name { flex: 1; color: rgba(255,255,255,0.65); }
+.eot-relations-value { min-width: 30px; text-align: right; color: rgba(255,255,255,0.5); }
+.eot-relations-delta { min-width: 45px; text-align: right; font-weight: 600; }
+.eot-relations-note { font-size: 0.62rem; color: rgba(255,255,255,0.3); margin-left: 0.3rem; }
+
+/* ── World events list ───────────────────────────────────────────────────── */
+.eot-events-list { display: flex; flex-direction: column; gap: 2px; }
+.eot-event-row {
+  display: flex; align-items: flex-start; gap: 0.4rem;
+  padding: 0.2rem 0;
+  font-size: 0.72rem;
+}
+.eot-event-icon { flex-shrink: 0; font-size: 0.7rem; }
+.eot-event-text { color: rgba(255,255,255,0.65); line-height: 1.5; }
+
 /* ── Continue button area ────────────────────────────────────────────────── */
 .continue-row {
   display: flex;
