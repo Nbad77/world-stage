@@ -2368,6 +2368,12 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
                 "turns_remaining": max(0, _due - gs.current_turn)
             })
 
+    _deals_this_turn = [
+        d for d in (gs.deal_history or [])
+        if d.get('turn_accepted') == gs.current_turn - 1
+    ]
+    print(f"[EOT_DEALS] {len(_deals_this_turn)} deals this turn")
+
     # World event lines from eot_messages (non-financial, non-approval)
     _world_event_lines = []
     for _msg in eot_messages:
@@ -2462,12 +2468,6 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
           f"relations_changed={len(_eot_data['relations'])}")
 
     _save_gs(session_id, gs)
-
-    _deals_this_turn = [
-        d for d in (gs.deal_history or [])
-        if d.get('turn_accepted') == gs.current_turn - 1
-    ]
-    print(f"[EOT_DEALS] {len(_deals_this_turn)} deals this turn")
 
     return {
         "skim_messages": skim_messages,
