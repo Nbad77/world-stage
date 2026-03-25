@@ -327,10 +327,7 @@ export default function EotPanel({ messages, eotData }) {
         </Section>
       )}
 
-      {/* Legacy string messages that don't fit structured categories */}
-      {messages && messages.length > 0 && (
-        <LegacyPanel messages={messages} />
-      )}
+      {/* Legacy fallback only renders when eotData is null — see early return above */}
     </div>
   )
 }

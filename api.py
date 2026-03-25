@@ -2376,8 +2376,14 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
 
     # World event lines from eot_messages (non-financial, non-approval)
     _world_event_lines = []
+    _cost_keywords = ['Government costs', 'Intelligence:', 'Commitment costs']
     for _msg in eot_messages:
-        if isinstance(_msg, str) and any(_msg.startswith(p) for p in
+        if not isinstance(_msg, str):
+            continue
+        # Skip cost/treasury strings that belong in FINANCES, not World Events
+        if _msg.startswith('🏛') or any(_ck in _msg for _ck in _cost_keywords):
+            continue
+        if any(_msg.startswith(p) for p in
             ['🇺🇸🇪🇺', '🛢️⚡', '🌍', '⚡🇺🇸', '🛢️💰', '⚡🤝', '🕵️🤝']):
             _world_event_lines.append({"text": _msg, "type": "event"})
 

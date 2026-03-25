@@ -801,6 +801,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  min-height: 36px;
   background: transparent;
   border: none;
   border-radius: 4px;
