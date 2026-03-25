@@ -7023,13 +7023,32 @@ def _advisor_pool_fallback(advisor_dict) -> dict:
     name = advisor_dict.get('name', 'This candidate')
     competence = advisor_dict.get('competence', 50)
     loyalty = advisor_dict.get('loyalty', 50)
+    if competence >= 70 and loyalty >= 70:
+        profile = (f"{name} looks solid on paper. "
+                   f"Strong capability, loyalty seems "
+                   f"genuine. Worth considering.")
+        rec = "I'd bring them in."
+    elif competence >= 70 and loyalty < 60:
+        profile = (f"{name} has the technical chops "
+                   f"but I have questions about where "
+                   f"their loyalties sit. Capable "
+                   f"people with divided loyalties "
+                   f"are a liability.")
+        rec = "Proceed carefully."
+    elif competence < 60 and loyalty >= 70:
+        profile = (f"{name} is loyal, which matters. "
+                   f"The capability ceiling is real "
+                   f"though — don't put them in a "
+                   f"role that exceeds their range.")
+        rec = "Useful in the right seat."
+    else:
+        profile = (f"{name} is available. Moderate "
+                   f"across the board. They'll cover "
+                   f"the basics without distinction.")
+        rec = "Your call. No strong opinion."
     return {
-        "profile_text": (
-            f"{name} is available for hire. "
-            f"Competence {competence}/100, "
-            f"loyalty {loyalty}/100."
-        ),
-        "hire_recommendation": "Decision is yours.",
+        "profile_text": profile,
+        "hire_recommendation": rec,
     }
 
 
