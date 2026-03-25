@@ -9,6 +9,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '../api'
 
+// ── Advisor stat helpers ─────────────────────────────────────────────────────
+function statLabel(value) {
+  if (value >= 80) return 'High'
+  if (value >= 60) return 'Solid'
+  if (value >= 40) return 'Moderate'
+  return 'Concerning'
+}
+
 // ── Advisor role colors ──────────────────────────────────────────────────────
 const ROLE_COLORS = {
   finance_minister: '#5a8a5a',
@@ -851,9 +859,9 @@ export default function BriefingScreen({
                         <>
                           <div className="advisor-profile-divider"/>
                           <div className="advisor-profile-stats">
-                            <span>Competence {advisorProfile.competence}</span>
-                            <span>Loyalty {advisorProfile.loyalty}</span>
-                            <span>Trust {advisorProfile.trust}</span>
+                            <span>Capability: {statLabel(advisorProfile.competence)}</span>
+                            <span>Loyalty: {statLabel(advisorProfile.loyalty)}</span>
+                            <span>Trust: {statLabel(advisorProfile.trust)}</span>
                             <span>Since Day {advisorProfile.hire_day}</span>
                           </div>
                           <div className="advisor-profile-text">
@@ -927,8 +935,8 @@ export default function BriefingScreen({
                         <>
                           <div className="advisor-profile-divider"/>
                           <div className="advisor-profile-stats">
-                            <span>Competence {poolProfile.competence}</span>
-                            <span>Loyalty {poolProfile.loyalty}</span>
+                            <span>Capability: {statLabel(poolProfile.competence)}</span>
+                            <span>Loyalty: {statLabel(poolProfile.loyalty)}</span>
                           </div>
                           <div className="advisor-profile-text">
                             {poolProfile.profile_text}
