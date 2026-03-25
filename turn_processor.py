@@ -5746,6 +5746,20 @@ def apply_end_of_turn_effects(game_state):
         print(f"[DEALS] archived {len(_deals)} deals to history "
               f"with normalized keys")
     game_state.deals_today = []  # 10B-3: Clear daily deals (deal_history persists)
+
+    # Auto-apply orphaned options_override relation consequences
+    _overrides = getattr(game_state, 'options_override', None) or []
+    for _ov in _overrides:
+        _oc = (_ov.get('consequences') or {})
+        _rel = _oc.get('relations_delta') or {}
+        if isinstance(_rel, dict):
+            for _cn, _cd in _rel.items():
+                if _cn in game_state.relations and isinstance(_cd, (int, float)):
+                    game_state.update_relations(_cn, _cd)
+                    print(f"[OVERRIDE_EOT] auto-applied relation: {_cn} {'+' if _cd > 0 else ''}{_cd}")
+    game_state.options_override = None
+    print(f"[OVERRIDE_EOT] cleared {len(_overrides)} orphaned overrides")
+
     game_state.contact_requested = {}  # Reset daily contact requests
 
     # Unlock declarations at day 5

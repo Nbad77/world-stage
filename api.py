@@ -3505,6 +3505,67 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
               f"active_installments_count="
               f"{len(getattr(gs, 'active_installments', []))}")
 
+        # Apply negotiated payment at accept time — zero out in override to prevent
+        # double-apply when /action resolves the deal letter
+        _c = counter.get("consequences") or {}
+        _raw_budget = _c.get("budget") or 0
+        _raw_budget_delta = _c.get("budget_delta") or 0
+
+        # Normalize to billions (same logic as /action lines 1459-1543)
+        if abs(_raw_budget) > 1000:
+            _raw_budget = _raw_budget / 1_000_000_000
+        if abs(_raw_budget_delta) > 1000:
+            _raw_budget_delta = _raw_budget_delta / 1_000_000_000
+
+        _combined = (_raw_budget or 0) + (_raw_budget_delta or 0)
+
+        # FIX H: if negative but deal text contains pay-signals, flip to positive
+        _pay_signals = ['pay', 'grant', 'provide', 'commit', 'fund', 'transfer', 'billion', 'million']
+        if _combined < 0 and any(s in (_deal_text or '').lower() for s in _pay_signals):
+            _combined = abs(_combined)
+
+        # Cap at $20B
+        if abs(_combined) > 20.0:
+            _combined = 20.0 if _combined > 0 else -20.0
+
+        if _combined != 0:
+            gs.update_budget(_combined)
+            print(f"[ACCEPT] budget applied: {'+' if _combined > 0 else ''}{_combined}B for {npc_id}")
+
+        # Register installments at accept time
+        _inst_amount_co = _c.get("installment_amount")
+        _inst_turns_co = _c.get("installment_turns")
+        if _inst_amount_co and _inst_turns_co and int(_inst_turns_co) > 1:
+            if not hasattr(gs, 'active_installments') or gs.active_installments is None:
+                gs.active_installments = []
+            _norm_amount = float(_inst_amount_co)
+            if abs(_norm_amount) > 1000:
+                _norm_amount = _norm_amount / 1_000_000_000
+            if abs(_norm_amount) > 10.0:
+                _norm_amount = 10.0 if _norm_amount > 0 else -10.0
+            for _t in range(1, int(_inst_turns_co) + 1):
+                gs.active_installments.append({
+                    "npc_id": npc_id,
+                    "amount": _norm_amount,
+                    "due_turn": gs.current_turn + _t,
+                    "description": f"Installment: {_npc_name} deal"
+                })
+            print(f"[ACCEPT] installments registered: {int(_inst_turns_co)}x ${_norm_amount}B for {npc_id}")
+
+        # Zero out budget fields in override to prevent double-apply in /action
+        _override = gs.options_override[-1] if gs.options_override else None
+        if _override and _override.get("consequences"):
+            _override["consequences"]["budget"] = 0
+            _override["consequences"]["budget_delta"] = 0
+            _override["consequences"]["installment_amount"] = None
+            _override["consequences"]["installment_turns"] = None
+            _override["consequences"]["installments"] = None
+
+        # Tag deals_today entry with budget_applied for dismiss reversal
+        for _d in (gs.deals_today or []):
+            if _d.get('npc_id') == npc_id:
+                _d['budget_applied'] = _combined
+
     # Reload-and-patch: only update fields accept_counter owns,
     # preserving events_resolved_today and other briefing state
     gs_fresh = _load_gs(session_id)
@@ -3515,6 +3576,7 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
     gs_fresh.legitimacy_stability = gs.legitimacy_stability
     gs_fresh.detection_heat = gs.detection_heat
     gs_fresh.deals_today = gs.deals_today
+    gs_fresh.active_installments = gs.active_installments
     gs_fresh.negotiation_log = gs.negotiation_log
     if hasattr(gs, 'pending_gm_consequences'):
         gs_fresh.pending_gm_consequences = gs.pending_gm_consequences
@@ -3524,6 +3586,49 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
         gs_fresh.intel_activated_this_turn = gs.intel_activated_this_turn
     _save_gs(session_id, gs_fresh)
     return {"status": "ok", "letter": letter, "covert": counter.get('covert', False)}
+
+
+@app.delete("/game/{session_id}/deals/{deal_id}")
+async def dismiss_deal(session_id: str, deal_id: str,
+                        user: User = Depends(get_optional_user)):
+    """Dismiss a deal from deals_today, reversing any budget applied at accept time."""
+    _verify_game_ownership(session_id, user)
+    gs = _load_gs(session_id)
+
+    # Find deal in deals_today
+    _deal = next((d for d in (gs.deals_today or [])
+                   if str(d.get('id')) == deal_id), None)
+    if not _deal:
+        raise HTTPException(404, "Deal not found or already archived")
+
+    # Reverse budget if it was applied at accept time
+    _applied = _deal.get('budget_applied', 0)
+    if _applied and isinstance(_applied, (int, float)) and _applied != 0:
+        gs.update_budget(-_applied)
+        print(f"[DISMISS] reversed budget: {_applied}B for {_deal.get('npc_name')}")
+
+    # Remove from deals_today
+    gs_fresh = _load_gs(session_id)
+    gs_fresh.deals_today = [d for d in (gs_fresh.deals_today or [])
+                             if str(d.get('id')) != deal_id]
+
+    # Remove matching options_override entry
+    gs_fresh.options_override = [o for o in (gs_fresh.options_override or [])
+                                  if o.get('letter') != _deal.get('letter')]
+    if not gs_fresh.options_override:
+        gs_fresh.options_override = None
+
+    # Remove registered installments for this deal
+    gs_fresh.active_installments = [i for i in (gs_fresh.active_installments or [])
+                                     if i.get('npc_id') != _deal.get('npc_id')]
+
+    # Apply the reversed budget from gs to gs_fresh
+    gs_fresh.budget = gs.budget
+
+    _save_gs(session_id, gs_fresh)
+    print(f"[DISMISS] deal dismissed: {_deal.get('npc_name')} id={deal_id}")
+
+    return {"status": "dismissed", "game_state": gs_fresh.serialize()}
 
 
 # ── Session 4B: Election ─────────────────────────────────────────────────────
