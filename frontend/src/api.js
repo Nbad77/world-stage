@@ -143,6 +143,10 @@ export const api = {
   advisorProfileRead: (id, archetype) =>
     request('POST', `/game/${id}/advisor/profile-read`, { advisor_key: archetype }),
 
+  /** POST /game/{id}/advisor/pool-read — Mike's evaluative assessment of a pool candidate */
+  advisorPoolRead: (id, archetype) =>
+    request('POST', `/game/${id}/advisor/pool-read`, { advisor_key: archetype }),
+
   /** GET /game/{id}/advisor/pool — get advisor hiring pool */
   getAdvisorPool: (id) =>
     request('GET', `/game/${id}/advisor/pool`),

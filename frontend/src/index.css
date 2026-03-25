@@ -4715,6 +4715,43 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .advisor-consequence--eliminate {
   color: rgba(220,100,100,0.5);
 }
+.advisor-briefing-card--available {
+  background: rgba(255,255,255,0.01);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-left-width: 3px;
+}
+.advisor-briefing-card--available:hover {
+  opacity: 0.85 !important;
+  background: rgba(255,255,255,0.04);
+}
+.advisor-hire-cost {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: rgba(255,255,255,0.35);
+  flex-shrink: 0;
+}
+.advisor-hire-recommendation {
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 10px;
+  font-style: italic;
+}
+.advisor-action-btn--hire {
+  background: rgba(40,120,80,0.2);
+  border-color: rgba(40,180,100,0.4);
+  color: rgba(100,220,140,0.9);
+}
+.advisor-action-btn--hire:hover:not(:disabled) {
+  background: rgba(40,120,80,0.35);
+  border-color: rgba(40,180,100,0.6);
+}
+.advisor-action-btn--hire:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .advisory-council-loading {
   font-size: 12px;
   color: rgba(255,255,255,0.3);

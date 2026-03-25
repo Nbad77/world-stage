@@ -160,6 +160,13 @@ export default function BriefingScreen({
   const [advisorProfile, setAdvisorProfile] = useState(null)
   const [profileLoading, setProfileLoading] = useState(false)
 
+  // Advisor pool (available to hire) state
+  const [availableAdvisors, setAvailableAdvisors] = useState([])
+  const [poolProfile, setPoolProfile] = useState(null)
+  const [poolProfileLoading, setPoolProfileLoading] = useState(false)
+  const [expandedPoolAdvisor, setExpandedPoolAdvisor] = useState(null)
+  const [hiring, setHiring] = useState(false)
+
   // 10B-3: When gameState.deals_today changes, immediately show deals
   // then background-refresh from server for authoritative data
   useEffect(() => {
@@ -342,6 +349,10 @@ export default function BriefingScreen({
       setExpandedAdvisor(null)
       setAdvisorProfile(null)
       setAdvisorBriefings(prev => prev.filter(a => a.role !== archetype))
+      // Refresh pool after dismiss (advisor returns to pool)
+      api.getAdvisorPool(sessionId)
+        .then(r => setAvailableAdvisors(r.pool || []))
+        .catch(() => {})
     } catch (e) {
       console.error('[ADVISOR] dismiss failed', e)
     }
@@ -354,8 +365,67 @@ export default function BriefingScreen({
       setExpandedAdvisor(null)
       setAdvisorProfile(null)
       setAdvisorBriefings(prev => prev.filter(a => a.role !== archetype))
+      // Refresh pool after eliminate (advisor is removed permanently)
+      api.getAdvisorPool(sessionId)
+        .then(r => setAvailableAdvisors(r.pool || []))
+        .catch(() => {})
     } catch (e) {
       console.error('[ADVISOR] eliminate failed', e)
+    }
+  }
+
+  // Fetch available advisor pool on mount / day change
+  useEffect(() => {
+    if (!sessionId) return
+    api.getAdvisorPool(sessionId)
+      .then(result => {
+        setAvailableAdvisors(result.pool || [])
+      })
+      .catch(e => console.error('[ADVISOR] pool fetch failed', e))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, currentDay])
+
+  async function handlePoolAdvisorClick(advisor) {
+    if (expandedPoolAdvisor?.archetype === advisor.archetype) {
+      setExpandedPoolAdvisor(null)
+      setPoolProfile(null)
+      return
+    }
+    setExpandedPoolAdvisor(advisor)
+    setPoolProfile(null)
+    setPoolProfileLoading(true)
+    try {
+      const result = await api.advisorPoolRead(sessionId, advisor.archetype)
+      setPoolProfile(result)
+    } catch (e) {
+      console.error('[ADVISOR] pool read failed', e)
+      setPoolProfile({
+        profile_text: 'Assessment unavailable.',
+        hire_recommendation: ''
+      })
+    } finally {
+      setPoolProfileLoading(false)
+    }
+  }
+
+  async function handleHire(advisor) {
+    setHiring(true)
+    try {
+      const result = await api.hireAdvisor(sessionId, advisor.id)
+      if (result.game_state && onGsUpdate) onGsUpdate(result.game_state)
+      setExpandedPoolAdvisor(null)
+      setPoolProfile(null)
+      // Refresh pool
+      const pool = await api.getAdvisorPool(sessionId)
+      setAvailableAdvisors(pool.pool || [])
+      // Refresh morning briefings to show new hire
+      const morning = await api.briefingMorning(sessionId)
+      setChiefOfStaff(morning.chief_of_staff)
+      setAdvisorBriefings(morning.advisor_briefings || [])
+    } catch (e) {
+      console.error('[ADVISOR] hire failed', e)
+    } finally {
+      setHiring(false)
     }
   }
 
@@ -749,6 +819,8 @@ export default function BriefingScreen({
                 oligarch: '#7a5a3a',
                 general: '#6a6a5a',
                 fixer: '#5a5a6a',
+                spy_chief: '#5a6a7a',
+                militia_commander: '#6a5a5a',
               }
               return (
                 <div key={advisor.id}
@@ -820,27 +892,64 @@ export default function BriefingScreen({
                 </div>
               )
             })}
-            {/* Empty advisor slots */}
-            {(() => {
-              const maxAdvisors = 3
-              const hiredCount = (advisorBriefings || []).length
-              const emptySlots = maxAdvisors - hiredCount
-              if (emptySlots <= 0) return null
-              return Array.from({ length: emptySlots }).map((_, i) => (
-                <div key={`empty-slot-${i}`}
-                     className="advisor-briefing-card advisor-briefing-card--empty"
-                     onClick={() => { console.log('[COUNCIL] empty slot clicked — switching to advisors tab'); if (onSwitchToAdvisors) onSwitchToAdvisors() }}
-                     title="Switch to Domestic tab to hire specialists">
+            {/* Available advisor pool cards */}
+            {availableAdvisors.map(advisor => {
+              // Skip already hired archetypes
+              const hiredArchetypes = (advisorBriefings || []).map(a => a.role)
+              if (hiredArchetypes.includes(advisor.archetype)) return null
+              return (
+                <div key={advisor.archetype}
+                     className="advisor-briefing-card advisor-briefing-card--available"
+                     style={{
+                       borderLeftColor: ROLE_COLORS[advisor.archetype] || 'rgba(255,255,255,0.15)',
+                       cursor: 'pointer',
+                       opacity: 0.6
+                     }}
+                     onClick={() => handlePoolAdvisorClick(advisor)}>
                   <div className="advisor-briefing-header">
-                    <span className="advisor-briefing-icon">+</span>
+                    <span className="advisor-briefing-icon">{advisor.icon}</span>
                     <div className="advisor-briefing-meta">
-                      <span className="advisor-briefing-name">Hire Advisor</span>
-                      <span className="advisor-briefing-label">$0.5B — expand your council</span>
+                      <span className="advisor-briefing-name">{advisor.name}</span>
+                      <span className="advisor-briefing-label">{advisor.label} — Available</span>
                     </div>
+                    <span className="advisor-hire-cost">${advisor.hire_cost || '0.5'}B</span>
                   </div>
+                  {expandedPoolAdvisor?.archetype === advisor.archetype && (
+                    <div className="advisor-profile-expand">
+                      {poolProfileLoading && (
+                        <div className="advisor-profile-loading">
+                          Consulting Mike...
+                        </div>
+                      )}
+                      {poolProfile && !poolProfileLoading && (
+                        <>
+                          <div className="advisor-profile-divider"/>
+                          <div className="advisor-profile-stats">
+                            <span>Competence {poolProfile.competence}</span>
+                            <span>Loyalty {poolProfile.loyalty}</span>
+                          </div>
+                          <div className="advisor-profile-text">
+                            {poolProfile.profile_text}
+                          </div>
+                          <div className="advisor-hire-recommendation">
+                            {poolProfile.hire_recommendation}
+                          </div>
+                          <button
+                            className="advisor-action-btn advisor-action-btn--hire"
+                            disabled={hiring}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleHire(advisor)
+                            }}>
+                            {hiring ? 'Hiring...' : `Hire — $${advisor.hire_cost || '0.5'}B`}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
-              ))
-            })()}
+              )
+            })}
           </div>
         )}
       </div>

@@ -7016,3 +7016,105 @@ def generate_advisor_profile_read(gs, advisor_dict) -> dict:
     except Exception as e:
         print(f"[ADVISOR_PROFILE] generation failed: {e}")
         return _advisor_profile_fallback(advisor_dict)
+
+
+def _advisor_pool_fallback(advisor_dict) -> dict:
+    """Static fallback when Haiku API unavailable for pool advisor read."""
+    name = advisor_dict.get('name', 'This candidate')
+    competence = advisor_dict.get('competence', 50)
+    loyalty = advisor_dict.get('loyalty', 50)
+    return {
+        "profile_text": (
+            f"{name} is available for hire. "
+            f"Competence {competence}/100, "
+            f"loyalty {loyalty}/100."
+        ),
+        "hire_recommendation": "Decision is yours.",
+    }
+
+
+def generate_advisor_pool_read(gs, advisor_dict) -> dict:
+    """
+    Generate Mike Sorel's evaluative assessment of a candidate advisor
+    (not yet hired). Single Haiku call, returns dict with profile_text
+    and hire_recommendation.
+    """
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return _advisor_pool_fallback(advisor_dict)
+
+    name = advisor_dict.get('name', 'Unknown')
+    label = advisor_dict.get('label', 'Advisor')
+    competence = advisor_dict.get('competence', 50)
+    loyalty = advisor_dict.get('loyalty', 50)
+    hire_day = advisor_dict.get('hire_day', 1)
+
+    # Build list of currently hired advisor labels
+    hired_labels = []
+    _advisors = getattr(gs, 'advisors', {})
+    if isinstance(_advisors, dict):
+        for adv in _advisors.values():
+            if isinstance(adv, dict):
+                hired_labels.append(adv.get('label', adv.get('archetype', '?')))
+
+    system_prompt = (
+        "You are Mikhail 'Mike' Sorel, Chief of Staff "
+        "to the leader of Europa. Give a candid private "
+        "assessment of a candidate being considered for hire. "
+        "Direct, slightly wry, evaluative — sizing them up. "
+        "Return JSON only. No markdown, no preamble."
+    )
+
+    user_prompt = (
+        f"A candidate is being considered for the role of {label}: {name}.\n"
+        f"Competence assessment: {competence}/100.\n"
+        f"Estimated loyalty: {loyalty}/100.\n"
+        f"Cost: $0.5B.\n"
+        f"Current state:\n"
+        f"Stability {gs.stability}%,\n"
+        f"Approval {gs.public_approval}%,\n"
+        f"Day {gs.current_day}.\n"
+        f"Currently hired advisors: {hired_labels if hired_labels else 'None'}.\n"
+        f"Return this exact JSON:\n"
+        f'{{\n'
+        f'  "profile_text": "2-3 sentences assessing this candidate. '
+        f'Is this the right hire for our current situation? '
+        f'What do they bring and what are the risks?",\n'
+        f'  "hire_recommendation": "One sentence: direct recommendation '
+        f'on whether to hire now or wait."\n'
+        f'}}'
+    )
+
+    try:
+        response = _client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=150,
+            temperature=0.7,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
+
+        raw = response.content[0].text.strip()
+        # Strip code fences if present
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            raw = "\n".join(lines)
+
+        result = json.loads(raw)
+        # Validate expected keys
+        for key in ("profile_text", "hire_recommendation"):
+            if key not in result:
+                raise ValueError(f"Missing key: {key}")
+
+        print(f"[ADVISOR_POOL_READ] generated for candidate "
+              f"{advisor_dict.get('name')} "
+              f"({advisor_dict.get('archetype')})")
+        return result
+
+    except Exception as e:
+        print(f"[ADVISOR_POOL_READ] generation failed: {e}")
+        return _advisor_pool_fallback(advisor_dict)

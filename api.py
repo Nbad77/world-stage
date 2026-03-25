@@ -5050,6 +5050,37 @@ async def advisor_profile_read(session_id: str, body: AdvisorAssignRequest):
     }
 
 
+@app.post("/game/{session_id}/advisor/pool-read")
+async def advisor_pool_read(session_id: str, body: AdvisorAssignRequest):
+    """Get Mike Sorel's evaluative assessment of a candidate advisor from the pool."""
+    gs = _load_gs(session_id)
+    archetype = body.advisor_key
+    # Find advisor in pool list by archetype
+    advisor = None
+    for a in (gs.advisor_pool or []):
+        if isinstance(a, dict) and a.get('archetype') == archetype:
+            advisor = a
+            break
+    if not advisor:
+        raise HTTPException(status_code=404, detail=f"Pool advisor {archetype} not found")
+    import asyncio
+    result = await asyncio.to_thread(
+        npc_engine.generate_advisor_pool_read, gs, advisor)
+    print(f"[ADVISOR_POOL_READ] endpoint called: {archetype}")
+    return {
+        "archetype": archetype,
+        "name": advisor.get("name"),
+        "label": advisor.get("label"),
+        "icon": advisor.get("icon"),
+        "competence": advisor.get("competence"),
+        "loyalty": advisor.get("loyalty"),
+        "cost": advisor.get("hire_cost", 0.5),
+        "id": advisor.get("id"),
+        "profile_text": result["profile_text"],
+        "hire_recommendation": result["hire_recommendation"],
+    }
+
+
 @app.post("/game/{session_id}/advisor/dismiss")
 def advisor_dismiss(session_id: str, body: AdvisorAssignRequest):
     """Dismiss an active advisor. Free. Returns to pool."""
