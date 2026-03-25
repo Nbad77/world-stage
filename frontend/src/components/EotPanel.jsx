@@ -319,7 +319,6 @@ export default function EotPanel({ messages, eotData }) {
           <div className="eot-events-list">
             {world_events.map((evt, i) => (
               <div key={i} className="eot-event-row">
-                <span className="eot-event-icon">🌐</span>
                 <span className="eot-event-text">{evt.text}</span>
               </div>
             ))}
