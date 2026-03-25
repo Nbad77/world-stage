@@ -6951,21 +6951,27 @@ def generate_advisor_profile_read(gs, advisor_dict) -> dict:
         if has_betrayed else ""
     )
 
+    def _qual(v):
+        if v >= 80: return 'High'
+        if v >= 60: return 'Solid'
+        if v >= 40: return 'Moderate'
+        return 'Concerning'
+
     system_prompt = (
         "You are Mikhail 'Mike' Sorel, Chief of Staff "
         "to the leader of Europa. Give a candid private "
         "assessment of one of the leader's advisors. "
         "Direct, slightly wry, honest about both "
-        "strengths and concerns. Return JSON only. "
-        "No markdown, no preamble."
+        "strengths and concerns. Do not quote exact numbers. "
+        "Return JSON only. No markdown, no preamble."
     )
 
     user_prompt = (
         f"Assess {name}, our {label}.\n"
         f"With us since Day {hire_day}.\n"
-        f"Competence: {competence}/100.\n"
-        f"Loyalty: {loyalty}/100.\n"
-        f"Trust: {trust}/100.\n"
+        f"Capability: {_qual(competence)}.\n"
+        f"Loyalty: {_qual(loyalty)}.\n"
+        f"Trust: {_qual(trust)}.\n"
         f"{betrayal_note}\n"
         f"Current state:\n"
         f"Stability {gs.stability}%,\n"
@@ -7076,18 +7082,25 @@ def generate_advisor_pool_read(gs, advisor_dict) -> dict:
             if isinstance(adv, dict):
                 hired_labels.append(adv.get('label', adv.get('archetype', '?')))
 
+    def _qual(v):
+        if v >= 80: return 'High'
+        if v >= 60: return 'Solid'
+        if v >= 40: return 'Moderate'
+        return 'Concerning'
+
     system_prompt = (
         "You are Mikhail 'Mike' Sorel, Chief of Staff "
         "to the leader of Europa. Give a candid private "
         "assessment of a candidate being considered for hire. "
         "Direct, slightly wry, evaluative — sizing them up. "
+        "Do not quote exact numbers. "
         "Return JSON only. No markdown, no preamble."
     )
 
     user_prompt = (
         f"A candidate is being considered for the role of {label}: {name}.\n"
-        f"Competence assessment: {competence}/100.\n"
-        f"Estimated loyalty: {loyalty}/100.\n"
+        f"Capability assessment: {_qual(competence)}.\n"
+        f"Estimated loyalty: {_qual(loyalty)}.\n"
         f"Cost: $0.5B.\n"
         f"Current state:\n"
         f"Stability {gs.stability}%,\n"

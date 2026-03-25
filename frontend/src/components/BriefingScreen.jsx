@@ -184,7 +184,7 @@ export default function BriefingScreen({
 
   // Advisor pool (available to hire) state
   const [availableAdvisors, setAvailableAdvisors] = useState([])
-  const [poolProfile, setPoolProfile] = useState(null)
+  const [poolProfileCache, setPoolProfileCache] = useState({})
   const [poolProfileLoading, setPoolProfileLoading] = useState(false)
   const [expandedPoolAdvisor, setExpandedPoolAdvisor] = useState(null)
   const [hiring, setHiring] = useState(false)
@@ -410,21 +410,29 @@ export default function BriefingScreen({
   async function handlePoolAdvisorClick(advisor) {
     if (expandedPoolAdvisor?.archetype === advisor.archetype) {
       setExpandedPoolAdvisor(null)
-      setPoolProfile(null)
       return
     }
     setExpandedPoolAdvisor(advisor)
-    setPoolProfile(null)
+    // Return cached result if available
+    if (poolProfileCache[advisor.archetype]) {
+      return
+    }
     setPoolProfileLoading(true)
     try {
       const result = await api.advisorPoolRead(sessionId, advisor.archetype)
-      setPoolProfile(result)
+      setPoolProfileCache(prev => ({
+        ...prev,
+        [advisor.archetype]: result
+      }))
     } catch (e) {
       console.error('[ADVISOR] pool read failed', e)
-      setPoolProfile({
-        profile_text: 'Assessment unavailable.',
-        hire_recommendation: ''
-      })
+      setPoolProfileCache(prev => ({
+        ...prev,
+        [advisor.archetype]: {
+          profile_text: 'Assessment unavailable.',
+          hire_recommendation: ''
+        }
+      }))
     } finally {
       setPoolProfileLoading(false)
     }
@@ -436,7 +444,11 @@ export default function BriefingScreen({
       const result = await api.hireAdvisor(sessionId, advisor.id)
       if (result.game_state && onGsUpdate) onGsUpdate(result.game_state)
       setExpandedPoolAdvisor(null)
-      setPoolProfile(null)
+      setPoolProfileCache(prev => {
+        const next = {...prev}
+        delete next[advisor.archetype]
+        return next
+      })
       // Refresh pool
       const pool = await api.getAdvisorPool(sessionId)
       setAvailableAdvisors(pool.pool || [])
@@ -931,18 +943,18 @@ export default function BriefingScreen({
                           Consulting Mike...
                         </div>
                       )}
-                      {poolProfile && !poolProfileLoading && (
+                      {poolProfileCache[advisor.archetype] && !poolProfileLoading && (
                         <>
                           <div className="advisor-profile-divider"/>
                           <div className="advisor-profile-stats">
-                            <span>Capability: {statLabel(poolProfile.competence)}</span>
-                            <span>Loyalty: {statLabel(poolProfile.loyalty)}</span>
+                            <span>Capability: {statLabel(poolProfileCache[advisor.archetype].competence)}</span>
+                            <span>Loyalty: {statLabel(poolProfileCache[advisor.archetype].loyalty)}</span>
                           </div>
                           <div className="advisor-profile-text">
-                            {poolProfile.profile_text}
+                            {poolProfileCache[advisor.archetype].profile_text}
                           </div>
                           <div className="advisor-hire-recommendation">
-                            {poolProfile.hire_recommendation}
+                            {poolProfileCache[advisor.archetype].hire_recommendation}
                           </div>
                           <button
                             className="advisor-action-btn advisor-action-btn--hire"
