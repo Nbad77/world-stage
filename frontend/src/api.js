@@ -139,6 +139,10 @@ export const api = {
   eliminateAdvisor: (id, advisorKey) =>
     request('POST', `/game/${id}/advisor/eliminate`, { advisor_key: advisorKey }),
 
+  /** POST /game/{id}/advisor/profile-read — Mike's candid assessment of an advisor */
+  advisorProfileRead: (id, archetype) =>
+    request('POST', `/game/${id}/advisor/profile-read`, { advisor_key: archetype }),
+
   /** GET /game/{id}/advisor/pool — get advisor hiring pool */
   getAdvisorPool: (id) =>
     request('GET', `/game/${id}/advisor/pool`),

@@ -6902,3 +6902,117 @@ def _advisor_morning_fallback(gs) -> dict:
           f"keys={list(result.keys())} "
           f"intro_done={gs.chief_of_staff_intro_done}")
     return result
+
+
+# ── Session A: Advisor Profile Read (Mike's candid assessment) ─────────────
+
+def _advisor_profile_fallback(advisor_dict) -> dict:
+    """Static fallback when Haiku API unavailable for advisor profile read."""
+    name = advisor_dict.get('name', 'This advisor')
+    competence = advisor_dict.get('competence', 50)
+    loyalty = advisor_dict.get('loyalty', 50)
+    return {
+        "profile_text": (
+            f"{name} has served since Day "
+            f"{advisor_dict.get('hire_day', 1)}. "
+            f"Competence {competence}/100, "
+            f"loyalty {loyalty}/100. "
+            f"Reliable enough for now."
+        ),
+        "dismiss_consequence": (
+            "The slot will reopen for a replacement."
+        ),
+        "eliminate_consequence": (
+            "This action will generate heat and "
+            "may affect stability."
+        ),
+    }
+
+
+def generate_advisor_profile_read(gs, advisor_dict) -> dict:
+    """
+    Generate Mike Sorel's candid private assessment of a specific advisor.
+    Single Haiku call, returns dict with profile_text, dismiss_consequence,
+    eliminate_consequence.
+    """
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return _advisor_profile_fallback(advisor_dict)
+
+    name = advisor_dict.get('name', 'Unknown')
+    label = advisor_dict.get('label', 'Advisor')
+    competence = advisor_dict.get('competence', 50)
+    loyalty = advisor_dict.get('loyalty', 50)
+    trust = advisor_dict.get('trust', 75)
+    hire_day = advisor_dict.get('hire_day', 1)
+    has_betrayed = advisor_dict.get('has_betrayed', False)
+    betrayal_note = (
+        "They have shown signs of disloyalty in the past."
+        if has_betrayed else ""
+    )
+
+    system_prompt = (
+        "You are Mikhail 'Mike' Sorel, Chief of Staff "
+        "to the leader of Europa. Give a candid private "
+        "assessment of one of the leader's advisors. "
+        "Direct, slightly wry, honest about both "
+        "strengths and concerns. Return JSON only. "
+        "No markdown, no preamble."
+    )
+
+    user_prompt = (
+        f"Assess {name}, our {label}.\n"
+        f"With us since Day {hire_day}.\n"
+        f"Competence: {competence}/100.\n"
+        f"Loyalty: {loyalty}/100.\n"
+        f"Trust: {trust}/100.\n"
+        f"{betrayal_note}\n"
+        f"Current state:\n"
+        f"Stability {gs.stability}%,\n"
+        f"Approval {gs.public_approval}%,\n"
+        f"Day {gs.current_day}.\n"
+        f"Return this exact JSON:\n"
+        f'{{\n'
+        f'  "profile_text": "2-3 sentences assessing this advisor candidly '
+        f'in Mike\'s voice. Note both strengths and any concerns.",\n'
+        f'  "dismiss_consequence": "One sentence: what dismissing them means '
+        f'right now for Europa. Practical, not dramatic.",\n'
+        f'  "eliminate_consequence": "One sentence: what eliminating them means. '
+        f'Be specific about heat, stability, or political consequences. '
+        f'Do not soften it."\n'
+        f'}}'
+    )
+
+    try:
+        response = _client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            temperature=0.7,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+        _token_log["calls"] += 1
+        _token_log["input_tokens"] += response.usage.input_tokens
+        _token_log["output_tokens"] += response.usage.output_tokens
+
+        raw = response.content[0].text.strip()
+        # Strip code fences if present
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            raw = "\n".join(lines)
+
+        result = json.loads(raw)
+        # Validate expected keys
+        for key in ("profile_text", "dismiss_consequence", "eliminate_consequence"):
+            if key not in result:
+                raise ValueError(f"Missing key: {key}")
+
+        print(f"[ADVISOR_PROFILE] generated read for "
+              f"{advisor_dict.get('name')} "
+              f"({advisor_dict.get('archetype')})")
+        return result
+
+    except Exception as e:
+        print(f"[ADVISOR_PROFILE] generation failed: {e}")
+        return _advisor_profile_fallback(advisor_dict)

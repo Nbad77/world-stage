@@ -4882,6 +4882,34 @@ def advisor_hire(session_id: str, body: AdvisorHireRequest):
     return {"success": True, "message": msg, "advisors": gs.advisors, "advisor_pool": gs.advisor_pool, "game_state": gs.serialize()}
 
 
+@app.post("/game/{session_id}/advisor/profile-read")
+async def advisor_profile_read(session_id: str, body: AdvisorAssignRequest):
+    """Get Mike Sorel's candid assessment of a specific advisor."""
+    gs = _load_gs(session_id)
+    archetype = body.advisor_key
+    advisor = (gs.advisors or {}).get(archetype)
+    if not advisor:
+        raise HTTPException(status_code=404, detail=f"Advisor {archetype} not found")
+    import asyncio
+    result = await asyncio.to_thread(
+        npc_engine.generate_advisor_profile_read, gs, advisor)
+    print(f"[ADVISOR_PROFILE] endpoint called: {archetype}")
+    return {
+        "archetype": archetype,
+        "name": advisor.get("name"),
+        "label": advisor.get("label"),
+        "icon": advisor.get("icon"),
+        "competence": advisor.get("competence"),
+        "loyalty": advisor.get("loyalty"),
+        "trust": advisor.get("trust"),
+        "hire_day": advisor.get("hire_day"),
+        "has_betrayed": advisor.get("has_betrayed", False),
+        "profile_text": result["profile_text"],
+        "dismiss_consequence": result["dismiss_consequence"],
+        "eliminate_consequence": result["eliminate_consequence"],
+    }
+
+
 @app.post("/game/{session_id}/advisor/dismiss")
 def advisor_dismiss(session_id: str, body: AdvisorAssignRequest):
     """Dismiss an active advisor. Free. Returns to pool."""

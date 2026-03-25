@@ -155,6 +155,11 @@ export default function BriefingScreen({
   const [chiefOfStaff, setChiefOfStaff] = useState(null)
   const [councilOpen, setCouncilOpen] = useState(true)
 
+  // Advisor profile expand state
+  const [expandedAdvisor, setExpandedAdvisor] = useState(null)
+  const [advisorProfile, setAdvisorProfile] = useState(null)
+  const [profileLoading, setProfileLoading] = useState(false)
+
   // 10B-3: When gameState.deals_today changes, immediately show deals
   // then background-refresh from server for authoritative data
   useEffect(() => {
@@ -305,6 +310,55 @@ export default function BriefingScreen({
   }, [sessionId, currentDay])
 
   // ── Handlers ─────────────────────────────────────────────────────────────
+
+  async function handleAdvisorClick(advisor) {
+    if (expandedAdvisor?.role === advisor.role) {
+      setExpandedAdvisor(null)
+      setAdvisorProfile(null)
+      return
+    }
+    setExpandedAdvisor(advisor)
+    setAdvisorProfile(null)
+    setProfileLoading(true)
+    try {
+      const result = await api.advisorProfileRead(sessionId, advisor.role)
+      setAdvisorProfile(result)
+    } catch (e) {
+      console.error('[ADVISOR] profile read failed', e)
+      setAdvisorProfile({
+        profile_text: 'Assessment unavailable.',
+        dismiss_consequence: '',
+        eliminate_consequence: ''
+      })
+    } finally {
+      setProfileLoading(false)
+    }
+  }
+
+  async function handleAdvisorDismiss(archetype) {
+    try {
+      const result = await api.dismissAdvisor(sessionId, archetype)
+      if (result.game_state && onGsUpdate) onGsUpdate(result.game_state)
+      setExpandedAdvisor(null)
+      setAdvisorProfile(null)
+      setAdvisorBriefings(prev => prev.filter(a => a.role !== archetype))
+    } catch (e) {
+      console.error('[ADVISOR] dismiss failed', e)
+    }
+  }
+
+  async function handleAdvisorEliminate(archetype) {
+    try {
+      const result = await api.eliminateAdvisor(sessionId, archetype)
+      if (result.game_state && onGsUpdate) onGsUpdate(result.game_state)
+      setExpandedAdvisor(null)
+      setAdvisorProfile(null)
+      setAdvisorBriefings(prev => prev.filter(a => a.role !== archetype))
+    } catch (e) {
+      console.error('[ADVISOR] eliminate failed', e)
+    }
+  }
+
   function handleOpenEvent(event) {
     if (event.resolved) return
     setActiveEvent(event)
@@ -657,7 +711,15 @@ export default function BriefingScreen({
             )}
             {/* Chief of Staff — always shown */}
             {chiefOfStaff && (
-              <div className="advisor-briefing-card advisor-briefing-card--chief">
+              <div className="advisor-briefing-card advisor-briefing-card--chief"
+                   onClick={() => {
+                     if (expandedAdvisor?.role === 'chief_of_staff') {
+                       setExpandedAdvisor(null)
+                       return
+                     }
+                     setExpandedAdvisor({ role: 'chief_of_staff' })
+                   }}
+                   style={{ cursor: 'pointer' }}>
                 <div className="advisor-briefing-header">
                   <span className="advisor-briefing-icon">{chiefOfStaff.icon}</span>
                   <div className="advisor-briefing-meta">
@@ -666,6 +728,14 @@ export default function BriefingScreen({
                   </div>
                 </div>
                 <div className="advisor-briefing-text">{chiefOfStaff.text}</div>
+                {expandedAdvisor?.role === 'chief_of_staff' && (
+                  <div className="advisor-profile-expand">
+                    <div className="advisor-profile-divider"/>
+                    <div className="advisor-profile-text">
+                      Mikhail Sorel cannot be dismissed. He serves Europa regardless of who leads it.
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             {/* Hired advisor cards */}
@@ -683,7 +753,11 @@ export default function BriefingScreen({
               return (
                 <div key={advisor.id}
                      className="advisor-briefing-card"
-                     style={{ borderLeftColor: ROLE_COLORS[advisor.role] || 'rgba(255,255,255,0.15)' }}>
+                     onClick={() => handleAdvisorClick(advisor)}
+                     style={{
+                       borderLeftColor: ROLE_COLORS[advisor.role] || 'rgba(255,255,255,0.15)',
+                       cursor: 'pointer'
+                     }}>
                   <div className="advisor-briefing-header">
                     <span className="advisor-briefing-icon">{advisor.icon}</span>
                     <div className="advisor-briefing-meta">
@@ -692,6 +766,57 @@ export default function BriefingScreen({
                     </div>
                   </div>
                   <div className="advisor-briefing-text">{advisor.text}</div>
+                  {expandedAdvisor?.role === advisor.role && (
+                    <div className="advisor-profile-expand">
+                      {profileLoading && (
+                        <div className="advisor-profile-loading">
+                          Consulting Mike...
+                        </div>
+                      )}
+                      {advisorProfile && !profileLoading && (
+                        <>
+                          <div className="advisor-profile-divider"/>
+                          <div className="advisor-profile-stats">
+                            <span>Competence {advisorProfile.competence}</span>
+                            <span>Loyalty {advisorProfile.loyalty}</span>
+                            <span>Trust {advisorProfile.trust}</span>
+                            <span>Since Day {advisorProfile.hire_day}</span>
+                          </div>
+                          <div className="advisor-profile-text">
+                            {advisorProfile.profile_text}
+                          </div>
+                          <div className="advisor-profile-actions">
+                            <div className="advisor-action-row">
+                              <button
+                                className="advisor-action-btn advisor-action-btn--dismiss"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleAdvisorDismiss(advisor.role)
+                                }}>
+                                Dismiss
+                              </button>
+                              <span className="advisor-consequence advisor-consequence--dismiss">
+                                {advisorProfile.dismiss_consequence}
+                              </span>
+                            </div>
+                            <div className="advisor-action-row">
+                              <button
+                                className="advisor-action-btn advisor-action-btn--eliminate"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleAdvisorEliminate(advisor.role)
+                                }}>
+                                Eliminate
+                              </button>
+                              <span className="advisor-consequence advisor-consequence--eliminate">
+                                {advisorProfile.eliminate_consequence}
+                              </span>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}

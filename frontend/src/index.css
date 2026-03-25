@@ -4551,6 +4551,88 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   line-height: 1.65;
   color: rgba(255,255,255,0.65);
 }
+.advisor-profile-expand {
+  margin-top: 10px;
+  padding-top: 10px;
+}
+.advisor-profile-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.06);
+  margin-bottom: 10px;
+}
+.advisor-profile-stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.advisor-profile-stats span {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.35);
+}
+.advisor-profile-text {
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(255,255,255,0.6);
+  font-style: italic;
+  margin-bottom: 12px;
+}
+.advisor-profile-loading {
+  font-size: 11px;
+  color: rgba(255,255,255,0.3);
+  padding: 8px 0;
+}
+.advisor-profile-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.advisor-action-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.advisor-action-btn {
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.advisor-action-btn--dismiss {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.6);
+}
+.advisor-action-btn--dismiss:hover {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.9);
+}
+.advisor-action-btn--eliminate {
+  background: rgba(180,40,40,0.15);
+  border-color: rgba(180,40,40,0.4);
+  color: rgba(220,100,100,0.9);
+}
+.advisor-action-btn--eliminate:hover {
+  background: rgba(180,40,40,0.25);
+  border-color: rgba(180,40,40,0.6);
+}
+.advisor-consequence {
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(255,255,255,0.3);
+}
+.advisor-consequence--eliminate {
+  color: rgba(220,100,100,0.5);
+}
 .advisory-council-loading {
   font-size: 12px;
   color: rgba(255,255,255,0.3);
