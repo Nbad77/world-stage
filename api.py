@@ -2473,6 +2473,8 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
         print(f"[EOT_DATA] structured data built: "
               f"treasury_net={_eot_data['treasury']['net']} "
               f"relations_changed={len(_eot_data['relations'])}")
+        print(f"[EOT_DEBUG] pre_budget={_budget_before_eot} post_budget={gs.budget} net={gs.budget - _budget_before_eot}")
+        print(f"[EOT_DEBUG] pre_soft_power={_soft_power_before_eot} post_soft_power={getattr(gs, 'soft_power', 0)} delta={getattr(gs, 'soft_power', 0) - _soft_power_before_eot}")
     except Exception as _eot_data_err:
         print(f"[EOT_DATA] FAILED: {_eot_data_err}")
         import traceback
