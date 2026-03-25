@@ -2381,91 +2381,97 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
             ['🇺🇸🇪🇺', '🛢️⚡', '🌍', '⚡🇺🇸', '🛢️💰', '⚡🤝', '🕵️🤝']):
             _world_event_lines.append({"text": _msg, "type": "event"})
 
-    _eot_data = {
-        "treasury": {
-            "net": round((gs.budget or 0) - _budget_before_eot, 1),
-            "income": {
-                "tax_revenue": round(getattr(gs, 'last_net_revenue', 0.0), 1),
-                "tax_breakdown": {
-                    "income": round(getattr(gs, 'tax_income_component', 0.0), 1),
-                    "corporate": round(getattr(gs, 'tax_corporate_component', 0.0), 1),
-                    "resource": round(getattr(gs, 'tax_resource_component', 0.0), 1),
-                    "infra_bonus": round(getattr(gs, '_infra_gdp_bonus', 0.0), 3)
+    try:
+        _eot_data = {
+            "treasury": {
+                "net": round((gs.budget or 0) - _budget_before_eot, 1),
+                "income": {
+                    "tax_revenue": round(getattr(gs, 'last_net_revenue', 0.0), 1),
+                    "tax_breakdown": {
+                        "income": round(getattr(gs, 'tax_income_component', 0.0), 1),
+                        "corporate": round(getattr(gs, 'tax_corporate_component', 0.0), 1),
+                        "resource": round(getattr(gs, 'tax_resource_component', 0.0), 1),
+                        "infra_bonus": round(getattr(gs, '_infra_gdp_bonus', 0.0), 3)
+                    },
+                    "oil_modifier": _oil_mod_amount,
+                    "oil_modifier_note": _oil_mod_note
                 },
-                "oil_modifier": _oil_mod_amount,
-                "oil_modifier_note": _oil_mod_note
-            },
-            "costs": {
-                "oil_imports": -_oil_import_cost,
-                "government": -_gov_cost,
-                "commitments": -_commitment_total,
-                "commitment_breakdown": {
-                    "mil": round(getattr(gs, 'daily_military_cost', 0), 1),
-                    "intel": round(getattr(gs, 'daily_intel_cost', 0), 1),
-                    "diplo": round(getattr(gs, 'daily_diplomatic_cost', 0), 1),
-                    "social": round(getattr(gs, 'daily_social_cost', 0), 1),
-                    "edu": round(getattr(gs, 'daily_education_cost', 0), 1),
-                    "resource": round(getattr(gs, 'daily_resource_cost', 0), 1),
-                    "political": round(getattr(gs, 'daily_political_cost', 0), 1)
+                "costs": {
+                    "oil_imports": -_oil_import_cost,
+                    "government": -_gov_cost,
+                    "commitments": -_commitment_total,
+                    "commitment_breakdown": {
+                        "mil": round(getattr(gs, 'daily_military_cost', 0), 1),
+                        "intel": round(getattr(gs, 'daily_intel_cost', 0), 1),
+                        "diplo": round(getattr(gs, 'daily_diplomatic_cost', 0), 1),
+                        "social": round(getattr(gs, 'daily_social_cost', 0), 1),
+                        "edu": round(getattr(gs, 'daily_education_cost', 0), 1),
+                        "resource": round(getattr(gs, 'daily_resource_cost', 0), 1),
+                        "political": round(getattr(gs, 'daily_political_cost', 0), 1)
+                    },
+                    "negotiation": -_neg_cost
                 },
-                "negotiation": -_neg_cost
+                "deals": _deals_this_turn,
+                "pending": _pending_installments
             },
-            "deals": _deals_this_turn,
-            "pending": _pending_installments
-        },
-        "state": {
-            "approval": {
-                "value": gs.public_approval or 0,
-                "delta": (gs.public_approval or 0) - _approval_before_eot,
-                "note": ""
+            "state": {
+                "approval": {
+                    "value": gs.public_approval or 0,
+                    "delta": (gs.public_approval or 0) - _approval_before_eot,
+                    "note": ""
+                },
+                "stability": {
+                    "value": gs.stability or 0,
+                    "delta": (gs.stability or 0) - _stability_before_eot,
+                    "note": ""
+                },
+                "military": {
+                    "value": getattr(gs, 'military_strength', 20),
+                    "delta": getattr(gs, 'military_strength', 20) - _military_before_eot,
+                    "note": ""
+                },
+                "tech": {
+                    "value": round(float(getattr(gs, 'tech_level', 0.0)), 2),
+                    "delta": round(float(getattr(gs, 'tech_level', 0.0)) - _tech_before_eot, 2),
+                    "note": ""
+                },
+                "education": {
+                    "value": _EDU_LABELS.get(getattr(gs, 'education_level', 0), "L0"),
+                    "delta": 0,
+                    "note": ""
+                },
+                "soft_power": {
+                    "value": round(getattr(gs, 'soft_power', 0), 1),
+                    "delta": round(getattr(gs, 'soft_power', 0) - _soft_power_before_eot, 1),
+                    "note": ""
+                },
+                "dip_capital": {
+                    "value": getattr(gs, 'diplomatic_capital', 0),
+                    "delta": getattr(gs, 'diplomatic_capital', 0) - _dip_capital_before_eot,
+                    "note": ""
+                }
             },
-            "stability": {
-                "value": gs.stability or 0,
-                "delta": (gs.stability or 0) - _stability_before_eot,
-                "note": ""
-            },
-            "military": {
-                "value": getattr(gs, 'military_strength', 20),
-                "delta": getattr(gs, 'military_strength', 20) - _military_before_eot,
-                "note": ""
-            },
-            "tech": {
-                "value": round(float(getattr(gs, 'tech_level', 0.0)), 2),
-                "delta": round(float(getattr(gs, 'tech_level', 0.0)) - _tech_before_eot, 2),
-                "note": ""
-            },
-            "education": {
-                "value": _EDU_LABELS.get(getattr(gs, 'education_level', 0), "L0"),
-                "delta": 0,
-                "note": ""
-            },
-            "soft_power": {
-                "value": round(getattr(gs, 'soft_power', 0), 1),
-                "delta": round(getattr(gs, 'soft_power', 0) - _soft_power_before_eot, 1),
-                "note": ""
-            },
-            "dip_capital": {
-                "value": getattr(gs, 'diplomatic_capital', 0),
-                "delta": getattr(gs, 'diplomatic_capital', 0) - _dip_capital_before_eot,
-                "note": ""
-            }
-        },
-        "relations": [
-            {
-                "npc_name": ALL_NPC_NAMES.get(npc_id, npc_id),
-                "npc_id": npc_id,
-                "value": round(val, 1),
-                "delta": round(val - _relations_before_eot.get(npc_id, val), 1),
-                "note": ""
-            }
-            for npc_id, val in (gs.relations or {}).items()
-            if abs(val - _relations_before_eot.get(npc_id, val)) >= 0.5
-        ],
-        "world_events": _world_event_lines
-    }
-    print(f"[EOT_DATA] structured data built: "
-          f"treasury_net={_eot_data['treasury']['net']} "
-          f"relations_changed={len(_eot_data['relations'])}")
+            "relations": [
+                {
+                    "npc_name": ALL_NPC_NAMES.get(_npc_id, _npc_id),
+                    "npc_id": _npc_id,
+                    "value": round(_val, 1),
+                    "delta": round(_val - _relations_before_eot.get(_npc_id, _val), 1),
+                    "note": ""
+                }
+                for _npc_id, _val in (gs.relations or {}).items()
+                if abs(_val - _relations_before_eot.get(_npc_id, _val)) >= 0.5
+            ],
+            "world_events": _world_event_lines
+        }
+        print(f"[EOT_DATA] structured data built: "
+              f"treasury_net={_eot_data['treasury']['net']} "
+              f"relations_changed={len(_eot_data['relations'])}")
+    except Exception as _eot_data_err:
+        print(f"[EOT_DATA] FAILED: {_eot_data_err}")
+        import traceback
+        traceback.print_exc()
+        _eot_data = None
 
     _save_gs(session_id, gs)
 
