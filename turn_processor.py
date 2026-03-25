@@ -743,6 +743,9 @@ def compute_tax_revenue(game_state):
     game_state.last_gross_revenue = round(gross_revenue, 2)
     game_state.last_net_revenue = round(net_revenue, 2)
     game_state.last_skim_amount = round(skim_income, 2)
+    game_state.tax_income_component = round(income_rev, 2)
+    game_state.tax_corporate_component = round(corp_rev, 2)
+    game_state.tax_resource_component = round(resource_rev, 2)
     print(f"[FIX] revenue stored: gross={game_state.last_gross_revenue:.2f} net={game_state.last_net_revenue:.2f} skim={game_state.last_skim_amount:.2f}")
 
     result = {
@@ -3504,7 +3507,6 @@ def apply_end_of_turn_effects(game_state):
     # Tier 4: relations 0-4   — -$10B, -12% approval, -9% stability, EU -5
     # ──────────────────────────────────────────
     print(f"  [APPROVAL] Pre-sanctions: {game_state.public_approval}%")
-    messages.append(f"[APPROVAL] Pre-sanctions: {game_state.public_approval}%")
     if usa_rel <= 35:
         # Determine target tier from relations
         if usa_rel <= 4:
@@ -3589,7 +3591,6 @@ def apply_end_of_turn_effects(game_state):
         game_state.usa_sanctions_warning_turns = 0
 
     print(f"  [APPROVAL] Post-sanctions: {game_state.public_approval}%")
-    messages.append(f"[APPROVAL] Post-sanctions: {game_state.public_approval}%")
     # fixes_8 Fix 2 + fixes_21 Fix K: Deduplicated sanction/embargo risk warnings (one per NPC per EOT)
     # Grace period warning or active tier message may already have been appended above — skip if so
     _already_warned_usa = any(('Sanction risk' in m or 'USA SANCTIONS' in m) for m in messages)
@@ -3666,7 +3667,6 @@ def apply_end_of_turn_effects(game_state):
             messages.append(f"🇪🇺 EU TRADE FRICTION TIER 1 (rel {eu_rel}): -${budget_hit}B, -{approval_hit}% approval")
 
     print(f"  [APPROVAL] Post-pressure: {game_state.public_approval}%")
-    messages.append(f"[APPROVAL] Post-pressure: {game_state.public_approval}%")
     # ──────────────────────────────────────────
     # 7. PASSIVE APPROVAL CHANGES (stability-based)
     # ──────────────────────────────────────────
@@ -4348,7 +4348,6 @@ def apply_end_of_turn_effects(game_state):
         messages.append(f"📉 Low budget (${game_state.budget:.1f}B): -3% stability, -5% approval")
 
     print(f"  [APPROVAL] Final: {game_state.public_approval}%")
-    messages.append(f"[APPROVAL] Final: {game_state.public_approval}%")
     # (Random ±$3 fluctuation removed — it was confusing noise that got wiped by
     # set_oil_price_from_relations() next turn anyway, with no strategic effect.)
 
@@ -4438,7 +4437,7 @@ def apply_end_of_turn_effects(game_state):
         _tech_label = f", tech ×{_tech_multiplier:.2f}" if _tech_multiplier > 1.0 else ""
         _infra_label = f", infra +0.5%" if _infra_bonus > 0 else ""
         print(f"  [turn_processor] TAX REVENUE — income: ${_income_rev_9b:.1f}B (rate {_income_rate*100:.0f}%), corporate: ${_corp_rev_9b:.1f}B (rate {_corp_rate*100:.0f}%), resource: ${_resource_rev_9b:.1f}B (rate {_resource_rate*100:.0f}%), total: ${_gdp_revenue:.1f}B")
-        messages.append(f"💵 GDP revenue (tax rates: {_income_rate*100:.0f}%/{_corp_rate*100:.0f}%/{_resource_rate*100:.0f}%, approval {_approval}%, stability {_stab}%{_tech_label}{_infra_label}): +${_gdp_revenue:.1f}B")
+        messages.append(f"💵 Tax revenue: +${_gdp_revenue:.1f}B")
 
     # ──────────────────────────────────────────
     # 9.5A: NEW tax revenue computation (comparison log — old code above still active)
@@ -5817,6 +5816,7 @@ def apply_end_of_turn_effects(game_state):
         print(f"[10B-1] Communiqué escalation fired for: {_escalated_npcs}")
 
     print(f"[10B-1] Daily resets applied. Communiqué tracking: {game_state.communique_days_without_response}")
+    print(f"[EOT_CLEAN] debug strings removed, messages count={len(messages)}")
 
     return messages
 

@@ -625,6 +625,9 @@ class GameState:
         self.last_gross_revenue = 5.5     # last computed gross tax revenue (for frontend skim estimate; 5.5 = approx starting tax rev)
         self.last_net_revenue = 5.5       # last computed net tax revenue (after skim; 5.5 = approx starting)
         self.last_skim_amount = 0.0       # last computed skim amount ($B diverted)
+        self.tax_income_component = 0.0   # individual income tax revenue component
+        self.tax_corporate_component = 0.0  # individual corporate tax revenue component
+        self.tax_resource_component = 0.0 # individual resource tax revenue component
 
         # Resource policy
         self.resource_policy = "state_led"  # "state_led" | "private_sector"
@@ -1519,6 +1522,9 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'last_gross_revenue': getattr(self, 'last_gross_revenue', 0.0),
             'last_net_revenue': getattr(self, 'last_net_revenue', 0.0),
             'last_skim_amount': getattr(self, 'last_skim_amount', 0.0),
+            'tax_income_component': getattr(self, 'tax_income_component', 0.0),
+            'tax_corporate_component': getattr(self, 'tax_corporate_component', 0.0),
+            'tax_resource_component': getattr(self, 'tax_resource_component', 0.0),
             'resource_policy': getattr(self, 'resource_policy', 'state_led'),
             'resource_policy_transition_days': getattr(self, 'resource_policy_transition_days', 0),
             'tier_upgrade_cooldowns': getattr(self, 'tier_upgrade_cooldowns', {}),
@@ -2013,6 +2019,9 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.last_gross_revenue = data.get('last_gross_revenue', 0.0)
         gs.last_net_revenue = data.get('last_net_revenue', 0.0)
         gs.last_skim_amount = data.get('last_skim_amount', 0.0)
+        gs.tax_income_component = data.get('tax_income_component', 0.0)
+        gs.tax_corporate_component = data.get('tax_corporate_component', 0.0)
+        gs.tax_resource_component = data.get('tax_resource_component', 0.0)
         gs.resource_policy = data.get('resource_policy', 'state_led')
         gs.resource_policy_transition_days = data.get('resource_policy_transition_days', 0)
         gs.tier_upgrade_cooldowns = data.get('tier_upgrade_cooldowns', {})

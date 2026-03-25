@@ -2152,6 +2152,16 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
     # Intelligence intercepts (one-shot wealth threshold comments)
     intercepts = _get_corruption_intercepts(gs)
 
+    # Snapshot before-EOT values for structured eot_data
+    _budget_before_eot = gs.budget or 0
+    _approval_before_eot = gs.public_approval or 0
+    _stability_before_eot = gs.stability or 0
+    _military_before_eot = getattr(gs, 'military_strength', 20)
+    _tech_before_eot = float(getattr(gs, 'tech_level', 0.0))
+    _soft_power_before_eot = getattr(gs, 'soft_power', 0)
+    _dip_capital_before_eot = getattr(gs, 'diplomatic_capital', 0)
+    _relations_before_eot = dict(gs.relations or {})
+
     # End-of-turn effects
     eot_messages = apply_end_of_turn_effects(gs)
 
@@ -2328,6 +2338,129 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
         }
         print(f"  [api] ERA SUGGESTION: trigger={_trigger}, era={gs.current_era}, days={_era_suggestion['days_in_era']}")
 
+    # ── Build structured eot_data ──────────────────────────────────────────
+    _EDU_LABELS = {0: "None", 1: "Basic", 2: "Developed", 3: "Advanced"}
+    _resource_independent = getattr(gs, 'resource_independence_active', False)
+    _oil_import_cost = 0.0 if _resource_independent else round(getattr(gs, 'oil_price', 60) / 15.0, 1)
+    _gov_cost = 3.0
+    _commitment_total = round(getattr(gs, 'total_daily_commitment', 0.0), 1)
+    _neg_cost = round(getattr(gs, 'negotiate_costs_this_turn', 0.0), 1)
+
+    # Oil modifier summary
+    _oil_mods = getattr(gs, 'oil_price_modifiers', []) or []
+    _oil_mod_amount = 0
+    _oil_mod_note = None
+    for _om in _oil_mods:
+        if isinstance(_om, dict) and _om.get('turns_remaining', 0) > 0:
+            _oil_mod_amount += _om.get('delta', 0)
+            _desc = _om.get('description', 'modifier')
+            _remaining = _om.get('turns_remaining', 0)
+            _oil_mod_note = f"{_desc}, {_remaining} turn(s) remaining"
+
+    # Pending installments
+    _pending_installments = []
+    for _inst in (getattr(gs, 'active_installments', []) or []):
+        _due = _inst.get('due_turn', 0)
+        if _due >= gs.current_turn:
+            _pending_installments.append({
+                "npc_name": ALL_NPC_NAMES.get(_inst.get('npc_id', ''), _inst.get('npc_id', '?')),
+                "amount_per_turn": _inst.get('amount', 0),
+                "turns_remaining": max(0, _due - gs.current_turn)
+            })
+
+    # World event lines from eot_messages (non-financial, non-approval)
+    _world_event_lines = []
+    for _msg in eot_messages:
+        if isinstance(_msg, str) and any(_msg.startswith(p) for p in
+            ['🇺🇸🇪🇺', '🛢️⚡', '🌍', '⚡🇺🇸', '🛢️💰', '⚡🤝', '🕵️🤝']):
+            _world_event_lines.append({"text": _msg, "type": "event"})
+
+    _eot_data = {
+        "treasury": {
+            "net": round((gs.budget or 0) - _budget_before_eot, 1),
+            "income": {
+                "tax_revenue": round(getattr(gs, 'last_net_revenue', 0.0), 1),
+                "tax_breakdown": {
+                    "income": round(getattr(gs, 'tax_income_component', 0.0), 1),
+                    "corporate": round(getattr(gs, 'tax_corporate_component', 0.0), 1),
+                    "resource": round(getattr(gs, 'tax_resource_component', 0.0), 1),
+                    "infra_bonus": round(getattr(gs, '_infra_gdp_bonus', 0.0), 3)
+                },
+                "oil_modifier": _oil_mod_amount,
+                "oil_modifier_note": _oil_mod_note
+            },
+            "costs": {
+                "oil_imports": -_oil_import_cost,
+                "government": -_gov_cost,
+                "commitments": -_commitment_total,
+                "commitment_breakdown": {
+                    "mil": round(getattr(gs, 'daily_military_cost', 0), 1),
+                    "intel": round(getattr(gs, 'daily_intel_cost', 0), 1),
+                    "diplo": round(getattr(gs, 'daily_diplomatic_cost', 0), 1),
+                    "social": round(getattr(gs, 'daily_social_cost', 0), 1),
+                    "edu": round(getattr(gs, 'daily_education_cost', 0), 1),
+                    "resource": round(getattr(gs, 'daily_resource_cost', 0), 1),
+                    "political": round(getattr(gs, 'daily_political_cost', 0), 1)
+                },
+                "negotiation": -_neg_cost
+            },
+            "deals": _deals_this_turn,
+            "pending": _pending_installments
+        },
+        "state": {
+            "approval": {
+                "value": gs.public_approval or 0,
+                "delta": (gs.public_approval or 0) - _approval_before_eot,
+                "note": ""
+            },
+            "stability": {
+                "value": gs.stability or 0,
+                "delta": (gs.stability or 0) - _stability_before_eot,
+                "note": ""
+            },
+            "military": {
+                "value": getattr(gs, 'military_strength', 20),
+                "delta": getattr(gs, 'military_strength', 20) - _military_before_eot,
+                "note": ""
+            },
+            "tech": {
+                "value": round(float(getattr(gs, 'tech_level', 0.0)), 2),
+                "delta": round(float(getattr(gs, 'tech_level', 0.0)) - _tech_before_eot, 2),
+                "note": ""
+            },
+            "education": {
+                "value": _EDU_LABELS.get(getattr(gs, 'education_level', 0), "L0"),
+                "delta": 0,
+                "note": ""
+            },
+            "soft_power": {
+                "value": round(getattr(gs, 'soft_power', 0), 1),
+                "delta": round(getattr(gs, 'soft_power', 0) - _soft_power_before_eot, 1),
+                "note": ""
+            },
+            "dip_capital": {
+                "value": getattr(gs, 'diplomatic_capital', 0),
+                "delta": getattr(gs, 'diplomatic_capital', 0) - _dip_capital_before_eot,
+                "note": ""
+            }
+        },
+        "relations": [
+            {
+                "npc_name": ALL_NPC_NAMES.get(npc_id, npc_id),
+                "npc_id": npc_id,
+                "value": round(val, 1),
+                "delta": round(val - _relations_before_eot.get(npc_id, val), 1),
+                "note": ""
+            }
+            for npc_id, val in (gs.relations or {}).items()
+            if abs(val - _relations_before_eot.get(npc_id, val)) >= 0.5
+        ],
+        "world_events": _world_event_lines
+    }
+    print(f"[EOT_DATA] structured data built: "
+          f"treasury_net={_eot_data['treasury']['net']} "
+          f"relations_changed={len(_eot_data['relations'])}")
+
     _save_gs(session_id, gs)
 
     _deals_this_turn = [
@@ -2341,6 +2474,7 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
         "corruption_alert": corruption_alert,
         "intercepts": intercepts,
         "eot_effects": eot_messages,
+        "eot_data": _eot_data,
         "deals_this_turn": _deals_this_turn,
         "status": status,
         "ending": ending,
