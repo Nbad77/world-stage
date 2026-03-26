@@ -656,6 +656,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
     setNegotiatingNpc(null)
     setCounterOffers({})
     setChatHistories({})
+    setIntelResults({})
     setPhase(PHASE.DIALOGUE)
     _nextTurnRef.current = null
   }
