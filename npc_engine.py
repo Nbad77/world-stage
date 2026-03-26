@@ -6092,6 +6092,7 @@ def generate_deal_consequences_and_reactions(game_state, npc_id: str, deal_text:
         f"- {'Backchannel: cross_npc_visibility MUST be empty []' if is_backchannel else 'Include NPCs who would learn about this deal'}\n"
         "- historian_note must be specific, not generic\n"
         "- If recurring payments: set installment_amount/installment_turns, budget_delta=0\n"
+        "- Per-turn installment cap: $10B maximum. Single deal total cap: $20B maximum.\n"
         "- deal_duration_turns: 5 short, 10 standard, 20 long-term, null permanent"
         f"{advisor_section}\n\n"
         "Return JSON only. No markdown, no preamble."
@@ -6149,6 +6150,7 @@ def generate_deal_consequences_and_reactions(game_state, npc_id: str, deal_text:
                 consequences.setdefault('installment_amount', None)
                 consequences.setdefault('installment_turns', None)
                 consequences.setdefault('deal_duration_turns', None)
+                print(f"[DEAL_SCHEMA] installment_amount={consequences.get('installment_amount')} turns={consequences.get('installment_turns')}")
         else:
             consequences = None
 
@@ -6231,6 +6233,7 @@ def generate_deal_consequences(game_state, npc_id: str, deal_text: str, is_backc
         "Set budget_delta to 0.0 in this case — installments replace the lump "
         "sum, do not double-count. If the deal is ambiguous or a one-time "
         "payment, leave both null and use budget_delta as normal.\n"
+        "- Per-turn installment cap: $10B maximum. Single deal total cap: $20B maximum.\n"
         "- For deal_duration_turns: how many turns this deal remains active "
         "for adversary conflict checking. Use 5 for short deals, 10 for "
         "standard agreements, 20 for long-term partnerships, null for "

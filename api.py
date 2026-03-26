@@ -3686,25 +3686,47 @@ def post_accept_counter(session_id: str, body: AcceptCounterRequest):
             gs.update_budget(_combined)
             print(f"[ACCEPT] budget applied: {'+' if _combined > 0 else ''}{_combined}B for {npc_id}")
 
-        # Register installments at accept time
+        # Register installments at accept time (skip if GM path already registered)
+        _gm_already_registered = (
+            _gm_consequences and
+            _gm_consequences.get('installment_amount') and
+            _gm_consequences.get('installment_turns') and
+            int(_gm_consequences.get('installment_turns', 0)) > 1
+        )
         _inst_amount_co = _c.get("installment_amount")
         _inst_turns_co = _c.get("installment_turns")
-        if _inst_amount_co and _inst_turns_co and int(_inst_turns_co) > 1:
+        if not _gm_already_registered and _inst_amount_co and _inst_turns_co and int(_inst_turns_co) > 1:
             if not hasattr(gs, 'active_installments') or gs.active_installments is None:
                 gs.active_installments = []
             _norm_amount = float(_inst_amount_co)
             if abs(_norm_amount) > 1000:
                 _norm_amount = _norm_amount / 1_000_000_000
-            if abs(_norm_amount) > 10.0:
-                _norm_amount = 10.0 if _norm_amount > 0 else -10.0
-            for _t in range(1, int(_inst_turns_co) + 1):
+            # Cap enforcement
+            _norm_amount = max(-10.0, min(10.0, _norm_amount))
+            _inst_turns_co = min(int(_inst_turns_co), 20)  # safety cap
+
+            # Reverse the lump-sum budget that was already applied —
+            # installments replace it, do not stack
+            if _combined != 0:
+                gs.update_budget(-_combined)
+                print(f"[INSTALLMENT] reversed lump sum {_combined}B — installments replace it")
+
+            # Apply first installment immediately
+            gs.update_budget(_norm_amount)
+
+            # Register remaining installments for future turns
+            for _t in range(1, _inst_turns_co):
                 gs.active_installments.append({
                     "npc_id": npc_id,
                     "amount": _norm_amount,
                     "due_turn": gs.current_turn + _t,
-                    "description": f"Installment: {_npc_name} deal"
+                    "description": f"Installment: {_npc_name} deal",
+                    "npc": npc_id,
+                    "registered_turn": gs.current_turn,
                 })
-            print(f"[ACCEPT] installments registered: {int(_inst_turns_co)}x ${_norm_amount}B for {npc_id}")
+            print(f"[INSTALLMENT] registered npc={npc_id} amount={_norm_amount} turns={_inst_turns_co}")
+        else:
+            print(f"[INSTALLMENT] lump sum — no installment registered")
 
         # Zero out budget fields in override to prevent double-apply in /action
         _override = gs.options_override[-1] if gs.options_override else None

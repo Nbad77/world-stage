@@ -1149,6 +1149,26 @@ export default function BriefingScreen({
                         })}
                       </div>
                     )}
+                    {/* Dismiss deal button */}
+                    {deal.id && (
+                      <div className="deal-dismiss-row">
+                        <button
+                          className="advisor-action-btn advisor-action-btn--dismiss"
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            try {
+                              const res = await api.dismissDeal(sessionId, deal.id)
+                              console.log('[DISMISS_UI] success dealId=', deal.id)
+                              if (res.game_state && onGsUpdate) onGsUpdate(res.game_state)
+                            } catch (err) {
+                              console.error('[DISMISS_UI] failed:', err)
+                            }
+                          }}
+                        >
+                          DISMISS DEAL
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

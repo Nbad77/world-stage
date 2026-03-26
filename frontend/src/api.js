@@ -432,6 +432,12 @@ export const api = {
       npc_id: npcId, deal_text: dealText, is_backchannel: isBackchannel,
     }),
 
+  /** DELETE /game/{id}/deals/{dealId} — dismiss a deal from TODAY'S DECISIONS */
+  dismissDeal: (id, dealId) => {
+    console.log('[DISMISS_UI] called dealId=', dealId)
+    return request('DELETE', `/game/${id}/deals/${dealId}`)
+  },
+
   /** POST /diplomacy/get-cable — request single NPC briefing ($0.3B) */
   getCable: (id, npcId) =>
     request('POST', `/game/${id}/diplomacy/get-cable`, { npc_id: npcId }),
