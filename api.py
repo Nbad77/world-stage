@@ -2460,7 +2460,8 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
                 },
                 "dip_capital": {
                     "value": getattr(gs, 'diplomatic_capital', 0),
-                    "delta": getattr(gs, 'diplomatic_capital', 0) - _dip_capital_before_eot,
+                    "delta": 0 if (_dip_capital_before_eot == 0 and (getattr(gs, 'diplomatic_capital', 0) or 0) > 0)
+                             else (getattr(gs, 'diplomatic_capital', 0) or 0) - (_dip_capital_before_eot or 0),
                     "note": ""
                 }
             },
