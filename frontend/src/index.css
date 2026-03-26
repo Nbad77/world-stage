@@ -4759,3 +4759,130 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   padding: 8px 4px;
   text-align: center;
 }
+
+/* ── Administration Tab ──────────────────────────────────────────────────── */
+.admin-tab {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow-y: auto;
+  max-height: calc(100vh - 120px);
+}
+.admin-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.admin-section-header {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.35);
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  margin-bottom: 4px;
+}
+.admin-stat-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.admin-stat-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.7);
+}
+.admin-stat-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.9);
+}
+.admin-stat-note {
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
+  font-style: italic;
+  line-height: 1.4;
+}
+.admin-cabinet-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.admin-cabinet-icon {
+  font-size: 16px;
+  width: 24px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.admin-cabinet-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+.admin-cabinet-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.8);
+}
+.admin-cabinet-label {
+  font-size: 10px;
+  color: rgba(255,255,255,0.35);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.admin-cabinet-stats {
+  font-size: 10px;
+  color: rgba(255,255,255,0.3);
+}
+.admin-commitment-item {
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: 12px;
+  color: rgba(255,255,255,0.6);
+  line-height: 1.5;
+}
+.admin-commitment-meta {
+  font-size: 10px;
+  color: rgba(255,255,255,0.3);
+  margin-top: 2px;
+}
+.admin-history-item {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  font-size: 11px;
+  color: rgba(255,255,255,0.45);
+  line-height: 1.4;
+}
+.admin-history-turn {
+  font-size: 10px;
+  color: rgba(255,255,255,0.25);
+  margin-right: 6px;
+}
+.admin-regime-hint {
+  font-size: 12px;
+  color: rgba(255,255,255,0.45);
+  font-style: italic;
+  line-height: 1.5;
+  padding: 4px 0;
+}
+.admin-wealth-status {
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 4px 0;
+}
+.admin-wealth-status--clean {
+  color: rgba(255,255,255,0.4);
+}
+.admin-wealth-status--flagged {
+  color: rgba(220,180,80,0.8);
+}
+.admin-wealth-status--exposed {
+  color: rgba(220,100,100,0.8);
+}

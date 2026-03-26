@@ -16,6 +16,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api'
 import AdvisorPanel from './AdvisorPanel'
+import AdministrationTab from './AdministrationTab'
 
 // ── Axis definitions ────────────────────────────────────────────────────────
 
@@ -671,7 +672,7 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
   const drawerTabs = [
     { id: 0, label: 'POWER BASE', icon: '🕶️' },
     { id: 1, label: 'OPERATIONS', icon: '⚔️', locked: false },
-    { id: 2, label: 'ADVISORS', icon: '🧠' },
+    { id: 2, label: 'ADMINISTRATION', icon: '🧠' },
   ]
 
   return (
@@ -2006,16 +2007,10 @@ export default function ShadowCabinet({ gs, sessionId, onClose, onUpgradePurchas
         )}
 
         {/* ═══════════════════════════════════════════════════════════════════
-            DRAWER 3 — ADVISORS (restored 9-archetype pool)
+            DRAWER 3 — ADMINISTRATION
         ═══════════════════════════════════════════════════════════════════ */}
         {activeDrawer === 2 && (
-          <AdvisorDrawer
-            gs={gs}
-            sessionId={sessionId}
-            loading={loading}
-            setLoading={setLoading}
-            onUpgradePurchased={onUpgradePurchased}
-          />
+          <AdministrationTab gs={gs} sessionId={sessionId} />
         )}
 
 
