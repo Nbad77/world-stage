@@ -35,8 +35,8 @@ const FIELDS = [
   { key: 'restoration_active',     label: 'Restoration (0/1)',  min: 0, max: 1,   step: 1,  type: 'range',  gsPath: (gs) => gs?.restoration_active ? 1 : 0 },
   // 10C: Axis tier controls
   { key: '_sep_axes',              label: 'AXIS TIERS',         type: 'separator' },
-  { key: 'military_tier',         label: 'Military Tier',       min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.military_tier ?? 0 },
-  { key: 'intelligence_tier',     label: 'Intelligence Tier',   min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.intelligence_tier ?? 0 },
+  { key: 'military_tier',         label: 'Military Strength (display)', min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.military_tier ?? 0 },
+  { key: 'intelligence_tier',     label: 'Intel Strength (display)',    min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.intelligence_tier ?? 0 },
   { key: 'diplomatic_tier',       label: 'Diplomatic Tier',     min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.diplomatic_tier ?? 0 },
   { key: 'domestic_surveillance_tier', label: 'Surveillance Tier', min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.domestic_surveillance_tier ?? 0 },
   { key: 'media_tier',            label: 'Media Tier',          min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.media_tier ?? 0 },
@@ -45,9 +45,9 @@ const FIELDS = [
   { key: 'militia_tier',          label: 'Militia Tier',        min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.militia_tier ?? 0 },
   // Cabinet axes (gate checks for advisor pool)
   { key: '_sep_cabinet_axes',    label: 'CABINET AXES (GATES)', type: 'separator' },
-  { key: 'cabinet_axes_military',     label: 'Cab.Axes: Military',     min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.cabinet_axes?.military ?? 0 },
-  { key: 'cabinet_axes_intelligence', label: 'Cab.Axes: Intelligence', min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.cabinet_axes?.intelligence ?? 0 },
-  { key: 'cabinet_axes_political',    label: 'Cab.Axes: Political',    min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.cabinet_axes?.political ?? 0 },
+  { key: 'cabinet_axes_military',     label: 'Military Axis (gate)',     min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.cabinet_axes?.military ?? 0 },
+  { key: 'cabinet_axes_intelligence', label: 'Intel Axis (gate)',        min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.cabinet_axes?.intelligence ?? 0 },
+  { key: 'cabinet_axes_political',    label: 'Political Axis (gate)',    min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.cabinet_axes?.political ?? 0 },
   // 9.5A: Ending trigger fields
   { key: '_sep_ending',            label: 'ENDING TRIGGERS',    type: 'separator' },
   { key: 'current_turn',          label: 'Current Turn',        min: 1, max: 20,  step: 1,  type: 'number', gsPath: (gs) => gs?.current_turn ?? 1 },
