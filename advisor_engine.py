@@ -222,7 +222,6 @@ def is_advisor_eligible(archetype_key, game_state):
         mil_axis = axes.get('military', 0)
         eligible = mil_axis >= 4
         print(f"  [advisor] GATE CHECK: general — military_axis={mil_axis}")
-        print(f"[ADVISOR_GATE] general check: cabinet_axes={getattr(game_state, 'cabinet_axes', 'MISSING')} mil_axis={mil_axis} eligible={eligible}")
         return eligible, "military axis >= 4"
 
     if gate == 'soft_authoritarianism':

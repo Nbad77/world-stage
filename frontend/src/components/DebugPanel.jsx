@@ -43,6 +43,11 @@ const FIELDS = [
   { key: 'judicial_tier',         label: 'Judicial Tier',       min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.judicial_tier ?? 0 },
   { key: 'extraction_tier',       label: 'Extraction Tier',     min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.extraction_tier ?? 0 },
   { key: 'militia_tier',          label: 'Militia Tier',        min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.militia_tier ?? 0 },
+  // Cabinet axes (gate checks for advisor pool)
+  { key: '_sep_cabinet_axes',    label: 'CABINET AXES (GATES)', type: 'separator' },
+  { key: 'cabinet_axes_military',     label: 'Cab.Axes: Military',     min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.cabinet_axes?.military ?? 0 },
+  { key: 'cabinet_axes_intelligence', label: 'Cab.Axes: Intelligence', min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.cabinet_axes?.intelligence ?? 0 },
+  { key: 'cabinet_axes_political',    label: 'Cab.Axes: Political',    min: 0, max: 10, step: 1, type: 'range', gsPath: (gs) => gs?.cabinet_axes?.political ?? 0 },
   // 9.5A: Ending trigger fields
   { key: '_sep_ending',            label: 'ENDING TRIGGERS',    type: 'separator' },
   { key: 'current_turn',          label: 'Current Turn',        min: 1, max: 20,  step: 1,  type: 'number', gsPath: (gs) => gs?.current_turn ?? 1 },
@@ -114,8 +119,8 @@ export default function DebugPanel({ gs, sessionId, onClose, onGsUpdate }) {
         console.log(`[FIX] cheat panel return_threshold set to ${overrides.return_threshold}`)
       }
       setResult(`Applied ${Object.keys(res.applied || {}).length} override(s).`)
-      // Auto-close after brief delay
-      setTimeout(() => onClose(), 600)
+      // Reload to refresh advisor pool and other state derived from gs fields
+      setTimeout(() => window.location.reload(), 500)
     } catch (e) {
       setResult(`Error: ${e.message}`)
     } finally {
