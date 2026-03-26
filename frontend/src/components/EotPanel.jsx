@@ -107,9 +107,9 @@ function TreasurySection({ treasury }) {
       </SubSection>
 
       {deals && deals.length > 0 && (
-        <SubSection label="DEALS" total={deals.reduce((s, d) => s + (d.gm_consequences?.budget_delta || 0), 0)}>
+        <SubSection label="DEALS" total={deals.reduce((s, d) => s + (d.amount || 0), 0)}>
           {deals.map((d, i) => (
-            <Row key={i} label={d.npc_name || d.npc_id || '?'} value={d.gm_consequences?.budget_delta || 0} indent />
+            <Row key={i} label={d.npc_name || '?'} value={d.amount || 0} indent />
           ))}
         </SubSection>
       )}

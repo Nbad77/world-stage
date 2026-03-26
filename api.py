@@ -2373,6 +2373,7 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
         if d.get('turn_accepted') == gs.current_turn - 1
     ]
     print(f"[EOT_DEALS] {len(_deals_this_turn)} deals this turn")
+    print(f"[EOT_NET] pre={_budget_before_eot} post={gs.budget} deal_applied={sum(d.get('budget_applied', 0) or 0 for d in _deals_this_turn)}")
 
     # World event lines from eot_messages (non-financial, non-approval)
     _world_event_lines = []
@@ -2415,7 +2416,14 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
                     },
                     "negotiation": -_neg_cost
                 },
-                "deals": _deals_this_turn,
+                "deals": [
+                    {
+                        "npc_name": d.get('npc_name', d.get('npc', '?')),
+                        "amount": d.get('budget_applied', 0) or (d.get('gm_consequences') or {}).get('budget_delta', 0),
+                        "note": d.get('summary', d.get('deal_text', '')[:60])
+                    }
+                    for d in _deals_this_turn
+                ],
                 "pending": _pending_installments
             },
             "state": {
@@ -2446,7 +2454,8 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
                 },
                 "soft_power": {
                     "value": round(getattr(gs, 'soft_power', 0), 1),
-                    "delta": round(getattr(gs, 'soft_power', 0) - _soft_power_before_eot, 1),
+                    "delta": 0 if (_soft_power_before_eot == 0 and getattr(gs, 'soft_power', 0) > 0)
+                             else round(getattr(gs, 'soft_power', 0) - _soft_power_before_eot, 1),
                     "note": ""
                 },
                 "dip_capital": {
