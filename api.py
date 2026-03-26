@@ -4195,6 +4195,24 @@ def debug_set_state(session_id: str, body: DebugSetStateRequest):
             gs.action_judiciary_captured = bool(value)
             applied[field] = gs.action_judiciary_captured
             print(f"  [DEBUG] set_state applied field={field} value={gs.action_judiciary_captured}")
+        elif field == 'cabinet_axes_military':
+            if not hasattr(gs, 'cabinet_axes'):
+                gs.cabinet_axes = {}
+            gs.cabinet_axes['military'] = max(0, min(10, int(value)))
+            applied[field] = gs.cabinet_axes['military']
+            print(f"  [DEBUG] cabinet_axes.military = {gs.cabinet_axes['military']}")
+        elif field == 'cabinet_axes_intelligence':
+            if not hasattr(gs, 'cabinet_axes'):
+                gs.cabinet_axes = {}
+            gs.cabinet_axes['intelligence'] = max(0, min(10, int(value)))
+            applied[field] = gs.cabinet_axes['intelligence']
+            print(f"  [DEBUG] cabinet_axes.intelligence = {gs.cabinet_axes['intelligence']}")
+        elif field == 'cabinet_axes_political':
+            if not hasattr(gs, 'cabinet_axes'):
+                gs.cabinet_axes = {}
+            gs.cabinet_axes['political'] = max(0, min(10, int(value)))
+            applied[field] = gs.cabinet_axes['political']
+            print(f"  [DEBUG] cabinet_axes.political = {gs.cabinet_axes['political']}")
         elif hasattr(gs, field):
             setattr(gs, field, value)
             applied[field] = value

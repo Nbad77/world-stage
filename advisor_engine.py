@@ -300,37 +300,50 @@ def create_advisor(archetype_key, game_state=None):
 # ── Pool Generation (v2: dynamic, shows all eligible archetypes) ─────────────
 
 def generate_advisor_pool(game_state):
-    """Generate pool of all eligible archetypes not currently on staff.
-    v2: No cap on pool size. Pool updates immediately when gate conditions change.
-    Each archetype appears at most once."""
-    active_archetypes = set()
+    """Generate advisor pool. Reuse existing pool entries where possible —
+    only create new advisor objects when an archetype becomes newly eligible."""
+    hired = set()
     _advisors = getattr(game_state, 'advisors', {})
     if isinstance(_advisors, dict):
         for adv in _advisors.values():
             if isinstance(adv, dict) and 'archetype' in adv:
-                active_archetypes.add(adv['archetype'])
+                hired.add(adv['archetype'])
 
-    # Eliminated archetypes (v2: eliminated by archetype, not by ID)
-    eliminated_archetypes = set(getattr(game_state, 'advisors_eliminated', []))
+    eliminated = set(getattr(game_state, 'advisors_eliminated', []))
 
-    pool = []
+    # Build lookup of existing pool by archetype
+    existing_pool = {}
+    for a in (getattr(game_state, 'advisor_pool', None) or []):
+        if isinstance(a, dict) and a.get('archetype'):
+            existing_pool[a['archetype']] = a
+
+    new_pool = []
+    reused = 0
+    created = 0
     for arch_key in ADVISOR_ARCHETYPES:
-        if arch_key in active_archetypes:
+        if arch_key in hired:
             continue
-        if arch_key in eliminated_archetypes:
+        if arch_key in eliminated:
             continue
 
         eligible, condition = is_advisor_eligible(arch_key, game_state)
         if not eligible:
             continue
 
-        advisor = create_advisor(arch_key, game_state)
-        if advisor:
-            pool.append(advisor)
-            print(f"  [advisor] POOL REFRESH: {advisor['name']} ({arch_key}) now available")
+        # Reuse existing pool entry if present
+        if arch_key in existing_pool:
+            new_pool.append(existing_pool[arch_key])
+            reused += 1
+        else:
+            # Only create new advisor when archetype is newly eligible
+            advisor = create_advisor(arch_key, game_state)
+            if advisor:
+                new_pool.append(advisor)
+                created += 1
+                print(f"  [advisor] POOL NEW: {advisor['name']} ({arch_key}) now available")
 
-    print(f"  [advisor] POOL GENERATED: {len(pool)} advisors available")
-    return pool
+    print(f"  [ADVISOR_POOL] stable pool: {len(new_pool)} eligible, {reused} reused, {created} new")
+    return new_pool
 
 
 def check_gate_unlocks(game_state):
