@@ -5619,7 +5619,7 @@ def generate_event_dialogue(game_state, event: dict) -> list:
     lock = threading.Lock()
 
     def _call_event_npc(npc_id):
-        system = _EVENT_NPC_PROMPTS.get(npc_id)
+        system = build_npc_system_prompt(npc_id, game_state)
         if not system:
             return None
         npc_label = _EVENT_NPC_NAMES.get(npc_id, npc_id)
@@ -5638,7 +5638,7 @@ def generate_event_dialogue(game_state, event: dict) -> list:
         try:
             response = _client.messages.create(
                 model=MODEL,
-                max_tokens=250,
+                max_tokens=380,
                 temperature=TEMPERATURE,
                 system=system,
                 messages=[{"role": "user", "content": user_prompt}]
@@ -5652,6 +5652,7 @@ def generate_event_dialogue(game_state, event: dict) -> list:
             msg = re.sub(r'\*[^*]+\*', '', raw).strip()
             msg = msg.replace('**', '').replace('*', '').strip()
             print(f"  [10B-2] Event dialogue generated for {npc_id}: {event_title}")
+            print(f"[EVENT_DIALOGUE] npc={npc_id} tokens={response.usage.output_tokens} build_npc_used=True")
             return {
                 "npc_id": npc_id,
                 "npc_name": npc_label,
