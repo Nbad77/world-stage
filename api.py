@@ -8931,8 +8931,7 @@ async def resolve_event(session_id: str, request: Request, user: User = Depends(
     target_event["resolved"] = True
     target_event["resolution"] = resolution
 
-    if target_event.get("required"):
-        gs.events_resolved_today += 1
+    gs.events_resolved_today += 1
 
     can_end_day = gs.events_resolved_today >= gs.events_required_today
 

@@ -775,7 +775,7 @@ export default function BriefingScreen({
         )}
 
         <div className="briefing-progress-inline">
-          Progress: {dayStatus.events_resolved} / {dayStatus.events_required} required events
+          Events reviewed: {dayStatus.events_resolved} / 3
         </div>
         <button className="briefing-back-btn" onClick={returnToBriefing}>
           {'\u2190'} Return to Briefing
@@ -794,7 +794,7 @@ export default function BriefingScreen({
       {canEndDay && briefingState !== 'end_day' && (
         <div className="briefing-free-action-header">
           <span className="briefing-phase-label">
-            {'\u2713'} REQUIRED EVENTS COMPLETE
+            {'\u2713'} BRIEFING COMPLETE
           </span>
           <p style={{ color: 'var(--muted)', fontSize: '0.85rem', margin: '0.25rem 0' }}>
             You may continue working events, or end the day.
@@ -1018,7 +1018,7 @@ export default function BriefingScreen({
 
       {/* Day progress indicator */}
       <div className="briefing-day-progress">
-        <span>REQUIRED EVENTS: {dayStatus.events_resolved} / {dayStatus.events_required}</span>
+        <span>EVENTS REVIEWED: {dayStatus.events_resolved} / 3</span>
         <div className="briefing-progress-pips">
           {[...Array(dayStatus.events_required)].map((_, i) => (
             <span

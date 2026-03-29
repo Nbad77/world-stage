@@ -355,11 +355,12 @@ def _build_event_user_prompt(gs, count: int) -> str:
         "WRONG: 'Implement policy reforms'\n"
         "RIGHT: 'Negotiate a phased 8% wage increase with union leaders'\n"
         "The hint describes the tradeoff, not the outcome.\n\n"
-        "Mark exactly 3 events as required:true. Severity rules:\n"
-        "- routine: low stakes, optional\n"
-        "- moderate: worth addressing, optional\n"
-        "- urgent: should address today, required\n"
-        "- critical: must address, always required\n"
+        "Set required: false for all events.\n"
+        "Severity rules:\n"
+        "- routine: low stakes\n"
+        "- moderate: worth addressing\n"
+        "- urgent: should address today\n"
+        "- critical: highest stakes\n"
         "At least 1 critical or urgent event per day."
     )
 
@@ -461,12 +462,14 @@ def generate_daily_events(gs) -> list:
     try:
         response = _client.messages.create(
             model=GM_MODEL,
-            max_tokens=2000,
+            max_tokens=3500,
             temperature=0.7,
             system=_EVENT_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_prompt}],
         )
         raw_text = response.content[0].text.strip()
+        print(f"[EVENT_GEN_RAW] response_length={len(raw_text)} "
+              f"finish_reason={response.stop_reason}")
         events = _parse_events_json(raw_text)
 
         if not isinstance(events, list) or len(events) == 0:
@@ -475,19 +478,9 @@ def generate_daily_events(gs) -> list:
         # Validate each event
         events = [_validate_event(e, era, turn) for e in events]
 
-        # Ensure exactly 3 required
-        required_count = sum(1 for e in events if e["required"])
-        if required_count < 3:
-            for e in events:
-                if not e["required"] and required_count < 3:
-                    e["required"] = True
-                    required_count += 1
-        elif required_count > 3:
-            excess = required_count - 3
-            for e in reversed(events):
-                if e["required"] and excess > 0:
-                    e["required"] = False
-                    excess -= 1
+        # All events optional — player resolves any 3 to unlock EOT
+        for e in events:
+            e['required'] = False
 
         # Log choices validation
         choices_present = all(
