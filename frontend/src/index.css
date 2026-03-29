@@ -4383,6 +4383,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   background: rgba(74,158,255,0.12); color: var(--accent);
   font-size: 0.75rem; font-weight: 700; flex-shrink: 0;
 }
+.briefing-choice-hint {
+  display: block; font-size: 0.75em; opacity: 0.65; margin-top: 2px;
+}
 
 /* Advisor drawer */
 .briefing-advisor-drawer-tab {

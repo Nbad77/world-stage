@@ -659,17 +659,33 @@ export default function BriefingScreen({
         {/* Your Move — real choices */}
         <div className="briefing-event-choices">
           <p className="briefing-choices-label">YOUR MOVE</p>
-          {eventChoices.map((choice, i) => (
-            <button
-              key={i}
-              className="briefing-choice-btn"
-              onClick={() => handleResolveEvent(choice)}
-              disabled={resolving}
-            >
-              <span className="briefing-choice-letter">{String.fromCharCode(65 + i)}</span>
-              {choice}
-            </button>
-          ))}
+          {eventChoices.map((choice, i) => {
+            // Handle both formats: Haiku objects {label,text,hint}
+            // and legacy strings from _getDefaultChoices()
+            const isObject = typeof choice === 'object' && choice !== null
+            const choiceText = isObject ? choice.text : choice
+            const choiceHint = isObject ? choice.hint : null
+            const resolutionValue = isObject
+              ? `${choice.label}: ${choice.text}`
+              : choice
+            console.log('[CHOICE_RENDER] source=',
+              typeof choice === 'object' ? 'haiku' : 'legacy',
+              'text=', choiceText?.slice(0, 40))
+
+            return (
+              <button key={i} className="briefing-choice-btn"
+                onClick={() => handleResolveEvent(resolutionValue)}
+                disabled={resolving}>
+                <span className="briefing-choice-letter">
+                  {String.fromCharCode(65 + i)}
+                </span>
+                <span className="briefing-choice-text">{choiceText}</span>
+                {choiceHint && (
+                  <span className="briefing-choice-hint">{choiceHint}</span>
+                )}
+              </button>
+            )
+          })}
         </div>
 
         {/* Optional events can go back without resolving */}
