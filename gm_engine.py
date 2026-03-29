@@ -225,7 +225,11 @@ _EVENT_SYSTEM_PROMPT = (
     "dilemmas where both options have real costs.\n\n"
     "Never generate the same event twice in a row. Vary severity and category. "
     "At least one event per day should involve an NPC the player has been neglecting.\n\n"
-    "Always respond with valid JSON only. No preamble, no explanation."
+    "Always respond with valid JSON only. No preamble, no explanation.\n\n"
+    "Choices must be specific to the event situation. Never use "
+    "generic labels. Only list NPCs in applicable_npcs who have "
+    "a genuine stake in this specific event. Default to fewer "
+    "NPCs, not more."
 )
 
 
@@ -321,10 +325,22 @@ def _build_event_user_prompt(gs, count: int) -> str:
         '{\n'
         '  "id": "evt_XXXXXX",\n'
         '  "title": "Short headline (max 8 words)",\n'
-        '  "summary": "2-3 sentence description of the situation",\n'
+        '  "summary": "2-3 sentences. Be specific — reference exact figures, '
+        'named actors, and current game state details like budget, stability score, '
+        'and approval rating.",\n'
         '  "severity": "routine|moderate|urgent|critical",\n'
         '  "category": "diplomatic|economic|military|domestic|crisis",\n'
-        '  "applicable_npcs": ["npc_id", ...],\n'
+        '  "applicable_npcs": ["only NPCs with a genuine stake in this specific '
+        'event — can be empty. A domestic labor dispute does not automatically '
+        'involve all six NPCs."],\n'
+        '  "choices": [\n'
+        '    {\n'
+        '      "label": "A",\n'
+        '      "text": "Specific action (max 12 words, action-verb first)",\n'
+        '      "hint": "One sentence on the tradeoff — what the player is '
+        'risking or committing, not the outcome"\n'
+        '    }\n'
+        '  ],\n'
         '  "required": true or false,\n'
         '  "resolved": false,\n'
         '  "resolution": null,\n'
@@ -332,6 +348,13 @@ def _build_event_user_prompt(gs, count: int) -> str:
         f'  "era": {era},\n'
         f'  "day": {turn}\n'
         '}\n\n'
+        "Generate exactly 4 choices per event. Choices must be specific "
+        "to THIS event situation — never generic. Cover the full option "
+        "space: concede, negotiate, confront/suppress, deflect or delay. "
+        "Name each concretely for this scenario.\n"
+        "WRONG: 'Implement policy reforms'\n"
+        "RIGHT: 'Negotiate a phased 8% wage increase with union leaders'\n"
+        "The hint describes the tradeoff, not the outcome.\n\n"
         "Mark exactly 3 events as required:true. Severity rules:\n"
         "- routine: low stakes, optional\n"
         "- moderate: worth addressing, optional\n"
@@ -465,6 +488,20 @@ def generate_daily_events(gs) -> list:
                 if e["required"] and excess > 0:
                     e["required"] = False
                     excess -= 1
+
+        # Log choices validation
+        choices_present = all(
+            'choices' in e and len(e.get('choices', [])) == 4
+            for e in events
+        )
+        print(f"[EVENT_GEN] day={turn} "
+              f"events={len(events)} "
+              f"choices_present={choices_present}")
+
+        for e in events:
+            if 'choices' not in e or not e.get('choices'):
+                print(f"[EVENT_GEN_WARN] event={e.get('id')} "
+                      f"missing choices — frontend fallback will apply")
 
         print(f"[GM-Events] Generated {len(events)} events for Day {turn}, Era {era}")
         return events
