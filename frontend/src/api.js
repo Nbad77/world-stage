@@ -448,6 +448,10 @@ export const api = {
   briefingEventDialogue: (id, event_id) =>
     request('POST', `/game/${id}/briefing/event-dialogue`, { event_id }),
 
+  /** POST /game/{id}/briefing/event-npc-dialogue — single NPC dialogue for event */
+  getEventNPCDialogue: (id, npc_id, event_id, event_context) =>
+    request('POST', `/game/${id}/briefing/event-npc-dialogue`, { npc_id, event_id, event_context }),
+
   /** POST /game/{id}/briefing/advisor-event-analysis — advisor takes on event */
   briefingAdvisorEventAnalysis: (id, event_id) =>
     request('POST', `/game/${id}/briefing/advisor-event-analysis`, { event_id }),

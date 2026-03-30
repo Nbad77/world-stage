@@ -228,6 +228,13 @@ export default function BriefingScreen({
   const [advisorAnalysesReady, setAdvisorAnalysesReady] = useState(false)
   const [eventScreenTransition, setEventScreenTransition] = useState(false)
 
+  // E3b: NPC event drawer state
+  const [eventNpcDrawerOpen, setEventNpcDrawerOpen] = useState(false)
+  const [selectedEventNpc, setSelectedEventNpc] = useState(null)
+  // { npc_id, display_name, flag }
+  const [eventNpcMessage, setEventNpcMessage] = useState(null)
+  // null = not fetched, '' = loading, string = message
+
   // 10B-2: Resolution consequences
   const [resolutionConsequences, setResolutionConsequences] = useState(null)
 
@@ -494,6 +501,33 @@ export default function BriefingScreen({
     setTimeout(() => setEventScreenTransition(false), 50)
   }
 
+  // E3b: NPC event drawer handler + fetch
+  const handleEventNpcDrawer = (npc_id, display_name, flag) => {
+    console.log('[EVENT_NPC_DRAWER] opened npc=', npc_id,
+      'event=', activeEvent?.id)
+    setSelectedEventNpc({ npc_id, display_name, flag })
+    setEventNpcMessage('')  // '' = loading state
+    setEventNpcDrawerOpen(true)
+    fetchEventNpcDialogue(npc_id)
+  }
+
+  const fetchEventNpcDialogue = async (npc_id) => {
+    try {
+      console.log('[EVENT_NPC_DIALOGUE] requesting npc=',
+        npc_id, 'event=', activeEvent?.id)
+      const res = await api.getEventNPCDialogue(
+        sessionId,
+        npc_id,
+        activeEvent.id,
+        { title: activeEvent.title, summary: activeEvent.summary }
+      )
+      setEventNpcMessage(res.message)
+    } catch (err) {
+      console.log('[EVENT_NPC_DIALOGUE] failed:', err.message)
+      setEventNpcMessage('Channel unavailable \u2014 try again shortly.')
+    }
+  }
+
   async function handleResolveEvent(resolution) {
     if (!activeEvent || resolving) return
     setResolving(true)
@@ -636,7 +670,9 @@ export default function BriefingScreen({
           {!eventDialoguesLoading && eventDialogues.map(d => {
             const npcInfo = NPC_DISPLAY[d.npc_id] || { flag: '\u{1F310}', name: d.npc_name, color: '#333' }
             return (
-              <div key={d.npc_id} className="briefing-event-npc-card">
+              <div key={d.npc_id} className="briefing-event-npc-card"
+                style={{ cursor: 'pointer' }}
+                onClick={() => handleEventNpcDrawer(d.npc_id, npcInfo.name, npcInfo.flag)}>
                 <div className="briefing-event-npc-header">
                   <span className="briefing-event-npc-flag" style={{ background: npcInfo.color }}>
                     {npcInfo.flag}
@@ -644,6 +680,7 @@ export default function BriefingScreen({
                   <span className="briefing-event-npc-name">{d.npc_name}</span>
                 </div>
                 <p className="briefing-event-npc-message">{d.message}</p>
+                <span className="briefing-npc-open-hint">{'\u2193'} open channel</span>
               </div>
             )
           })}
@@ -655,6 +692,30 @@ export default function BriefingScreen({
         </div>
 
         <div className="briefing-event-divider" />
+
+        {/* E3b: NPC event drawer */}
+        {eventNpcDrawerOpen && selectedEventNpc && (
+          <div className="briefing-advisor-drawer briefing-event-npc-drawer">
+            <div className="briefing-npc-drawer-header">
+              <span>{selectedEventNpc.flag} {selectedEventNpc.display_name}</span>
+              <button
+                className="briefing-drawer-close"
+                onClick={() => {
+                  setEventNpcDrawerOpen(false)
+                  setSelectedEventNpc(null)
+                  setEventNpcMessage(null)
+                }}>
+                {'\u2715'}
+              </button>
+            </div>
+            <div className="briefing-npc-drawer-body">
+              {eventNpcMessage === ''
+                ? <span className="briefing-npc-loading">...</span>
+                : <p>{eventNpcMessage}</p>
+              }
+            </div>
+          </div>
+        )}
 
         {/* Your Move — real choices */}
         <div className="briefing-event-choices">
