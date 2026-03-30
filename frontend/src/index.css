@@ -4375,12 +4375,24 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   border-color: var(--accent); background: rgba(74,158,255,0.04);
 }
 .briefing-npc-open-hint {
-  display: block; font-size: 0.7rem; color: var(--muted);
-  opacity: 0.5; margin-top: 0.3rem; text-align: right;
+  display: inline-block; font-size: 0.6rem; color: var(--muted);
+  opacity: 0.5; margin-top: 0.3rem; float: right;
+  border: 1px solid rgba(255,255,255,0.2); padding: 2px 8px;
+  border-radius: 3px; letter-spacing: 0.05em;
   transition: opacity 0.15s;
 }
 .briefing-event-npc-card:hover .briefing-npc-open-hint { opacity: 1; }
-.briefing-event-npc-drawer { margin-bottom: 0.75rem; }
+.npc-card-active {
+  border-color: rgba(255,255,255,0.4);
+  background: rgba(255,255,255,0.05);
+}
+.briefing-event-npc-drawer {
+  position: sticky; bottom: 0; left: 0; right: 0; z-index: 10;
+  background: var(--surface, #1a1f2e);
+  border-top: 1px solid rgba(255,255,255,0.15);
+  border-radius: 0; max-height: 280px; overflow-y: auto;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.4); padding: 16px;
+}
 .briefing-npc-drawer-header {
   display: flex; justify-content: space-between; align-items: center;
   padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);

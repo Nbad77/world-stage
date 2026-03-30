@@ -243,6 +243,8 @@ export default function BriefingScreen({
   // null=not fetched, ''=loading, string=read
   const mikeConfirmCache = useRef({})
   // keyed by choiceText, cleared when event changes
+  const eventNpcMessageCache = useRef({})
+  // keyed by `${event_id}:${npc_id}`, cleared on returnToBriefing
   const [resolutionBeat, setResolutionBeat] = useState(null)
   // null=not shown, { mike_beat, budget_delta, stability_delta }
 
@@ -524,6 +526,12 @@ export default function BriefingScreen({
   }
 
   const fetchEventNpcDialogue = async (npc_id) => {
+    const cacheKey = `${activeEvent?.id}:${npc_id}`
+    if (eventNpcMessageCache.current[cacheKey]) {
+      setEventNpcMessage(eventNpcMessageCache.current[cacheKey])
+      console.log('[EVENT_NPC_CACHE] HIT npc=', npc_id)
+      return
+    }
     try {
       console.log('[EVENT_NPC_DIALOGUE] requesting npc=',
         npc_id, 'event=', activeEvent?.id)
@@ -533,7 +541,9 @@ export default function BriefingScreen({
         activeEvent.id,
         { title: activeEvent.title, summary: activeEvent.summary }
       )
+      eventNpcMessageCache.current[cacheKey] = res.message
       setEventNpcMessage(res.message)
+      console.log('[EVENT_NPC_CACHE] MISS npc=', npc_id, '— fetched and cached')
     } catch (err) {
       console.log('[EVENT_NPC_DIALOGUE] failed:', err.message)
       setEventNpcMessage('Channel unavailable \u2014 try again shortly.')
@@ -653,6 +663,7 @@ export default function BriefingScreen({
     setSelectedEventNpc(null)
     setEventNpcMessage(null)
     mikeConfirmCache.current = {}
+    eventNpcMessageCache.current = {}
     const canEnd = dayStatus.events_resolved >= dayStatus.events_required
     setBriefingState(canEnd ? 'free_action' : 'hub')
   }
@@ -785,8 +796,10 @@ export default function BriefingScreen({
           )}
           {!eventDialoguesLoading && eventDialogues.map(d => {
             const npcInfo = NPC_DISPLAY[d.npc_id] || { flag: '\u{1F310}', name: d.npc_name, color: '#333' }
+            const isActive = eventNpcDrawerOpen && selectedEventNpc?.npc_id === d.npc_id
             return (
-              <div key={d.npc_id} className="briefing-event-npc-card"
+              <div key={d.npc_id}
+                className={`briefing-event-npc-card${isActive ? ' npc-card-active' : ''}`}
                 style={{ cursor: 'pointer' }}
                 onClick={() => handleEventNpcDrawer(d.npc_id, npcInfo.name, npcInfo.flag)}>
                 <div className="briefing-event-npc-header">
@@ -796,7 +809,7 @@ export default function BriefingScreen({
                   <span className="briefing-event-npc-name">{d.npc_name}</span>
                 </div>
                 <p className="briefing-event-npc-message">{d.message}</p>
-                <span className="briefing-npc-open-hint">{'\u2193'} open channel</span>
+                <span className="briefing-npc-open-hint">OPEN CHANNEL {'\u2193'}</span>
               </div>
             )
           })}
@@ -808,30 +821,6 @@ export default function BriefingScreen({
         </div>
 
         <div className="briefing-event-divider" />
-
-        {/* E3b: NPC event drawer */}
-        {eventNpcDrawerOpen && selectedEventNpc && (
-          <div className="briefing-advisor-drawer briefing-event-npc-drawer">
-            <div className="briefing-npc-drawer-header">
-              <span>{selectedEventNpc.flag} {selectedEventNpc.display_name}</span>
-              <button
-                className="briefing-drawer-close"
-                onClick={() => {
-                  setEventNpcDrawerOpen(false)
-                  setSelectedEventNpc(null)
-                  setEventNpcMessage(null)
-                }}>
-                {'\u2715'}
-              </button>
-            </div>
-            <div className="briefing-npc-drawer-body">
-              {eventNpcMessage === ''
-                ? <span className="briefing-npc-loading">...</span>
-                : <p>{eventNpcMessage}</p>
-              }
-            </div>
-          </div>
-        )}
 
         {/* Your Move — real choices */}
         <div className="briefing-event-choices">
@@ -891,6 +880,30 @@ export default function BriefingScreen({
                   <p className="briefing-advisor-analysis-text">{a.analysis_text}</p>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* E3b: NPC event drawer — sticky bottom panel */}
+        {eventNpcDrawerOpen && selectedEventNpc && (
+          <div className="briefing-event-npc-drawer">
+            <div className="briefing-npc-drawer-header">
+              <span>{selectedEventNpc.flag} {selectedEventNpc.display_name}</span>
+              <button
+                className="briefing-drawer-close"
+                onClick={() => {
+                  setEventNpcDrawerOpen(false)
+                  setSelectedEventNpc(null)
+                  setEventNpcMessage(null)
+                }}>
+                {'\u2715'}
+              </button>
+            </div>
+            <div className="briefing-npc-drawer-body">
+              {eventNpcMessage === ''
+                ? <span className="briefing-npc-loading">...</span>
+                : <p>{eventNpcMessage}</p>
+              }
             </div>
           </div>
         )}
