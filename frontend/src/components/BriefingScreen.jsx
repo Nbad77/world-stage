@@ -241,6 +241,8 @@ export default function BriefingScreen({
   // { resolutionValue, choiceText }
   const [mikeConfirmRead, setMikeConfirmRead] = useState(null)
   // null=not fetched, ''=loading, string=read
+  const mikeConfirmCache = useRef({})
+  // keyed by choiceText, cleared when event changes
   const [resolutionBeat, setResolutionBeat] = useState(null)
   // null=not shown, { mike_beat, budget_delta, stability_delta }
 
@@ -546,6 +548,15 @@ export default function BriefingScreen({
   }
 
   const fetchMikeConfirmRead = async (resolutionValue, choiceText) => {
+    // Check cache first
+    const cacheKey = choiceText
+    console.log('[MIKE_CONFIRM_CACHE]',
+      mikeConfirmCache.current[cacheKey] ? 'HIT' : 'MISS',
+      'choice=', choiceText?.slice(0, 30))
+    if (mikeConfirmCache.current[cacheKey]) {
+      setMikeConfirmRead(mikeConfirmCache.current[cacheKey])
+      return
+    }
     try {
       const res = await api.getMikeConfirmRead(
         sessionId,
@@ -553,6 +564,7 @@ export default function BriefingScreen({
         activeEvent.title,
         choiceText
       )
+      mikeConfirmCache.current[cacheKey] = res.read
       setMikeConfirmRead(res.read)
     } catch (err) {
       console.log('[MIKE_CONFIRM] fetch failed:', err.message)
@@ -634,6 +646,10 @@ export default function BriefingScreen({
     setEventDialogues([])
     setAdvisorAnalyses([])
     setAdvisorDrawerOpen(false)
+    setEventNpcDrawerOpen(false)
+    setSelectedEventNpc(null)
+    setEventNpcMessage(null)
+    mikeConfirmCache.current = {}
     const canEnd = dayStatus.events_resolved >= dayStatus.events_required
     setBriefingState(canEnd ? 'free_action' : 'hub')
   }
@@ -699,6 +715,7 @@ export default function BriefingScreen({
           className="briefing-modal-confirm"
           onClick={() => {
             setResolutionBeat(null)
+            mikeConfirmCache.current = {}
             setBriefingState('hub')
             if (onEventResolved) onEventResolved(activeEvent, activeEvent.resolution)
           }}>

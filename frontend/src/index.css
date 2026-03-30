@@ -4369,7 +4369,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 /* E5: Mike confirmation modal */
 .briefing-modal-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.7);
-  display: flex; align-items: center; justify-content: center; z-index: 1000;
+  display: flex; align-items: flex-end; justify-content: center;
+  padding-bottom: 15vh; z-index: 1000;
 }
 .briefing-modal {
   background: var(--surface, #1a1f2e); border: 1px solid var(--border, #2a3040);
