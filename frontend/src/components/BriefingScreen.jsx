@@ -235,6 +235,15 @@ export default function BriefingScreen({
   const [eventNpcMessage, setEventNpcMessage] = useState(null)
   // null = not fetched, '' = loading, string = message
 
+  // E5: Mike confirmation + resolution beat
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false)
+  const [pendingResolution, setPendingResolution] = useState(null)
+  // { resolutionValue, choiceText }
+  const [mikeConfirmRead, setMikeConfirmRead] = useState(null)
+  // null=not fetched, ''=loading, string=read
+  const [resolutionBeat, setResolutionBeat] = useState(null)
+  // null=not shown, { mike_beat, budget_delta, stability_delta }
+
   // 10B-2: Resolution consequences
   const [resolutionConsequences, setResolutionConsequences] = useState(null)
 
@@ -528,14 +537,47 @@ export default function BriefingScreen({
     }
   }
 
-  async function handleResolveEvent(resolution) {
-    if (!activeEvent || resolving) return
+  // E5: Intercept — open confirmation modal instead of firing API directly
+  const handleResolveEvent = (resolutionValue, choiceText) => {
+    setPendingResolution({ resolutionValue, choiceText })
+    setMikeConfirmRead('')
+    setConfirmModalOpen(true)
+    fetchMikeConfirmRead(resolutionValue, choiceText)
+  }
+
+  const fetchMikeConfirmRead = async (resolutionValue, choiceText) => {
+    try {
+      const res = await api.getMikeConfirmRead(
+        sessionId,
+        activeEvent.id,
+        activeEvent.title,
+        choiceText
+      )
+      setMikeConfirmRead(res.read)
+    } catch (err) {
+      console.log('[MIKE_CONFIRM] fetch failed:', err.message)
+      setMikeConfirmRead(
+        'This decision will have consequences. Proceed carefully.'
+      )
+    }
+  }
+
+  const handleConfirmResolution = async () => {
+    if (!pendingResolution || resolving) return
     setResolving(true)
     try {
-      const result = await api.briefingResolveEvent(sessionId, activeEvent.id, resolution)
+      const result = await api.briefingResolveEvent(
+        sessionId,
+        activeEvent.id,
+        pendingResolution.resolutionValue
+      )
+      setConfirmModalOpen(false)
+      setPendingResolution(null)
+      setMikeConfirmRead(null)
+
       // Update local state
       setDailyEvents(prev => prev.map(e =>
-        e.id === activeEvent.id ? { ...e, resolved: true, resolution } : e
+        e.id === activeEvent.id ? { ...e, resolved: true, resolution: pendingResolution.resolutionValue } : e
       ))
       setDayStatus(prev => ({
         events_resolved: result.events_resolved,
@@ -545,15 +587,25 @@ export default function BriefingScreen({
           ? result.deals_today
           : prev.deals_today || [],
       }))
-      setActiveEvent({ ...activeEvent, resolved: true, resolution })
+      setActiveEvent({ ...activeEvent, resolved: true, resolution: pendingResolution.resolutionValue })
       console.log('[10B-2] Resolution consequences:', result.consequences)
       setResolutionConsequences(result.consequences || null)
-      setBriefingState('event_summary')
+
       if (result.game_state && onGsUpdate) {
         onGsUpdate(result.game_state)
       }
-      if (onEventResolved) {
-        onEventResolved(activeEvent, resolution)
+
+      // Show resolution beat if mike_beat present
+      if (result.mike_beat) {
+        setResolutionBeat({
+          mike_beat: result.mike_beat,
+          budget_delta: result.consequences?.budget_delta || 0,
+          stability_delta: result.consequences?.stability_delta || 0,
+        })
+      } else {
+        // No beat — transition to event_summary directly
+        setBriefingState('event_summary')
+        if (onEventResolved) onEventResolved(activeEvent, pendingResolution.resolutionValue)
       }
     } catch (e) {
       console.error('[BRIEFING] Event resolution failed:', e)
@@ -608,6 +660,50 @@ export default function BriefingScreen({
           ))}
         </div>
         <p className="briefing-loading-text">Preparing your briefing...</p>
+      </div>
+    )
+  }
+
+  // ── Render: Resolution Beat (E5) ─────────────────────────────────────────
+  if (resolutionBeat && activeEvent) {
+    return (
+      <div className="briefing-resolution-beat">
+        <div className="briefing-beat-header">
+          <span className="briefing-severity-badge briefing-severity-resolved">RESOLVED</span>
+          <span className="briefing-beat-title">{activeEvent.title}</span>
+        </div>
+
+        {resolutionBeat.mike_beat && (
+          <div className="briefing-beat-mike">
+            <span className="briefing-modal-mike-label">MIKE SOREL</span>
+            <p>{resolutionBeat.mike_beat}</p>
+          </div>
+        )}
+
+        <div className="briefing-beat-consequences">
+          {resolutionBeat.budget_delta !== 0 && (
+            <span className={resolutionBeat.budget_delta > 0
+              ? 'briefing-delta-positive' : 'briefing-delta-negative'}>
+              Budget {resolutionBeat.budget_delta > 0 ? '+' : ''}{resolutionBeat.budget_delta}B
+            </span>
+          )}
+          {resolutionBeat.stability_delta !== 0 && (
+            <span className={resolutionBeat.stability_delta > 0
+              ? 'briefing-delta-positive' : 'briefing-delta-negative'}>
+              Stability {resolutionBeat.stability_delta > 0 ? '+' : ''}{resolutionBeat.stability_delta}%
+            </span>
+          )}
+        </div>
+
+        <button
+          className="briefing-modal-confirm"
+          onClick={() => {
+            setResolutionBeat(null)
+            setBriefingState('hub')
+            if (onEventResolved) onEventResolved(activeEvent, activeEvent.resolution)
+          }}>
+          CLOSE
+        </button>
       </div>
     )
   }
@@ -735,7 +831,7 @@ export default function BriefingScreen({
 
             return (
               <button key={i} className="briefing-choice-btn"
-                onClick={() => handleResolveEvent(resolutionValue)}
+                onClick={() => handleResolveEvent(resolutionValue, choiceText)}
                 disabled={resolving}>
                 <span className="briefing-choice-letter">
                   {String.fromCharCode(65 + i)}
@@ -775,6 +871,54 @@ export default function BriefingScreen({
                   <p className="briefing-advisor-analysis-text">{a.analysis_text}</p>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* E5: Mike confirmation modal */}
+        {confirmModalOpen && (
+          <div className="briefing-modal-overlay">
+            <div className="briefing-modal">
+
+              <div className="briefing-modal-event-title">
+                {activeEvent?.title}
+              </div>
+
+              <div className="briefing-modal-choice">
+                <span className="briefing-modal-choice-label">YOUR MOVE</span>
+                <span>{pendingResolution?.choiceText}</span>
+              </div>
+
+              <div className="briefing-modal-mike">
+                <span className="briefing-modal-mike-label">
+                  MIKE SOREL {'\u2014'} CHIEF OF STAFF
+                </span>
+                <div className="briefing-modal-mike-body">
+                  {mikeConfirmRead === ''
+                    ? <span className="briefing-npc-loading">...</span>
+                    : <p>{mikeConfirmRead}</p>
+                  }
+                </div>
+              </div>
+
+              <div className="briefing-modal-actions">
+                <button
+                  className="briefing-modal-confirm"
+                  onClick={handleConfirmResolution}
+                  disabled={mikeConfirmRead === '' || resolving}>
+                  CONFIRM
+                </button>
+                <button
+                  className="briefing-modal-back"
+                  onClick={() => {
+                    setConfirmModalOpen(false)
+                    setPendingResolution(null)
+                    setMikeConfirmRead(null)
+                  }}>
+                  GO BACK
+                </button>
+              </div>
+
             </div>
           </div>
         )}

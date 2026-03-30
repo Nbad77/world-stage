@@ -8902,6 +8902,54 @@ async def generate_briefing_events(session_id: str, user: User = Depends(get_opt
     }
 
 
+# E5: Mike confirmation read request model
+class MikeConfirmReadRequest(BaseModel):
+    event_id: str
+    event_title: str
+    choice_text: str
+
+
+@app.post("/game/{session_id}/briefing/mike-confirm-read")
+async def mike_confirm_read(session_id: str, req: MikeConfirmReadRequest,
+                             user: User = Depends(get_optional_user)):
+    """E5: Mike Sorel's pre-confirmation read — what the leader is actually committing to."""
+    _verify_game_ownership(session_id, user)
+
+    def _generate_mike_read():
+        from npc_engine import _client as _npc_client, MODEL as _npc_model
+        response = _npc_client.messages.create(
+            model=_npc_model,
+            max_tokens=120,
+            temperature=0.7,
+            system=(
+                "You are Mikhail 'Mike' Sorel, Chief of Staff "
+                "to Europa's leader. You are direct, experienced, "
+                "and unsparing. Never use bullet points. "
+                "Never use markdown. Speak in plain sentences only."
+            ),
+            messages=[{"role": "user", "content":
+                f"The leader is about to commit to the following "
+                f"on the matter of '{req.event_title}':\n"
+                f"'{req.choice_text}'\n\n"
+                f"In 2-3 sentences, tell them plainly what they "
+                f"are actually committing to and what the "
+                f"immediate risk is. Be direct. No flattery."
+            }]
+        )
+        print(f"[MIKE_CONFIRM] event={req.event_id} "
+              f"tokens={response.usage.output_tokens}")
+        raw = response.content[0].text.strip()
+        return raw.replace('**', '').replace('*', '').strip()
+
+    import asyncio
+    try:
+        read = await asyncio.to_thread(_generate_mike_read)
+        return {"read": read}
+    except Exception as e:
+        print(f"[MIKE_CONFIRM] failed: {e}")
+        return {"read": "This will have consequences. Proceed with clear eyes."}
+
+
 @app.post("/game/{session_id}/briefing/resolve-event")
 async def resolve_event(session_id: str, request: Request, user: User = Depends(get_optional_user)):
     """Marks a world event as resolved with the player's choice."""
@@ -8973,12 +9021,51 @@ async def resolve_event(session_id: str, request: Request, user: User = Depends(
           f"Consequences: {consequences.get('interpretation', 'N/A')}. "
           f"Progress: {gs.events_resolved_today}/{gs.events_required_today}")
 
+    # E5: Generate Mike's resolution beat
+    def _generate_mike_beat():
+        from npc_engine import _client as _npc_client, MODEL as _npc_model
+        interp = consequences.get('interpretation', '')
+        b_delta = consequences.get('budget_delta', 0)
+        s_delta = consequences.get('stability_delta', 0)
+        response = _npc_client.messages.create(
+            model=_npc_model,
+            max_tokens=100,
+            temperature=0.7,
+            system=(
+                "You are Mikhail 'Mike' Sorel, Chief of Staff. "
+                "Speak in plain sentences. No bullet points. "
+                "No markdown. Maximum 2 sentences."
+            ),
+            messages=[{"role": "user", "content":
+                f"The leader just resolved '{target_event.get('title', '')}' "
+                f"by choosing: '{resolution}'.\n"
+                f"Outcome: budget_delta={b_delta}B, "
+                f"stability_delta={s_delta}%, "
+                f"interpretation='{interp}'\n\n"
+                f"React as Mike in 2 sentences — what just happened "
+                f"and what to watch for next. No flattery."
+            }]
+        )
+        print(f"[RESOLUTION_BEAT] event={event_id} "
+              f"tokens={response.usage.output_tokens}")
+        raw = response.content[0].text.strip()
+        return raw.replace('**', '').replace('*', '').strip()
+
+    try:
+        mike_beat = await asyncio.to_thread(_generate_mike_beat)
+    except Exception as e:
+        print(f"[RESOLUTION_BEAT] failed: {e}")
+        mike_beat = None
+
+    print(f"[RESOLUTION_BEAT] event={event_id} beat_present={mike_beat is not None}")
+
     return {
         "event": target_event,
         "events_resolved": gs.events_resolved_today,
         "events_required": gs.events_required_today,
         "can_end_day": can_end_day,
         "consequences": consequences,
+        "mike_beat": mike_beat,
         "game_state": gs.serialize(),
     }
 

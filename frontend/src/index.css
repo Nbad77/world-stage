@@ -4365,6 +4365,66 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   padding-top: 0.5rem; font-size: 0.85rem; color: var(--text);
 }
 .briefing-npc-loading { color: var(--muted); font-style: italic; }
+
+/* E5: Mike confirmation modal */
+.briefing-modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  display: flex; align-items: center; justify-content: center; z-index: 1000;
+}
+.briefing-modal {
+  background: var(--surface, #1a1f2e); border: 1px solid var(--border, #2a3040);
+  border-radius: 8px; padding: 24px; max-width: 560px; width: 90%;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.briefing-modal-event-title {
+  font-size: 0.75rem; text-transform: uppercase;
+  letter-spacing: 0.1em; opacity: 0.6;
+}
+.briefing-modal-choice {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.briefing-modal-choice-label {
+  font-size: 0.65rem; text-transform: uppercase;
+  letter-spacing: 0.1em; opacity: 0.5;
+}
+.briefing-modal-mike-label {
+  font-size: 0.65rem; text-transform: uppercase;
+  letter-spacing: 0.1em; opacity: 0.5; display: block; margin-bottom: 6px;
+}
+.briefing-modal-mike-body p { margin: 0; line-height: 1.5; }
+.briefing-modal-actions {
+  display: flex; gap: 12px; justify-content: flex-end;
+}
+.briefing-modal-confirm {
+  padding: 8px 20px; background: var(--accent, #4a9eff); color: white;
+  border: none; border-radius: 4px; cursor: pointer;
+  font-size: 0.8rem; letter-spacing: 0.05em;
+}
+.briefing-modal-confirm:disabled { opacity: 0.4; cursor: not-allowed; }
+.briefing-modal-back {
+  padding: 8px 20px; background: transparent; color: inherit;
+  border: 1px solid var(--border, #2a3040); border-radius: 4px;
+  cursor: pointer; font-size: 0.8rem; letter-spacing: 0.05em;
+}
+
+/* E5: Resolution beat panel */
+.briefing-resolution-beat {
+  display: flex; flex-direction: column; gap: 16px; padding: 16px;
+}
+.briefing-beat-header {
+  display: flex; align-items: center; gap: 10px;
+}
+.briefing-beat-title { font-weight: 600; }
+.briefing-severity-resolved {
+  background: rgba(74,158,255,0.15); color: #4a9eff; border-color: #4a9eff;
+}
+.briefing-beat-mike p { margin: 0; line-height: 1.5; }
+.briefing-beat-consequences {
+  display: flex; gap: 16px; flex-wrap: wrap;
+}
+.briefing-delta-positive { color: #4caf50; font-weight: 600; }
+.briefing-delta-negative { color: #e54a4a; font-weight: 600; }
+
 .briefing-event-npc-header {
   display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem;
 }

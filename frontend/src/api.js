@@ -418,6 +418,11 @@ export const api = {
   briefingResolveEvent: (id, event_id, resolution) =>
     request('POST', `/game/${id}/briefing/resolve-event`, { event_id, resolution }),
 
+  /** POST /game/{id}/briefing/mike-confirm-read — Mike's pre-confirmation read */
+  getMikeConfirmRead: (id, event_id, event_title, choice_text) =>
+    request('POST', `/game/${id}/briefing/mike-confirm-read`,
+      { event_id, event_title, choice_text }),
+
   /** GET /game/{id}/briefing/day-status — get day progress */
   briefingDayStatus: (id) =>
     request('GET', `/game/${id}/briefing/day-status`),
