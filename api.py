@@ -245,6 +245,12 @@ class FalseFlagRequest(BaseModel):
     target_npc: str
     blame_npc: str
 
+# E4: Event NPC dialogue request
+class EventNpcDialogueRequest(BaseModel):
+    npc_id: str
+    event_id: str
+    event_context: dict  # { title: str, summary: str }
+
 
 # 10C: Operations cap helper
 def check_ops_cap(gs, op_type: str) -> bool:
@@ -9100,6 +9106,61 @@ async def get_event_dialogue(session_id: str, request: Request, user: User = Dep
           f"applicable={target_event.get('applicable_npcs', [])} "
           f"npc_ids={[d.get('npc_id') for d in dialogues]}")
     return {"dialogues": dialogues, "cached": False}
+
+
+@app.post("/game/{session_id}/briefing/event-npc-dialogue")
+async def briefing_event_npc_dialogue(session_id: str, req: EventNpcDialogueRequest,
+                                       user: User = Depends(get_optional_user)):
+    """E4: Generate a fresh, event-contextual opening message from a single NPC.
+    Called when player clicks an NPC communiqué card to open the channel drawer."""
+    _verify_game_ownership(session_id, user)
+    gs = _load_gs(session_id)
+
+    intel = (
+        f"Intelligence briefing:\n"
+        f"europa_budget_billions: {gs.budget}\n"
+        f"europa_stability_pct: {gs.stability}\n"
+        f"europa_approval_pct: {getattr(gs, 'public_approval', 60)}\n\n"
+        f"SITUATION: {req.event_context.get('title', '')}\n"
+        f"{req.event_context.get('summary', '')}\n\n"
+        f"Europa's leader has opened a direct channel with you "
+        f"about this situation. Respond as yourself — your "
+        f"interests, your angle on this moment. You may float "
+        f"a proposal if you have one. "
+        f"Keep it under 150 words. No pleasantries."
+    )
+
+    def _generate():
+        from npc_engine import build_npc_system_prompt, _client as _npc_client, MODEL as _npc_model
+        system = build_npc_system_prompt(req.npc_id, gs)
+        if not system:
+            return None
+        response = _npc_client.messages.create(
+            model=_npc_model,
+            max_tokens=400,
+            temperature=0.75,
+            system=system,
+            messages=[{"role": "user", "content": intel}]
+        )
+        print(f"[EVENT_NPC_DIALOGUE] npc={req.npc_id} "
+              f"event={req.event_id} "
+              f"tokens={response.usage.output_tokens}")
+        raw = response.content[0].text.strip()
+        # Strip markdown/stage directions
+        import re
+        msg = re.sub(r'\*[^*]+\*', '', raw).strip()
+        msg = msg.replace('**', '').replace('*', '').strip()
+        return msg
+
+    import asyncio
+    try:
+        message = await asyncio.to_thread(_generate)
+        if message is None:
+            return {"message": "No response at this time."}
+        return {"message": message}
+    except Exception as e:
+        print(f"[EVENT_NPC_DIALOGUE] failed npc={req.npc_id}: {e}")
+        return {"message": "No response at this time."}
 
 
 @app.post("/game/{session_id}/briefing/advisor-event-analysis")
