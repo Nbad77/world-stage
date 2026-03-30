@@ -5604,12 +5604,28 @@ def generate_event_dialogue(game_state, event: dict) -> list:
     }
 
     raw_applicable = event.get("applicable_npcs", [])
+    VALID_CODES = {"usa", "arabia", "eu", "dprg", "russia", "china"}
     if not raw_applicable:
         # Every country has a position on world events — use all six NPCs
-        applicable = ["usa", "arabia", "eu", "dprg", "russia", "china"]
+        applicable = list(VALID_CODES)
     else:
-        # Translate NPC names to country keys; pass through if already a country key
-        applicable = [NPC_TO_COUNTRY.get(npc, npc) for npc in raw_applicable]
+        # Normalize: lowercase + strip, translate character names to country codes,
+        # filter to only valid country codes
+        applicable = [
+            NPC_TO_COUNTRY.get(npc.lower().strip(), npc.lower().strip())
+            for npc in raw_applicable
+            if isinstance(npc, str)
+        ]
+        applicable = [npc for npc in applicable if npc in VALID_CODES]
+        # Fall back to all NPCs if normalization produced empty list
+        if not applicable:
+            applicable = list(VALID_CODES)
+            print(f"[EVENT_NPC_WARN] applicable_npcs normalization "
+                  f"produced empty list for event={event.get('id')} "
+                  f"raw={raw_applicable} — falling back to all NPCs")
+    if raw_applicable:
+        print(f"[EVENT_NPC_NORM] event={event.get('id')} "
+              f"raw={raw_applicable} → normalized={applicable}")
 
     event_title = event.get("title", "Unknown Event")
     event_summary = event.get("summary", "")
