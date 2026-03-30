@@ -1291,13 +1291,16 @@ export default function BriefingScreen({
         const gsDeals = gameState?.deals_today || []
         const dsDeals = dayStatus?.deals_today || []
         const visibleDeals = gsDeals.length >= dsDeals.length ? gsDeals : dsDeals
+        // E6: Resolved events for Today's Decisions
+        const resolvedEvents = dailyEvents.filter(e => e.resolved)
+        console.log('[DECISIONS_PANEL] deals=', visibleDeals?.length, 'events=', resolvedEvents?.length)
         return (
       <div className="todays-deals">
         <h4 className="deals-header">TODAY'S DECISIONS</h4>
         {dealsRefreshing && (
           <div className="deals-loading"><span>Updating day record...</span></div>
         )}
-        {visibleDeals.length === 0 && !dealsRefreshing && (
+        {visibleDeals.length === 0 && resolvedEvents.length === 0 && !dealsRefreshing && (
           <div className="decisions-empty">
             <span>No decisions recorded yet today.</span>
           </div>
@@ -1431,6 +1434,48 @@ export default function BriefingScreen({
             </div>
           )}
         </>)}
+
+        {/* E6: Resolved events */}
+        {resolvedEvents.length > 0 && (
+          <div className="briefing-resolved-events-section">
+            {resolvedEvents.map(evt => {
+              const catColors = {
+                diplomatic: '#4a9eff', economic: '#e5a34a',
+                military: '#e54a4a', domestic: '#4caf50', crisis: '#ff6b6b',
+              }
+              const catColor = catColors[evt.category] || '#4a9eff'
+              const cons = evt.consequences || {}
+              const bDelta = cons.budget_delta || 0
+              const sDelta = cons.stability_delta || 0
+              return (
+                <div key={evt.id} className="briefing-decision-event">
+                  <div className="briefing-decision-event-header">
+                    <span className="briefing-decision-category-badge"
+                      style={{ color: catColor, borderColor: catColor }}>
+                      {(evt.category || 'event').toUpperCase()}
+                    </span>
+                    <span className="briefing-decision-event-title">{evt.title}</span>
+                  </div>
+                  <div className="briefing-decision-event-resolution">{evt.resolution}</div>
+                  {(bDelta !== 0 || sDelta !== 0) && (
+                    <div className="briefing-decision-event-deltas">
+                      {bDelta !== 0 && (
+                        <span className={bDelta > 0 ? 'briefing-delta-positive' : 'briefing-delta-negative'}>
+                          Budget: {bDelta > 0 ? '+' : ''}{bDelta}B
+                        </span>
+                      )}
+                      {sDelta !== 0 && (
+                        <span className={sDelta > 0 ? 'briefing-delta-positive' : 'briefing-delta-negative'}>
+                          Stability: {sDelta > 0 ? '+' : ''}{sDelta}%
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
         )
       })()}

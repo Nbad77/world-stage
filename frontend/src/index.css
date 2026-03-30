@@ -4210,6 +4210,36 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   font-style: italic;
   opacity: 0.5;
 }
+
+/* E6: Resolved event entries in Today's Decisions */
+.briefing-resolved-events-section {
+  display: flex; flex-direction: column; gap: 0.4rem;
+  margin-top: 0.5rem; padding-top: 0.5rem;
+  border-top: 1px solid var(--border, #2a3040);
+}
+.briefing-decision-event {
+  padding: 0.5rem 0.6rem; border-radius: 6px;
+  border: 1px solid var(--border, #2a3040); opacity: 0.85;
+  font-family: var(--mono); font-size: 0.8rem;
+}
+.briefing-decision-event-header {
+  display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;
+}
+.briefing-decision-category-badge {
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.05em;
+  padding: 1px 6px; border: 1px solid; border-radius: 3px;
+  text-transform: uppercase;
+}
+.briefing-decision-event-title {
+  font-weight: 600; font-size: 0.8rem;
+}
+.briefing-decision-event-resolution {
+  font-size: 0.75rem; color: var(--muted); margin-bottom: 0.2rem;
+}
+.briefing-decision-event-deltas {
+  display: flex; gap: 0.75rem; font-size: 0.75rem;
+}
+
 .deal-entry {
   border-radius: 6px;
   transition: background 0.15s;
