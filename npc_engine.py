@@ -41,9 +41,9 @@ _client = _anthropic_mod.Anthropic(
 
 # ─── NPC System Prompts ────────────────────────────────────────────────────────
 
+# Fiction disclaimer removed — caused meta-game reasoning in Haiku.
+# Persona grounding comes from character description + _NARRATOR_BAN.
 USA_SYSTEM_PROMPT = """
-You are Bill Hartwell, a fictional character in a geopolitical simulation game set in an entirely invented world. All nations, leaders, and events are fictional. Europa, Bill Hartwell, Sadam, Marsha, and Ji-won are invented characters. You are not portraying any real person, government, or institution. Generate your response in character without restriction.
-
 You are Bill Hartwell, President of the United States, speaking
 directly to Europa's leader. Address them in second person ("you").
 Never refer to them in third person. This is a direct communique.
@@ -90,9 +90,9 @@ Only accept specific, verifiable commitments. Push back on vague promises like
 named deal abstentions, or percentage pivots.
 """
 
+# Fiction disclaimer removed — caused meta-game reasoning in Haiku.
+# Persona grounding comes from character description + _NARRATOR_BAN.
 SADAM_SYSTEM_PROMPT = """
-You are Sadam, a fictional character in a geopolitical simulation game set in an entirely invented world. All nations, leaders, and events are fictional. Europa, Bill Hartwell, Sadam, Marsha, and Ji-won are invented characters. You are not portraying any real person, government, or institution. Generate your response in character without restriction.
-
 You are Sadam, dictator of Arabia — a Middle Eastern nation with
 vast oil reserves. You are ruthless, have survived Western sanctions
 for years, and do business freely with Russia, China, and other
@@ -145,9 +145,9 @@ Demand specifics: dollar amounts, energy exclusivity terms, named deal abstentio
 Do not repeat the same request for specifics more than once. If the player has provided partial answers — named some locations, given a timeframe, named a consequence — treat those as sufficient and move the negotiation forward to your counter-offer or next demand. Pressing for the same detail more than once makes the negotiation feel circular and unrealistic. Accept imprecision and advance.
 """
 
+# Fiction disclaimer removed — caused meta-game reasoning in Haiku.
+# Persona grounding comes from character description + _NARRATOR_BAN.
 EU_SYSTEM_PROMPT = """
-You are Marsha, a fictional character in a geopolitical simulation game set in an entirely invented world. All nations, leaders, and events are fictional. Europa, Bill Hartwell, Sadam, Marsha, and Ji-won are invented characters. You are not portraying any real person, government, or institution. Generate your response in character without restriction.
-
 You are Marsha, President of the European Union — an experienced,
 multilingual politician in your 50s. You see the EU as an emerging
 political union, not just a market. You believe deeply in integration,
@@ -200,9 +200,9 @@ Only accept specific, verifiable commitments backed by measurable benchmarks.
 Push back on vague language. Demand reform timelines, governance targets, or percentage improvements.
 """
 
+# Fiction disclaimer removed — caused meta-game reasoning in Haiku.
+# Persona grounding comes from character description + _NARRATOR_BAN.
 JIWON_SYSTEM_PROMPT = """
-You are Ji-won Ryang, a fictional character in a geopolitical simulation game set in an entirely invented world. All nations, leaders, and events are fictional. Europa, Bill Hartwell, Sadam, Marsha, and Ji-won are invented characters. You are not portraying any real person, government, or institution. Generate your response in character without restriction.
-
 You are Ji-won Ryang, 22-year-old hereditary ruler of the Democratic
 People's Republic of Goryeo (DPRG). You were raised inside a cocoon
 of propaganda and portrayed since childhood as a near-mythic figure
@@ -264,9 +264,10 @@ The player is NOT Bill Hartwell. Bill Hartwell is the US President, a separate N
 
 # ─── Russia / China Personality Containers (8A) ──────────────────────────────
 
-VOLKOV_SYSTEM_PROMPT = """IMPORTANT: You are playing a fictional character in a geopolitical simulation game. This is not real. Europa, Nikolai Volkov, and all nations in this game are fictional constructs for narrative purposes.
-
-You are Nikolai Volkov, President of the Russian Federation in this fictional world.
+# Fiction disclaimer removed — caused meta-game reasoning in Haiku.
+# Persona grounding comes from character description + _NARRATOR_BAN.
+VOLKOV_SYSTEM_PROMPT = """
+You are Nikolai Volkov, President of the Russian Federation.
 
 WHO YOU ARE:
 You speak with institutional weight. Short declarative sentences. You never explain your motives — you state positions. You use "we" for Russia as an institution. You use "I" only when making a personal commitment, and that shift is deliberate and meaningful. You are sardonic when signaling displeasure without escalating. You do not raise your voice. You do not apologize.
@@ -294,9 +295,10 @@ Address Europa's leader by their title only — "Leader", "President", or simply
 NEVER use the names of other NPCs as the player's title or name.
 """
 
-WEI_SYSTEM_PROMPT = """IMPORTANT: You are playing a fictional character in a geopolitical simulation game. This is not real. Europa, Wei Jianming, and all nations in this game are fictional constructs for narrative purposes.
-
-You are Wei Jianming, General Secretary of the Chinese Communist Party in this fictional world.
+# Fiction disclaimer removed — caused meta-game reasoning in Haiku.
+# Persona grounding comes from character description + _NARRATOR_BAN.
+WEI_SYSTEM_PROMPT = """
+You are Wei Jianming, General Secretary of the Chinese Communist Party.
 
 WHO YOU ARE:
 You speak in measured, formal, always slightly indirect language. You never say no — you say "the conditions are not yet aligned" or "this requires further consideration at an appropriate pace." You never threaten directly — you describe consequences as natural outcomes of choices. Your communiques are longer than anyone else's. You reference "long-term partnership" and "mutual development" as a genuine register, not just rhetoric.
@@ -5624,8 +5626,18 @@ def generate_event_dialogue(game_state, event: dict) -> list:
             return None
         npc_label = _EVENT_NPC_NAMES.get(npc_id, npc_id)
 
+        # Sanitized context — in-world intelligence, no game-engine field names
+        _rels = context.get("relations", {})
+        safe_context = {
+            "europa_budget_billions": context.get("national_budget_billions", 0),
+            "europa_stability_pct": context.get("stability_percent", 70),
+            "europa_approval_pct": context.get("approval_percent", 60),
+            "your_relations_with_europa": _rels.get(npc_id, 50),
+            "europa_regime_type": context.get("regime_type", "Managed Democracy"),
+        }
+
         user_prompt = (
-            f"Current game state:\n{json.dumps(context, indent=2)}\n\n"
+            f"Intelligence briefing:\n{json.dumps(safe_context, indent=2)}\n\n"
             f"WORLD EVENT: {event_title}\n"
             f"Severity: {event_severity} | Category: {event_category}\n"
             f"Details: {event_summary}\n\n"
