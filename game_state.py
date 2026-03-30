@@ -803,6 +803,7 @@ class GameState:
         self.declaration_used_today = False
         self.todays_declaration = ""
         self.declaration_history = []  # {day, era, text, consequences}
+        self.pending_declaration_events = []  # E7b: events to inject next day from declarations
 
         # 10B-2: Event dialogue cache, diplomatic cables, intel ops
         self.event_dialogues = {}       # {event_id: [{npc_id, message}]}
@@ -1607,6 +1608,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             # 10B-2: Event dialogue, cables, declarations, intel
             'todays_declaration': getattr(self, 'todays_declaration', ''),
             'declaration_history': getattr(self, 'declaration_history', []),
+            'pending_declaration_events': getattr(self, 'pending_declaration_events', []),
             'event_dialogues': getattr(self, 'event_dialogues', {}),
             'diplomatic_cables': getattr(self, 'diplomatic_cables', {}),
             'diplomatic_cable_types': getattr(self, 'diplomatic_cable_types', {}),
@@ -2104,6 +2106,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         # 10B-2: Event dialogue, cables, declarations, intel
         gs.todays_declaration = data.get('todays_declaration', '')
         gs.declaration_history = data.get('declaration_history', [])
+        gs.pending_declaration_events = data.get('pending_declaration_events', [])
         gs.event_dialogues = data.get('event_dialogues', {})
         gs.diplomatic_cables = data.get('diplomatic_cables', {})
         gs.diplomatic_cable_types = data.get('diplomatic_cable_types', {})

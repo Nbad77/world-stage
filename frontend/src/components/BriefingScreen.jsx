@@ -253,6 +253,7 @@ export default function BriefingScreen({
   const [declarationText, setDeclarationText] = useState('')
   const [declarationLoading, setDeclarationLoading] = useState(false)
   const [todaysDeclaration, setTodaysDeclaration] = useState('')
+  const [declarationConsequences, setDeclarationConsequences] = useState(null)
   const declarationsAvailable = (gameState?.declarations_available ?? 0) >= 1
   const declarationUsedToday = gameState?.declaration_used_today ?? false
 
@@ -633,6 +634,8 @@ export default function BriefingScreen({
       const result = await api.briefingDeclaration(sessionId, declarationText.trim())
       setTodaysDeclaration(declarationText.trim())
       setDeclarationText('')
+      setDeclarationConsequences(result.consequences || null)
+      console.log('[DECLARATION] consequences:', result.consequences)
       if (result.game_state && onGsUpdate) onGsUpdate(result.game_state)
     } catch (e) {
       console.error('[10B-2] Declaration failed:', e)
@@ -1242,10 +1245,38 @@ export default function BriefingScreen({
       )}
       {declarationUsedToday && (
         <div className="declaration-used">
-          <span>Declaration issued today</span>
+          <span className="declaration-issued-label">Declaration issued today</span>
           <span className="declaration-text-preview">
             {todaysDeclaration || gameState?.todays_declaration || ''}
           </span>
+          {declarationConsequences && (
+            <div className="declaration-consequences">
+              {declarationConsequences.interpretation && (
+                <p className="declaration-interpretation">
+                  {declarationConsequences.interpretation}
+                </p>
+              )}
+              {declarationConsequences.npc_reactions && (
+                <div className="declaration-reactions">
+                  {Object.entries(declarationConsequences.npc_reactions)
+                    .filter(([, d]) => d !== 0)
+                    .map(([npc, delta]) => (
+                      <span key={npc} className={delta > 0 ? 'briefing-delta-positive' : 'briefing-delta-negative'}>
+                        {(NPC_DISPLAY[npc]?.flag || '')} {delta > 0 ? '+' : ''}{delta}
+                      </span>
+                    ))
+                  }
+                </div>
+              )}
+              {declarationConsequences.soft_power_delta !== 0 && (
+                <span className={declarationConsequences.soft_power_delta > 0
+                  ? 'briefing-delta-positive' : 'briefing-delta-negative'}>
+                  Soft Power: {declarationConsequences.soft_power_delta > 0 ? '+' : ''}
+                  {declarationConsequences.soft_power_delta}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       )}
       {!declarationsAvailable && (

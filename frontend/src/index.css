@@ -4582,6 +4582,22 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   display: block; margin-top: 0.25rem; color: var(--text);
   font-size: 0.8rem; font-style: italic;
 }
+.declaration-issued-label {
+  font-size: 0.65rem; text-transform: uppercase;
+  letter-spacing: 0.1em; opacity: 0.6;
+}
+.declaration-consequences {
+  margin-top: 0.5rem; padding-top: 0.5rem;
+  border-top: 1px solid var(--border, #2a3040);
+}
+.declaration-interpretation {
+  font-size: 0.8rem; margin: 0 0 0.4rem 0;
+  color: var(--text); line-height: 1.4;
+}
+.declaration-reactions {
+  display: flex; gap: 0.6rem; flex-wrap: wrap;
+  font-size: 0.8rem; margin-bottom: 0.3rem;
+}
 .declaration-locked {
   font-family: var(--mono); font-size: 0.8rem; color: var(--muted);
   padding: 0.5rem 0; margin-bottom: 0.5rem;

@@ -5616,6 +5616,15 @@ def apply_end_of_turn_effects(game_state):
         print(f"  [turn_processor] ERA BACKSTOP: {_days_in_era} days in era, {_days_since_threshold} since last threshold")
 
     # ──────────────────────────────────────────
+    # 14b. E7b: Stage pending declaration events for next day
+    # ──────────────────────────────────────────
+    _pending_decl = getattr(game_state, 'pending_declaration_events', [])
+    if _pending_decl:
+        print(f"[DECLARATION_INJECT] staged={len(_pending_decl)} for next day")
+    # Events stay in pending_declaration_events — gm_engine picks them up
+    # when generate_daily_events() runs on the next day
+
+    # ──────────────────────────────────────────
     # 15. SESSION 4D: ALTERNATE ENDINGS CHECK
     # Checked each EOT after all consequences. Priority: martyrdom > capture > democratic > retirement
     # ──────────────────────────────────────────

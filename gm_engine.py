@@ -453,11 +453,22 @@ def generate_daily_events(gs) -> list:
     turn = getattr(gs, 'current_turn', 1)
     count = random.randint(5, 7)
 
+    # E7b: Pick up any player declarations pre-seeded from last turn
+    pre_seeded = []
+    _pending = getattr(gs, 'pending_declaration_events', [])
+    if _pending:
+        pre_seeded = list(_pending)
+        gs.pending_declaration_events = []
+        print(f"[DECLARATION_INJECT] pre_seeded={len(pre_seeded)} events injected")
+
+    # Reduce Haiku generation count so total stays in range
+    haiku_count = max(2, count - len(pre_seeded))
+
     if not _client:
         print("[GM-Events] No API key — returning fallback events")
-        return _generate_fallback_events(gs)
+        return pre_seeded + _generate_fallback_events(gs)
 
-    user_prompt = _build_event_user_prompt(gs, count)
+    user_prompt = _build_event_user_prompt(gs, haiku_count)
 
     try:
         response = _client.messages.create(
@@ -496,12 +507,15 @@ def generate_daily_events(gs) -> list:
                 print(f"[EVENT_GEN_WARN] event={e.get('id')} "
                       f"missing choices — frontend fallback will apply")
 
-        print(f"[GM-Events] Generated {len(events)} events for Day {turn}, Era {era}")
+        # Prepend pre-seeded declaration events
+        events = pre_seeded + events
+        print(f"[GM-Events] Generated {len(events)} events for Day {turn}, Era {era} "
+              f"(pre_seeded={len(pre_seeded)})")
         return events
 
     except json.JSONDecodeError as e:
         print(f"[GM-Events] JSON parse error: {e}")
-        return _generate_fallback_events(gs)
+        return pre_seeded + _generate_fallback_events(gs)
     except Exception as e:
         print(f"[GM-Events] Generation failed: {e}")
-        return _generate_fallback_events(gs)
+        return pre_seeded + _generate_fallback_events(gs)

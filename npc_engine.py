@@ -5981,8 +5981,7 @@ def generate_declaration_consequences(game_state, declaration_text: str) -> dict
         f"Determine consequences. Return ONLY JSON."
     )
 
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
+    if not _client:
         return {
             "interpretation": "The declaration has been noted by the international community.",
             "npc_reactions": {"usa": 0, "arabia": 0, "eu": 0, "russia": 0, "china": 0, "dprg": 0},
@@ -5992,9 +5991,7 @@ def generate_declaration_consequences(game_state, declaration_text: str) -> dict
         }
 
     try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
-        response = client.messages.create(
+        response = _client.messages.create(
             model=MODEL,
             max_tokens=300,
             temperature=0.6,
@@ -6021,6 +6018,9 @@ def generate_declaration_consequences(game_state, declaration_text: str) -> dict
         result.setdefault("interpretation", "The declaration was noted.")
 
         print(f"  [10B-2] Declaration consequences: {result['interpretation']}")
+        print(f"[DECLARATION_CONSEQUENCES] "
+              f"generates_event={result.get('generates_world_event')} "
+              f"soft_power_delta={result.get('soft_power_delta')}")
         return result
 
     except Exception as e:

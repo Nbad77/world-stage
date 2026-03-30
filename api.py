@@ -9316,11 +9316,11 @@ async def issue_declaration(session_id: str, request: Request, user: User = Depe
     if hasattr(gs, 'soft_power_score'):
         gs.soft_power_score = max(0, min(100, gs.soft_power_score + sp_delta))
 
-    # Generate world event if flagged
+    # E7b: Stage world event for NEXT day (not current — player already browsed today's)
     if consequences.get("generates_world_event") and consequences.get("world_event_hint"):
         import random, string
         new_event = {
-            "id": "evt_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=6)),
+            "id": "evt_decl_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=6)),
             "title": "Response to Declaration",
             "summary": consequences["world_event_hint"],
             "severity": "moderate",
@@ -9330,10 +9330,15 @@ async def issue_declaration(session_id: str, request: Request, user: User = Depe
             "resolved": False,
             "resolution": None,
             "escalated_from_communique": False,
+            "player_declared": True,
             "era": getattr(gs, 'current_era', 1),
-            "day": getattr(gs, 'current_turn', 1),
+            "day": getattr(gs, 'current_turn', 1) + 1,
+            "choices": [],
         }
-        gs.daily_events.append(new_event)
+        if not hasattr(gs, 'pending_declaration_events'):
+            gs.pending_declaration_events = []
+        gs.pending_declaration_events.append(new_event)
+        print(f"[DECLARATION_EVENT] staged for next day: {new_event['id']}")
 
     # Mark declaration used
     gs.declaration_used_today = True
