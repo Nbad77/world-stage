@@ -4387,11 +4387,13 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   background: rgba(255,255,255,0.05);
 }
 .briefing-event-npc-drawer {
-  position: sticky; bottom: 0; left: 0; right: 0; z-index: 10;
-  background: var(--surface, #1a1f2e);
+  position: fixed; bottom: 0; left: 260px; right: 460px; z-index: 20;
+  background: var(--bg-secondary, #1a1f2e);
   border-top: 1px solid rgba(255,255,255,0.15);
-  border-radius: 0; max-height: 280px; overflow-y: auto;
-  box-shadow: 0 -4px 20px rgba(0,0,0,0.4); padding: 16px;
+  border-left: 1px solid rgba(255,255,255,0.08);
+  border-right: 1px solid rgba(255,255,255,0.08);
+  max-height: 280px; overflow-y: auto;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.5); padding: 16px;
 }
 .briefing-npc-drawer-header {
   display: flex; justify-content: space-between; align-items: center;
