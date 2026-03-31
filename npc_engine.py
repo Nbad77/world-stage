@@ -5739,7 +5739,16 @@ def generate_advisor_event_analysis(game_state, event: dict) -> list:
         f"- {a['name']} ({a['archetype']})" for a in advisors
     ])
 
-    context = _build_context(game_state)
+    # Sanitized context — in-world fields only, no game-engine names
+    _regime = getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy')
+    _state_summary = (
+        f"Europa's current situation:\n"
+        f"Budget: ${game_state.budget:.1f}B\n"
+        f"Stability: {game_state.stability}%\n"
+        f"Approval: {game_state.public_approval}%\n"
+        f"Regime: {_regime}\n"
+        f"Day: {game_state.current_turn}"
+    )
 
     system = (
         "You are generating analyses from multiple advisors on a world event.\n"
@@ -5750,7 +5759,7 @@ def generate_advisor_event_analysis(game_state, event: dict) -> list:
     )
 
     user_prompt = (
-        f"Game state:\n{json.dumps(context, indent=2)}\n\n"
+        f"{_state_summary}\n\n"
         f"WORLD EVENT: {event_title}\n"
         f"Severity: {event_severity} | Category: {event_category}\n"
         f"Details: {event_summary}\n\n"
@@ -5771,7 +5780,7 @@ def generate_advisor_event_analysis(game_state, event: dict) -> list:
                 f"- {a['name']} ({a['archetype']})" for a in _advisors_for_call
             ])
             _user_prompt_for_call = (
-                f"Game state:\n{json.dumps(context, indent=2)}\n\n"
+                f"{_state_summary}\n\n"
                 f"WORLD EVENT: {event_title}\n"
                 f"Severity: {event_severity} | Category: {event_category}\n"
                 f"Details: {event_summary}\n\n"
@@ -5791,6 +5800,7 @@ def generate_advisor_event_analysis(game_state, event: dict) -> list:
             _token_log["output_tokens"] += response.usage.output_tokens
 
             raw = response.content[0].text.strip()
+            print(f"[ADVISOR_ANALYSIS_RAW] length={len(raw)} preview={raw[:100]!r}")
             parsed = json.loads(raw)
             if not isinstance(parsed, list):
                 raise ValueError(f"Expected JSON array, got {type(parsed)}")
