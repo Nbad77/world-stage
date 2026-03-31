@@ -4715,6 +4715,15 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   border-bottom: 1px solid rgba(255,255,255,0.06);
   user-select: none;
 }
+.advisory-council-slots {
+  font-size: 0.6rem; color: var(--muted); letter-spacing: 0.05em;
+  opacity: 0.7;
+}
+/* Override assign btn width inside briefing card header */
+.advisor-briefing-header .advisor-assign-btn {
+  width: auto; padding: 0.15rem 0.5rem; flex-shrink: 0;
+  font-size: 0.55rem; margin-left: auto;
+}
 .advisory-council-title {
   font-size: 10px;
   font-weight: 600;

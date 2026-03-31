@@ -181,6 +181,7 @@ export default function BriefingScreen({
   const [expandedAdvisor, setExpandedAdvisor] = useState(null)
   const [advisorProfile, setAdvisorProfile] = useState(null)
   const [profileLoading, setProfileLoading] = useState(false)
+  const [assignLoading, setAssignLoading] = useState(null) // advisor key or null
 
   // Advisor pool (available to hire) state
   const [availableAdvisors, setAvailableAdvisors] = useState([])
@@ -403,6 +404,33 @@ export default function BriefingScreen({
         .catch(() => {})
     } catch (e) {
       console.error('[ADVISOR] dismiss failed', e)
+    }
+  }
+
+  async function handleAdvisorAssignToggle(advisorKey) {
+    const advisors = gameState?.advisors || {}
+    const adv = advisors[advisorKey]
+    if (!adv) return
+    const action = adv.assigned_this_turn ? 'unassign' : 'assign'
+    const assignedToday = gameState?.advisor_assigned_today || []
+    const slots = gameState?.advisor_slots_available || 2
+    const slotsUsed = new Set(assignedToday).size
+    const isReassign = assignedToday.includes(advisorKey)
+    if (action === 'assign' && !isReassign && slotsUsed >= slots) return
+
+    setAssignLoading(advisorKey)
+    try {
+      const res = action === 'assign'
+        ? await api.assignAdvisor(sessionId, advisorKey)
+        : await api.unassignAdvisor(sessionId, advisorKey)
+      console.log('[ADVISOR_ASSIGN] key=', advisorKey,
+        'action=', action,
+        'slots_remaining=', slots - new Set(res.game_state?.advisor_assigned_today || []).size)
+      if (res.game_state && onGsUpdate) onGsUpdate(res.game_state)
+    } catch (e) {
+      console.error('[ADVISOR_ASSIGN] failed:', e)
+    } finally {
+      setAssignLoading(null)
     }
   }
 
@@ -1089,6 +1117,9 @@ export default function BriefingScreen({
       <div className="advisory-council-panel">
         <div className="advisory-council-header" onClick={() => setCouncilOpen(!councilOpen)}>
           <span className="advisory-council-title">ADVISORY COUNCIL</span>
+          <span className="advisory-council-slots">
+            {new Set(gameState?.advisor_assigned_today || []).size} / {gameState?.advisor_slots_available || 2} ASSIGNED
+          </span>
           <span className="advisory-council-toggle">{councilOpen ? '\u2212' : '+'}</span>
         </div>
         {councilOpen && (
@@ -1127,6 +1158,14 @@ export default function BriefingScreen({
             )}
             {/* Hired advisor cards */}
             {(advisorBriefings || []).map(advisor => {
+              const _assignedToday = gameState?.advisor_assigned_today || []
+              const _slots = gameState?.advisor_slots_available || 2
+              const _slotsUsed = new Set(_assignedToday).size
+              const _advData = (gameState?.advisors || {})[advisor.role]
+              const _isAssigned = _advData?.assigned_this_turn || false
+              const _isReassign = _assignedToday.includes(advisor.role)
+              const _canAssign = _isAssigned || _isReassign || _slotsUsed < _slots
+              const _isAssignLoading = assignLoading === advisor.role
               return (
                 <div key={advisor.id}
                      className="advisor-briefing-card"
@@ -1141,6 +1180,16 @@ export default function BriefingScreen({
                       <span className="advisor-briefing-name">{advisor.name}</span>
                       <span className="advisor-briefing-label">{advisor.label}</span>
                     </div>
+                    <button
+                      className={`advisor-assign-btn ${_isAssigned ? 'btn-assigned' : _canAssign ? 'btn-available' : 'btn-disabled'}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleAdvisorAssignToggle(advisor.role)
+                      }}
+                      disabled={_isAssignLoading || (!_isAssigned && !_canAssign)}
+                      title={!_isAssigned && !_canAssign ? 'All slots used this turn' : ''}>
+                      {_isAssignLoading ? '...' : _isAssigned ? 'ASSIGNED \u2713' : 'Assign'}
+                    </button>
                   </div>
                   <div className="advisor-briefing-text">{advisor.text}</div>
                   {expandedAdvisor?.role === advisor.role && (
