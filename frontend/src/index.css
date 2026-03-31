@@ -4331,6 +4331,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .briefing-event-screen.entered {
   opacity: 1; transform: translateY(0);
 }
+.briefing-event-screen.npc-drawer-open {
+  padding-bottom: 300px;
+}
 .briefing-event-screen-header {
   display: flex; justify-content: space-between; align-items: center;
   gap: 0.5rem;

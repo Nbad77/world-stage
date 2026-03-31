@@ -750,7 +750,7 @@ export default function BriefingScreen({
       : _getDefaultChoices(activeEvent)
 
     return (
-      <div className={`briefing-event-screen ${eventScreenTransition ? 'entering' : 'entered'}`}>
+      <div className={`briefing-event-screen ${eventScreenTransition ? 'entering' : 'entered'}${eventNpcDrawerOpen ? ' npc-drawer-open' : ''}`}>
         {/* Header */}
         <div className="briefing-event-screen-header">
           <button className="briefing-back-btn" onClick={returnToBriefing}>
