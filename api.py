@@ -3813,6 +3813,50 @@ async def dismiss_deal(session_id: str, deal_id: str,
     return {"status": "dismissed", "game_state": gs_fresh.serialize()}
 
 
+class DealAssessmentRequest(BaseModel):
+    deal_summary: str
+
+
+@app.post("/game/{session_id}/deals/{deal_id}/assessment")
+async def deal_assessment(session_id: str, deal_id: str,
+                           req: DealAssessmentRequest,
+                           user: User = Depends(get_optional_user)):
+    """Mike Sorel's assessment of a completed deal."""
+    _verify_game_ownership(session_id, user)
+
+    def _generate():
+        from npc_engine import _client as _npc_client, MODEL as _npc_model
+        response = _npc_client.messages.create(
+            model=_npc_model,
+            max_tokens=100,
+            temperature=0.7,
+            system=(
+                "You are Mikhail 'Mike' Sorel, Chief of Staff "
+                "to Europa's leader. You are direct, unsparing, "
+                "and experienced. Speak in 2 sentences maximum. "
+                "No bullet points. No markdown."
+            ),
+            messages=[{"role": "user", "content":
+                f"Europa just concluded this deal: '{req.deal_summary}'. "
+                f"In 2 sentences, tell the leader what they actually "
+                f"just committed to and what the strategic implication "
+                f"is. Be direct."
+            }]
+        )
+        print(f"[DEAL_ASSESSMENT] deal_id={deal_id} "
+              f"tokens={response.usage.output_tokens}")
+        raw = response.content[0].text.strip()
+        return raw.replace('**', '').replace('*', '').strip()
+
+    import asyncio
+    try:
+        assessment = await asyncio.to_thread(_generate)
+        return {"assessment": assessment}
+    except Exception as e:
+        print(f"[DEAL_ASSESSMENT] failed: {e}")
+        return {"assessment": "Assessment unavailable."}
+
+
 # ── Session 4B: Election ─────────────────────────────────────────────────────
 
 @app.post("/game/{session_id}/election")

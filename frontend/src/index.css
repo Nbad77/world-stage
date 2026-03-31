@@ -4239,6 +4239,20 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .briefing-decision-event-deltas {
   display: flex; gap: 0.75rem; font-size: 0.75rem;
 }
+.decisions-mike-assessment {
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+.decisions-mike-assessment p { margin: 0; line-height: 1.4; font-size: 0.8rem; }
+.decisions-mike-label {
+  font-size: 0.7rem; letter-spacing: 0.08em; opacity: 0.5;
+  display: block; margin-bottom: 4px;
+}
+.decisions-event-expanded { padding-top: 8px; }
+.decisions-chevron {
+  font-size: 0.6rem; opacity: 0.4; margin-left: auto;
+}
+.decisions-mike-muted { opacity: 0.4; font-style: italic; }
 
 .deal-entry {
   border-radius: 6px;

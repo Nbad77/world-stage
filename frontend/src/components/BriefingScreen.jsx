@@ -247,6 +247,11 @@ export default function BriefingScreen({
   // keyed by `${event_id}:${npc_id}`, cleared on returnToBriefing
   const [resolutionBeat, setResolutionBeat] = useState(null)
   // null=not shown, { mike_beat, budget_delta, stability_delta }
+  const [resolvedEventBeats, setResolvedEventBeats] = useState({})
+  // keyed by event_id → mike_beat string (persists for session)
+  const [dealAssessments, setDealAssessments] = useState({})
+  // keyed by deal.id → { loading: bool, text: string }
+  const [expandedEventId, setExpandedEventId] = useState(null)
 
   // 10B-2: Resolution consequences
   const [resolutionConsequences, setResolutionConsequences] = useState(null)
@@ -550,6 +555,26 @@ export default function BriefingScreen({
     }
   }
 
+  // Deal assessment fetch for Today's Decisions expanded cards
+  const fetchDealAssessment = async (dealId, deal) => {
+    setDealAssessments(prev => ({
+      ...prev, [dealId]: { loading: true, text: null }
+    }))
+    try {
+      const res = await api.getDealAssessment(
+        sessionId, dealId,
+        deal.briefing_summary || deal.deal_text || ''
+      )
+      setDealAssessments(prev => ({
+        ...prev, [dealId]: { loading: false, text: res.assessment }
+      }))
+    } catch (err) {
+      setDealAssessments(prev => ({
+        ...prev, [dealId]: { loading: false, text: 'Assessment unavailable.' }
+      }))
+    }
+  }
+
   // E5: Intercept — open confirmation modal instead of firing API directly
   const handleResolveEvent = (resolutionValue, choiceText) => {
     setPendingResolution({ resolutionValue, choiceText })
@@ -620,6 +645,10 @@ export default function BriefingScreen({
 
       // Show resolution beat if mike_beat present
       if (result.mike_beat) {
+        // Persist for Today's Decisions display
+        setResolvedEventBeats(prev => ({
+          ...prev, [activeEvent.id]: result.mike_beat
+        }))
         setResolutionBeat({
           mike_beat: result.mike_beat,
           budget_delta: result.consequences?.budget_delta || 0,
@@ -1361,7 +1390,11 @@ export default function BriefingScreen({
               <div key={deal.id} className={`deal-entry ${isExpanded ? 'expanded' : ''}`}>
                 <div
                   className="deal-item deal-item-clickable"
-                  onClick={() => setExpandedDealId(isExpanded ? null : deal.id)}
+                  onClick={() => {
+                    const newId = isExpanded ? null : deal.id
+                    setExpandedDealId(newId)
+                    if (newId && !dealAssessments[deal.id]) fetchDealAssessment(deal.id, deal)
+                  }}
                 >
                   <span className="deal-npc">{flag} {deal.npc_name}</span>
                   <span className="deal-summary">{deal.briefing_summary}</span>
@@ -1454,6 +1487,16 @@ export default function BriefingScreen({
                         </button>
                       </div>
                     )}
+                    {/* Mike assessment */}
+                    <div className="decisions-mike-assessment">
+                      <span className="decisions-mike-label">MIKE SOREL</span>
+                      {dealAssessments[deal.id]?.loading
+                        ? <span className="briefing-npc-loading">...</span>
+                        : dealAssessments[deal.id]?.text
+                          ? <p>{dealAssessments[deal.id].text}</p>
+                          : <span className="briefing-npc-loading">...</span>
+                      }
+                    </div>
                   </div>
                 )}
               </div>
@@ -1491,14 +1534,18 @@ export default function BriefingScreen({
               const cons = evt.consequences || {}
               const bDelta = cons.budget_delta || 0
               const sDelta = cons.stability_delta || 0
+              const isEvtExpanded = expandedEventId === evt.id
               return (
-                <div key={evt.id} className="briefing-decision-event">
+                <div key={evt.id} className="briefing-decision-event"
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setExpandedEventId(isEvtExpanded ? null : evt.id)}>
                   <div className="briefing-decision-event-header">
                     <span className="briefing-decision-category-badge"
                       style={{ color: catColor, borderColor: catColor }}>
                       {(evt.category || 'event').toUpperCase()}
                     </span>
                     <span className="briefing-decision-event-title">{evt.title}</span>
+                    <span className="decisions-chevron">{isEvtExpanded ? '\u25B2' : '\u25BC'}</span>
                   </div>
                   <div className="briefing-decision-event-resolution">{evt.resolution}</div>
                   {(bDelta !== 0 || sDelta !== 0) && (
@@ -1513,6 +1560,17 @@ export default function BriefingScreen({
                           Stability: {sDelta > 0 ? '+' : ''}{sDelta}%
                         </span>
                       )}
+                    </div>
+                  )}
+                  {isEvtExpanded && (
+                    <div className="decisions-event-expanded">
+                      <div className="decisions-mike-assessment">
+                        <span className="decisions-mike-label">MIKE SOREL</span>
+                        {resolvedEventBeats[evt.id]
+                          ? <p>{resolvedEventBeats[evt.id]}</p>
+                          : <p className="decisions-mike-muted">No assessment available.</p>
+                        }
+                      </div>
                     </div>
                   )}
                 </div>

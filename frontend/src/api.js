@@ -443,6 +443,11 @@ export const api = {
     return request('DELETE', `/game/${id}/deals/${dealId}`)
   },
 
+  /** POST /game/{id}/deals/{dealId}/assessment — Mike's deal assessment */
+  getDealAssessment: (id, dealId, dealSummary) =>
+    request('POST', `/game/${id}/deals/${dealId}/assessment`,
+      { deal_summary: dealSummary }),
+
   /** POST /diplomacy/get-cable — request single NPC briefing ($0.3B) */
   getCable: (id, npcId) =>
     request('POST', `/game/${id}/diplomacy/get-cable`, { npc_id: npcId }),

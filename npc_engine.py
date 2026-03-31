@@ -6105,7 +6105,7 @@ def generate_deal_consequences_and_reactions(game_state, npc_id: str, deal_text:
         "\"consequences\" must be a JSON object with ALL of these fields "
         "(use 0 or null if not applicable, never omit):\n"
         '  "relations_delta": {"npc_id": integer},\n'
-        '  "budget_delta": float,\n'
+        '  "budget_delta": float,  // negative=Europa pays, positive=Europa receives\n'
         '  "personal_wealth_delta": float,\n'
         '  "stability_delta": float,\n'
         '  "cross_npc_visibility": ["npc_ids"],\n'
@@ -6117,7 +6117,10 @@ def generate_deal_consequences_and_reactions(game_state, npc_id: str, deal_text:
         "RULES:\n"
         "- relations_delta keys from: usa, arabia, eu, dprg, russia, china\n"
         "- Values between -10 and +10\n"
-        "- Budget deltas modest (-3.0 to +3.0)\n"
+        "- BUDGET SIGN: negative = Europa pays or loses money, "
+        "positive = Europa receives or gains money. "
+        "E.g. Europa pays $340M arrears = -0.34, Europa receives $2B aid = +2.0\n"
+        "- Budget deltas modest (-5.0 to +5.0)\n"
         f"- {'Backchannel: cross_npc_visibility MUST be empty []' if is_backchannel else 'Include NPCs who would learn about this deal'}\n"
         "- historian_note must be specific, not generic\n"
         "- If recurring payments: set installment_amount/installment_turns, budget_delta=0\n"
@@ -6198,6 +6201,9 @@ def generate_deal_consequences_and_reactions(game_state, npc_id: str, deal_text:
 
         print(f"[DEAL_COMBINED] consequences={'ok' if consequences else 'FAIL'} "
               f"reactions={'ok' if advisor_reactions else 'FAIL'}")
+        if consequences:
+            print(f"[DEAL_SIGN] budget_delta={consequences.get('budget_delta')} "
+                  f"(neg=Europa pays, pos=Europa receives)")
         return (consequences, advisor_reactions)
 
     except Exception as e:
