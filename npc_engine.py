@@ -5765,12 +5765,26 @@ def generate_advisor_event_analysis(game_state, event: dict) -> list:
 
     for _attempt in range(2):
         try:
+            # Second attempt: reduce advisor count to avoid truncation
+            _advisors_for_call = advisors if _attempt == 0 else advisors[:2]
+            _advisor_list_for_call = "\n".join([
+                f"- {a['name']} ({a['archetype']})" for a in _advisors_for_call
+            ])
+            _user_prompt_for_call = (
+                f"Game state:\n{json.dumps(context, indent=2)}\n\n"
+                f"WORLD EVENT: {event_title}\n"
+                f"Severity: {event_severity} | Category: {event_category}\n"
+                f"Details: {event_summary}\n\n"
+                f"Advisors:\n{_advisor_list_for_call}\n\n"
+                f"Generate {len(_advisors_for_call)} analyses, one per advisor, as a JSON array."
+            )
+
             response = _client.messages.create(
                 model=MODEL,
-                max_tokens=400,
+                max_tokens=600,
                 temperature=0.7,
                 system=system,
-                messages=[{"role": "user", "content": user_prompt}]
+                messages=[{"role": "user", "content": _user_prompt_for_call}]
             )
             _token_log["calls"] += 1
             _token_log["input_tokens"] += response.usage.input_tokens
@@ -5791,9 +5805,12 @@ def generate_advisor_event_analysis(game_state, event: dict) -> list:
                     "analysis_text": text,
                 })
             print(f"  [10B-2] Advisor event analyses generated (batch): {len(results)}")
+            print(f"[ADVISOR_ANALYSIS] success advisors={len(results)}")
             return results
         except Exception as e:
-            print(f"  [10B-2] Batch advisor event analysis attempt {_attempt+1}/2 failed: {e}")
+            print(f"  [10B-2] Batch advisor event analysis "
+                  f"attempt {_attempt+1}/2 failed: "
+                  f"{type(e).__name__}: {e}")
             if _attempt == 0:
                 _time.sleep(3.0)
 
