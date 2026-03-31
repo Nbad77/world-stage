@@ -548,11 +548,17 @@ export default function BriefingScreen({
       api.briefingAdvisorEventAnalysis(sessionId, event.id)
         .then(res => {
           const analyses = res.analyses || []
-          advisorAnalysisCache.current[event.id] = analyses
           setAdvisorAnalyses(analyses)
           if (analyses.length > 0) setAdvisorAnalysesReady(true)
-          console.log('[ADVISOR_CACHE] MISS event=', event.id,
-            'advisors=', analyses.length)
+          // Only cache real analysis, not fallback/empty
+          const isFallback = analyses.length === 0 ||
+            analyses.every(a => a.analysis_text?.includes('still assessing'))
+          if (!isFallback) {
+            advisorAnalysisCache.current[event.id] = analyses
+            console.log('[ADVISOR_CACHE] MISS — stored', analyses.length, 'analyses')
+          } else {
+            console.log('[ADVISOR_CACHE] MISS — fallback, not caching')
+          }
         })
         .catch(e => console.error('[10B-2] Advisor analysis fetch failed:', e))
         .finally(() => setAdvisorAnalysesLoading(false))

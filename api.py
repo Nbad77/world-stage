@@ -9247,19 +9247,27 @@ async def briefing_event_npc_dialogue(session_id: str, req: EventNpcDialogueRequ
     _verify_game_ownership(session_id, user)
     gs = _load_gs(session_id)
 
+    _npc_display = {
+        'usa': 'Bill Hartwell', 'arabia': 'Sadam', 'eu': 'Marsha',
+        'dprg': 'Ji-won Ryang', 'russia': 'Nikolai Volkov', 'china': 'Wei Jianming',
+    }
+    _npc_name = _npc_display.get(req.npc_id, req.npc_id)
+
     intel = (
         f"Intelligence briefing:\n"
         f"europa_budget_billions: {gs.budget}\n"
         f"europa_stability_pct: {gs.stability}\n"
         f"europa_approval_pct: {getattr(gs, 'public_approval', 60)}\n\n"
-        f"SITUATION: {req.event_context.get('title', '')}\n"
+        f"Europa is facing the following situation: "
+        f"{req.event_context.get('title', '')}. "
         f"{req.event_context.get('summary', '')}\n\n"
-        f"Europa's leader has opened a direct channel with you "
-        f"about this situation. Respond as yourself — your "
-        f"interests, your angle on this moment. You may float "
-        f"a proposal if you have one. "
-        f"Keep it under 150 words. No pleasantries."
+        f"Europa's leader is consulting you directly. "
+        f"Respond as {_npc_name} — your perspective on "
+        f"this situation, your interests, what you want "
+        f"from Europa in this moment. You may float a "
+        f"proposal. Under 150 words. No pleasantries."
     )
+    print(f"[EVENT_NPC_DIALOGUE_PROMPT] npc={req.npc_id} event={req.event_id[:20]}")
 
     def _generate():
         from npc_engine import build_npc_system_prompt, _client as _npc_client, MODEL as _npc_model
