@@ -10,11 +10,18 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '../api'
 
 // ── Advisor stat helpers ─────────────────────────────────────────────────────
-function statLabel(value) {
-  if (value >= 80) return 'High'
-  if (value >= 60) return 'Solid'
-  if (value >= 40) return 'Moderate'
-  return 'Concerning'
+function statLabel(value, field) {
+  if (field === 'loyalty') {
+    if (value >= 70) return 'Solid'
+    if (value >= 50) return 'Moderate'
+    if (value >= 30) return 'Low'
+    return 'Concerning'
+  }
+  // competence / trust
+  if (value >= 75) return 'High'
+  if (value >= 55) return 'Solid'
+  if (value >= 35) return 'Moderate'
+  return 'Limited'
 }
 
 // ── Advisor role colors ──────────────────────────────────────────────────────
@@ -174,12 +181,13 @@ export default function BriefingScreen({
     deals_today: [],
   })
   const [advisorBriefings, setAdvisorBriefings] = useState(null)
+  const [briefingFetchedDay, setBriefingFetchedDay] = useState(null)
   const [chiefOfStaff, setChiefOfStaff] = useState(null)
   const [councilOpen, setCouncilOpen] = useState(true)
 
   // Advisor profile expand state
   const [expandedAdvisor, setExpandedAdvisor] = useState(null)
-  const [advisorProfile, setAdvisorProfile] = useState(null)
+  const [advisorProfileCache, setAdvisorProfileCache] = useState({})
   const [profileLoading, setProfileLoading] = useState(false)
   const [assignLoading, setAssignLoading] = useState(null) // advisor key or null
 
@@ -337,12 +345,14 @@ export default function BriefingScreen({
 
   // Advisory Council: auto-fetch morning briefings on mount / day change
   useEffect(() => {
-    if (!sessionId || advisorBriefings || morningBriefingLoading) return
+    if (!sessionId || morningBriefingLoading) return
+    if (advisorBriefings && briefingFetchedDay === currentDay) return
     setMorningBriefingLoading(true)
     api.briefingMorning(sessionId)
       .then(result => {
         setChiefOfStaff(result.chief_of_staff)
         setAdvisorBriefings(result.advisor_briefings || [])
+        setBriefingFetchedDay(currentDay)
         setCouncilOpen(!result.intro_done ? true : true)
         if (result.game_state && onGsUpdate) onGsUpdate(result.game_state)
       })
@@ -374,22 +384,29 @@ export default function BriefingScreen({
   async function handleAdvisorClick(advisor) {
     if (expandedAdvisor?.role === advisor.role) {
       setExpandedAdvisor(null)
-      setAdvisorProfile(null)
       return
     }
     setExpandedAdvisor(advisor)
-    setAdvisorProfile(null)
+    if (advisorProfileCache[advisor.role]) {
+      return
+    }
     setProfileLoading(true)
     try {
       const result = await api.advisorProfileRead(sessionId, advisor.role)
-      setAdvisorProfile(result)
+      setAdvisorProfileCache(prev => ({
+        ...prev,
+        [advisor.role]: result
+      }))
     } catch (e) {
       console.error('[ADVISOR] profile read failed', e)
-      setAdvisorProfile({
-        profile_text: 'Assessment unavailable.',
-        dismiss_consequence: '',
-        eliminate_consequence: ''
-      })
+      setAdvisorProfileCache(prev => ({
+        ...prev,
+        [advisor.role]: {
+          profile_text: 'Assessment unavailable.',
+          dismiss_consequence: '',
+          eliminate_consequence: ''
+        }
+      }))
     } finally {
       setProfileLoading(false)
     }
@@ -400,7 +417,11 @@ export default function BriefingScreen({
       const result = await api.dismissAdvisor(sessionId, archetype)
       if (result.game_state && onGsUpdate) onGsUpdate(result.game_state)
       setExpandedAdvisor(null)
-      setAdvisorProfile(null)
+      setAdvisorProfileCache(prev => {
+        const next = {...prev}
+        delete next[archetype]
+        return next
+      })
       setAdvisorBriefings(prev => prev.filter(a => a.role !== archetype))
       // Refresh pool after dismiss (advisor returns to pool)
       api.getAdvisorPool(sessionId)
@@ -443,7 +464,11 @@ export default function BriefingScreen({
       const result = await api.eliminateAdvisor(sessionId, archetype)
       if (result.game_state && onGsUpdate) onGsUpdate(result.game_state)
       setExpandedAdvisor(null)
-      setAdvisorProfile(null)
+      setAdvisorProfileCache(prev => {
+        const next = {...prev}
+        delete next[archetype]
+        return next
+      })
       setAdvisorBriefings(prev => prev.filter(a => a.role !== archetype))
       // Refresh pool after eliminate (advisor is removed permanently)
       api.getAdvisorPool(sessionId)
@@ -457,6 +482,8 @@ export default function BriefingScreen({
   // Fetch available advisor pool on mount / day change
   useEffect(() => {
     if (!sessionId) return
+    setAdvisorProfileCache({})
+    setPoolProfileCache({})
     api.getAdvisorPool(sessionId)
       .then(result => {
         setAvailableAdvisors(result.pool || [])
@@ -1221,17 +1248,17 @@ export default function BriefingScreen({
                           Consulting Mike...
                         </div>
                       )}
-                      {advisorProfile && !profileLoading && (
+                      {advisorProfileCache[advisor.role] && !profileLoading && (
                         <>
                           <div className="advisor-profile-divider"/>
                           <div className="advisor-profile-stats">
-                            <span>Capability: {statLabel(advisorProfile.competence)}</span>
-                            <span>Loyalty: {statLabel(advisorProfile.loyalty)}</span>
-                            <span>Trust: {statLabel(advisorProfile.trust)}</span>
-                            <span>Since Day {advisorProfile.hire_day}</span>
+                            <span>Capability: {statLabel(advisorProfileCache[advisor.role].competence, 'competence')}</span>
+                            <span>Loyalty: {statLabel(advisorProfileCache[advisor.role].loyalty, 'loyalty')}</span>
+                            <span>Trust: {statLabel(advisorProfileCache[advisor.role].trust, 'trust')}</span>
+                            <span>Since Day {advisorProfileCache[advisor.role].hire_day}</span>
                           </div>
                           <div className="advisor-profile-text">
-                            {advisorProfile.profile_text}
+                            {advisorProfileCache[advisor.role].profile_text}
                           </div>
                           <div className="advisor-profile-actions">
                             <div className="advisor-action-row">
@@ -1244,7 +1271,7 @@ export default function BriefingScreen({
                                 Dismiss
                               </button>
                               <span className="advisor-consequence advisor-consequence--dismiss">
-                                {advisorProfile.dismiss_consequence}
+                                {advisorProfileCache[advisor.role].dismiss_consequence}
                               </span>
                             </div>
                             <div className="advisor-action-row">
@@ -1257,7 +1284,7 @@ export default function BriefingScreen({
                                 Eliminate
                               </button>
                               <span className="advisor-consequence advisor-consequence--eliminate">
-                                {advisorProfile.eliminate_consequence}
+                                {advisorProfileCache[advisor.role].eliminate_consequence}
                               </span>
                             </div>
                           </div>
@@ -1301,8 +1328,8 @@ export default function BriefingScreen({
                         <>
                           <div className="advisor-profile-divider"/>
                           <div className="advisor-profile-stats">
-                            <span>Capability: {statLabel(poolProfileCache[advisor.archetype].competence)}</span>
-                            <span>Loyalty: {statLabel(poolProfileCache[advisor.archetype].loyalty)}</span>
+                            <span>Capability: {statLabel(poolProfileCache[advisor.archetype].competence, 'competence')}</span>
+                            <span>Loyalty: {statLabel(poolProfileCache[advisor.archetype].loyalty, 'loyalty')}</span>
                           </div>
                           <div className="advisor-profile-text">
                             {poolProfileCache[advisor.archetype].profile_text}

@@ -7006,11 +7006,17 @@ def generate_advisor_profile_read(gs, advisor_dict) -> dict:
         if has_betrayed else ""
     )
 
-    def _qual(v):
-        if v >= 80: return 'High'
-        if v >= 60: return 'Solid'
-        if v >= 40: return 'Moderate'
-        return 'Concerning'
+    def _qual_label(v):
+        if v >= 75: return 'high'
+        if v >= 55: return 'solid'
+        if v >= 35: return 'moderate'
+        return 'limited'
+
+    def _loyalty_label(v):
+        if v >= 70: return 'solid'
+        if v >= 50: return 'moderate'
+        if v >= 30: return 'low'
+        return 'concerning'
 
     system_prompt = (
         "You are Mikhail 'Mike' Sorel, Chief of Staff "
@@ -7024,9 +7030,9 @@ def generate_advisor_profile_read(gs, advisor_dict) -> dict:
     user_prompt = (
         f"Assess {name}, our {label}.\n"
         f"With us since Day {hire_day}.\n"
-        f"Capability: {_qual(competence)}.\n"
-        f"Loyalty: {_qual(loyalty)}.\n"
-        f"Trust: {_qual(trust)}.\n"
+        f"Capability: {_qual_label(competence)}.\n"
+        f"Loyalty: {_loyalty_label(loyalty)}.\n"
+        f"Trust: {_qual_label(trust)}.\n"
         f"{betrayal_note}\n"
         f"Current state:\n"
         f"Stability {gs.stability}%,\n"
@@ -7102,6 +7108,8 @@ def _advisor_pool_fallback(advisor_dict) -> dict:
                    f"willing. Moderate across the board — "
                    f"they'll cover the basics without "
                    f"distinguishing themselves.")
+    print(f"[ADVISOR_POOL_FALLBACK] returning static text for "
+          f"{advisor_dict.get('name', 'unknown')}")
     return {"profile_text": profile}
 
 
