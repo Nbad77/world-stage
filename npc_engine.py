@@ -5753,7 +5753,8 @@ def generate_advisor_event_analysis(game_state, event: dict) -> list:
     system = (
         "You are generating analyses from multiple advisors on a world event.\n"
         f"{_NARRATOR_BAN}\n\n"
-        "Return ONLY a JSON array. No preamble. Each entry:\n"
+        "Return ONLY a JSON array. No preamble. No markdown code fences. "
+        "Return raw JSON only. Each entry:\n"
         '[{"advisor_type": "archetype", "advisor_name": "Name", '
         '"analysis_text": "2-3 sentences in that advisor\'s voice"}]'
     )
@@ -5801,7 +5802,14 @@ def generate_advisor_event_analysis(game_state, event: dict) -> list:
 
             raw = response.content[0].text.strip()
             print(f"[ADVISOR_ANALYSIS_RAW] length={len(raw)} preview={raw[:100]!r}")
-            parsed = json.loads(raw)
+            # Strip markdown code fences if present
+            cleaned = raw
+            if cleaned.startswith('```'):
+                cleaned = cleaned.split('\n', 1)[-1]
+            if cleaned.endswith('```'):
+                cleaned = cleaned.rsplit('```', 1)[0]
+            cleaned = cleaned.strip()
+            parsed = json.loads(cleaned)
             if not isinstance(parsed, list):
                 raise ValueError(f"Expected JSON array, got {type(parsed)}")
 
