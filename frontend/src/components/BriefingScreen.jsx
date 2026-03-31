@@ -483,8 +483,7 @@ export default function BriefingScreen({
       setPoolProfileCache(prev => ({
         ...prev,
         [advisor.archetype]: {
-          profile_text: 'Assessment unavailable.',
-          hire_recommendation: ''
+          profile_text: 'Assessment unavailable.'
         }
       }))
     } finally {
@@ -1284,9 +1283,6 @@ export default function BriefingScreen({
                           </div>
                           <div className="advisor-profile-text">
                             {poolProfileCache[advisor.archetype].profile_text}
-                          </div>
-                          <div className="advisor-hire-recommendation">
-                            {poolProfileCache[advisor.archetype].hire_recommendation}
                           </div>
                           <button
                             className="advisor-action-btn advisor-action-btn--hire"

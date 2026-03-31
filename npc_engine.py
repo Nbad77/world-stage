@@ -7085,39 +7085,30 @@ def _advisor_pool_fallback(advisor_dict) -> dict:
     competence = advisor_dict.get('competence', 50)
     loyalty = advisor_dict.get('loyalty', 50)
     if competence >= 70 and loyalty >= 70:
-        profile = (f"{name} looks solid on paper. "
-                   f"Strong capability, loyalty seems "
-                   f"genuine. Worth considering.")
-        rec = "I'd bring them in."
+        profile = (f"{name} brings strong capability "
+                   f"and genuine loyalty to the role. Worth "
+                   f"watching how they perform under pressure.")
     elif competence >= 70 and loyalty < 60:
-        profile = (f"{name} has the technical chops "
-                   f"but I have questions about where "
-                   f"their loyalties sit. Capable "
-                   f"people with divided loyalties "
-                   f"are a liability.")
-        rec = "Proceed carefully."
+        profile = (f"{name} knows their domain well. "
+                   f"The loyalty reading gives me pause — "
+                   f"watch how they behave when things "
+                   f"get difficult.")
     elif competence < 60 and loyalty >= 70:
-        profile = (f"{name} is loyal, which matters. "
-                   f"The capability ceiling is real "
-                   f"though — don't put them in a "
-                   f"role that exceeds their range.")
-        rec = "Useful in the right seat."
+        profile = (f"{name} is loyal, which counts "
+                   f"for something. Their ceiling in this role "
+                   f"is real — assign them accordingly.")
     else:
-        profile = (f"{name} is available. Moderate "
-                   f"across the board. They'll cover "
-                   f"the basics without distinction.")
-        rec = "Your call. No strong opinion."
-    return {
-        "profile_text": profile,
-        "hire_recommendation": rec,
-    }
+        profile = (f"{name} is available and "
+                   f"willing. Moderate across the board — "
+                   f"they'll cover the basics without "
+                   f"distinguishing themselves.")
+    return {"profile_text": profile}
 
 
 def generate_advisor_pool_read(gs, advisor_dict) -> dict:
     """
-    Generate Mike Sorel's evaluative assessment of a candidate advisor
-    (not yet hired). Single Haiku call, returns dict with profile_text
-    and hire_recommendation.
+    Generate Mike Sorel's introduction of a candidate advisor
+    (not yet hired). Single Haiku call, returns dict with profile_text.
     """
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
@@ -7153,22 +7144,21 @@ def generate_advisor_pool_read(gs, advisor_dict) -> dict:
     )
 
     user_prompt = (
-        f"A candidate is being considered for the role of {label}: {name}.\n"
-        f"Capability assessment: {_qual(competence)}.\n"
-        f"Estimated loyalty: {_qual(loyalty)}.\n"
-        f"Cost: $0.5B.\n"
-        f"Current state:\n"
-        f"Stability {gs.stability}%,\n"
-        f"Approval {gs.public_approval}%,\n"
-        f"Day {gs.current_day}.\n"
-        f"Currently hired advisors: {hired_labels if hired_labels else 'None'}.\n"
+        f"Introduce {name}, a candidate for the role of {label}.\n"
+        f"Capability: {_qual(competence)}.\n"
+        f"Loyalty: {_qual(loyalty)}.\n"
+        f"Day {gs.current_day}, Stability {gs.stability}%, "
+        f"Approval {gs.public_approval}%.\n\n"
+        f"Write 2-3 sentences in Mike's voice:\n"
+        f"What does this person bring to the role?\n"
+        f"What should the leader watch for once they are on the team?\n"
+        f"Do not recommend hiring or not hiring.\n"
+        f"Do not compare them to alternatives.\n"
+        f"This is an introduction, not a verdict.\n"
+        f"First person. Direct. Slightly wry.\n\n"
         f"Return this exact JSON:\n"
         f'{{\n'
-        f'  "profile_text": "2-3 sentences assessing this candidate. '
-        f'Is this the right hire for our current situation? '
-        f'What do they bring and what are the risks?",\n'
-        f'  "hire_recommendation": "One sentence: direct recommendation '
-        f'on whether to hire now or wait."\n'
+        f'  "profile_text": "2-3 sentence introduction"\n'
         f'}}'
     )
 
@@ -7193,9 +7183,8 @@ def generate_advisor_pool_read(gs, advisor_dict) -> dict:
 
         result = json.loads(raw)
         # Validate expected keys
-        for key in ("profile_text", "hire_recommendation"):
-            if key not in result:
-                raise ValueError(f"Missing key: {key}")
+        if "profile_text" not in result:
+            raise ValueError("Missing key: profile_text")
 
         print(f"[ADVISOR_POOL_READ] generated for candidate "
               f"{advisor_dict.get('name')} "
