@@ -5181,7 +5181,6 @@ async def advisor_pool_read(session_id: str, body: AdvisorAssignRequest):
         "cost": advisor.get("hire_cost", 0.5),
         "id": advisor.get("id"),
         "profile_text": result["profile_text"],
-        "hire_recommendation": result["hire_recommendation"],
     }
 
 
