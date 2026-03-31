@@ -246,6 +246,10 @@ export default function BriefingScreen({
   // keyed by choiceText, cleared when event changes
   const eventNpcMessageCache = useRef({})
   // keyed by `${event_id}:${npc_id}`, cleared on returnToBriefing
+  const advisorAnalysisCache = useRef({})
+  // keyed by event_id → analyses array
+  const [advisorAnalysisOpen, setAdvisorAnalysisOpen] = useState(true)
+  // Default open so player sees analysis immediately
   const [resolutionBeat, setResolutionBeat] = useState(null)
   // null=not shown, { mike_beat, budget_delta, stability_delta }
   const [resolvedEventBeats, setResolvedEventBeats] = useState({})
@@ -533,15 +537,26 @@ export default function BriefingScreen({
       .catch(e => console.error('[10B-2] Event dialogue fetch failed:', e))
       .finally(() => setEventDialoguesLoading(false))
 
-    // Fetch advisor analyses in background
-    setAdvisorAnalysesLoading(true)
-    api.briefingAdvisorEventAnalysis(sessionId, event.id)
-      .then(res => {
-        setAdvisorAnalyses(res.analyses || [])
-        if (res.analyses?.length > 0) setAdvisorAnalysesReady(true)
-      })
-      .catch(e => console.error('[10B-2] Advisor analysis fetch failed:', e))
-      .finally(() => setAdvisorAnalysesLoading(false))
+    // Fetch advisor analyses — check cache first
+    const cachedAnalyses = advisorAnalysisCache.current[event.id]
+    if (cachedAnalyses) {
+      setAdvisorAnalyses(cachedAnalyses)
+      setAdvisorAnalysesReady(cachedAnalyses.length > 0)
+      console.log('[ADVISOR_CACHE] HIT event=', event.id)
+    } else {
+      setAdvisorAnalysesLoading(true)
+      api.briefingAdvisorEventAnalysis(sessionId, event.id)
+        .then(res => {
+          const analyses = res.analyses || []
+          advisorAnalysisCache.current[event.id] = analyses
+          setAdvisorAnalyses(analyses)
+          if (analyses.length > 0) setAdvisorAnalysesReady(true)
+          console.log('[ADVISOR_CACHE] MISS event=', event.id,
+            'advisors=', analyses.length)
+        })
+        .catch(e => console.error('[10B-2] Advisor analysis fetch failed:', e))
+        .finally(() => setAdvisorAnalysesLoading(false))
+    }
 
     // Trigger CSS transition
     setTimeout(() => setEventScreenTransition(false), 50)
@@ -720,6 +735,7 @@ export default function BriefingScreen({
     setEventNpcMessage(null)
     mikeConfirmCache.current = {}
     eventNpcMessageCache.current = {}
+    advisorAnalysisCache.current = {}
     const canEnd = dayStatus.events_resolved >= dayStatus.events_required
     setBriefingState(canEnd ? 'free_action' : 'hub')
   }
@@ -812,16 +828,6 @@ export default function BriefingScreen({
           <button className="briefing-back-btn" onClick={returnToBriefing}>
             {'\u2190'} BRIEFING
           </button>
-          {/* Advisor drawer tab */}
-          <button
-            className={`briefing-advisor-drawer-tab ${advisorDrawerOpen ? 'open' : ''}`}
-            onClick={() => setAdvisorDrawerOpen(!advisorDrawerOpen)}
-          >
-            ADVISORS {advisorDrawerOpen ? '\u25BC' : '\u25B2'}
-            {advisorAnalysesReady && !advisorDrawerOpen && (
-              <span className="advisor-ready-dot">{'\u25CF'}</span>
-            )}
-          </button>
         </div>
 
         {/* Event title block */}
@@ -878,6 +884,40 @@ export default function BriefingScreen({
 
         <div className="briefing-event-divider" />
 
+        {/* Advisor Analysis — inline above choices */}
+        <div className="event-advisor-analysis">
+          <div className="event-advisor-analysis-header"
+               onClick={() => setAdvisorAnalysisOpen(!advisorAnalysisOpen)}>
+            <span>ADVISOR ASSESSMENT</span>
+            <span className="decisions-chevron">
+              {advisorAnalysisOpen ? '\u25B2' : '\u25BC'}
+            </span>
+          </div>
+          {advisorAnalysisOpen && (
+            <div className="event-advisor-analysis-body">
+              {advisorAnalysesLoading ? (
+                <span className="briefing-npc-loading">...</span>
+              ) : advisorAnalyses.length === 0 ? (
+                <p className="event-advisor-none">
+                  No advisors assigned. Assign advisors from the briefing panel to receive analysis.
+                </p>
+              ) : (
+                advisorAnalyses.map((a, i) => (
+                  <div key={i} className="event-advisor-card">
+                    <div className="event-advisor-card-header">
+                      <span className="event-advisor-name">{a.advisor_name}</span>
+                      <span className="event-advisor-type">
+                        {a.advisor_type?.replace('_', ' ').toUpperCase()}
+                      </span>
+                    </div>
+                    <p className="event-advisor-text">{a.analysis_text}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Your Move — real choices */}
         <div className="briefing-event-choices">
           <p className="briefing-choices-label">YOUR MOVE</p>
@@ -915,29 +955,6 @@ export default function BriefingScreen({
           <button className="briefing-back-link" onClick={returnToBriefing}>
             {'\u2190'} Back to Briefing
           </button>
-        )}
-
-        {/* Advisor Drawer (slides up) */}
-        {advisorDrawerOpen && (
-          <div className="briefing-advisor-drawer">
-            <div className="briefing-advisor-drawer-content">
-              {advisorAnalysesLoading && (
-                <p className="briefing-loading-text">Advisors analyzing situation...</p>
-              )}
-              {!advisorAnalysesLoading && advisorAnalyses.length === 0 && (
-                <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
-                  No advisors assigned today. Assign advisors from the Domestic tab.
-                </p>
-              )}
-              {advisorAnalyses.map((a, i) => (
-                <div key={i} className="briefing-advisor-analysis-card">
-                  <div className="briefing-advisor-analysis-name">{a.advisor_name}</div>
-                  <div className="briefing-advisor-analysis-type">{a.advisor_type}</div>
-                  <p className="briefing-advisor-analysis-text">{a.analysis_text}</p>
-                </div>
-              ))}
-            </div>
-          </div>
         )}
 
         {/* E3b: NPC event drawer — sticky bottom panel */}
