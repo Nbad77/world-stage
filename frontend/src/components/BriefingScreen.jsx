@@ -536,9 +536,8 @@ export default function BriefingScreen({
       // Refresh pool
       const pool = await api.getAdvisorPool(sessionId)
       setAvailableAdvisors(pool.pool || [])
-      // Refresh morning briefings to show new hire
+      // Refresh advisor briefings only — preserve Mike's existing text
       const morning = await api.briefingMorning(sessionId)
-      setChiefOfStaff(morning.chief_of_staff)
       setAdvisorBriefings(morning.advisor_briefings || [])
     } catch (e) {
       console.error('[ADVISOR] hire failed', e)
