@@ -5180,7 +5180,7 @@ async def advisor_pool_read(session_id: str, body: AdvisorAssignRequest):
         "loyalty": advisor.get("loyalty"),
         "cost": advisor.get("hire_cost", 0.5),
         "id": advisor.get("id"),
-        "profile_text": result["profile_text"],
+        "profile_text": result.get("profile_text", "Assessment unavailable."),
     }
 
 
