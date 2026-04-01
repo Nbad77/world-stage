@@ -911,6 +911,13 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .eot-relations-value { min-width: 30px; text-align: right; color: rgba(255,255,255,0.5); }
 .eot-relations-delta { min-width: 45px; text-align: right; font-weight: 600; }
 .eot-relations-note { font-size: 0.62rem; color: rgba(255,255,255,0.3); margin-left: 0.3rem; }
+.eot-declaration-effects {
+  margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+.eot-declaration-label {
+  font-size: 0.7rem; letter-spacing: 0.08em; opacity: 0.5; margin-bottom: 4px;
+}
 
 /* ── World events list ───────────────────────────────────────────────────── */
 .eot-events-list { display: flex; flex-direction: column; gap: 2px; }

@@ -264,11 +264,12 @@ export default function EotPanel({ messages, eotData }) {
     )
   }
 
-  const { treasury, state, relations, world_events } = eotData
+  const { treasury, state, relations, world_events, declaration_effects } = eotData
   const netBudget = treasury?.net || 0
   const stateDeltas = state ? Object.values(state).filter(m => m && m.delta !== 0).length : 0
   const relCount = relations?.length || 0
   const eventCount = world_events?.length || 0
+  const declEffects = declaration_effects || {}
 
   return (
     <div className="eot-panel">
@@ -296,14 +297,30 @@ export default function EotPanel({ messages, eotData }) {
       )}
 
       {/* RELATIONS */}
-      {relCount > 0 && (
+      {(relCount > 0 || Object.keys(declEffects).length > 0) && (
         <Section
           icon="🤝"
           title="RELATIONS"
-          badge={relCount}
-          summary={`${relCount} changed`}
+          badge={relCount + Object.keys(declEffects).length}
+          summary={`${relCount} changed${Object.keys(declEffects).length > 0 ? ' + declaration' : ''}`}
         >
           <RelationsSection relations={relations} />
+          {Object.keys(declEffects).length > 0 && (
+            <div className="eot-declaration-effects">
+              <div className="eot-declaration-label">DECLARATION EFFECTS</div>
+              {Object.entries(declEffects).map(([npc, delta]) => (
+                <div key={npc} className="eot-relations-row">
+                  <span className="eot-relations-arrow" style={{ color: deltaColor(delta) }}>
+                    {deltaArrow(delta)}
+                  </span>
+                  <span className="eot-relations-name">{npc.toUpperCase()}</span>
+                  <span className="eot-relations-delta" style={{ color: deltaColor(delta) }}>
+                    {delta > 0 ? '+' : ''}{delta}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </Section>
       )}
 

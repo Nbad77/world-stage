@@ -2484,9 +2484,17 @@ async def post_skim(session_id: str, body: SkimRequest, user: User = Depends(get
             ],
             "world_events": _world_event_lines
         }
+        # Include declaration relation effects and clear
+        _decl_effects = {}
+        if hasattr(gs, 'declaration_relation_deltas') and gs.declaration_relation_deltas:
+            _decl_effects = dict(gs.declaration_relation_deltas)
+            gs.declaration_relation_deltas = {}
+        _eot_data["declaration_effects"] = _decl_effects
+
         print(f"[EOT_DATA] structured data built: "
               f"treasury_net={_eot_data['treasury']['net']} "
-              f"relations_changed={len(_eot_data['relations'])}")
+              f"relations_changed={len(_eot_data['relations'])} "
+              f"declaration_effects={len(_decl_effects)} npcs")
     except Exception as _eot_data_err:
         print(f"[EOT_DATA] FAILED: {_eot_data_err}")
         import traceback
@@ -9357,10 +9365,16 @@ async def issue_declaration(session_id: str, request: Request, user: User = Depe
     from npc_engine import generate_declaration_consequences
     consequences = await asyncio.to_thread(generate_declaration_consequences, gs, declaration_text)
 
-    # Apply NPC reaction deltas
+    # Apply NPC reaction deltas + store for EOT display
+    if not hasattr(gs, 'declaration_relation_deltas'):
+        gs.declaration_relation_deltas = {}
     for npc_id, delta in consequences.get("npc_reactions", {}).items():
         if npc_id in gs.relations:
             gs.relations[npc_id] = max(0, min(100, gs.relations[npc_id] + delta))
+            if delta != 0:
+                existing = gs.declaration_relation_deltas.get(npc_id, 0)
+                gs.declaration_relation_deltas[npc_id] = existing + delta
+    print(f"[DECLARATION_DELTAS] stored {len(gs.declaration_relation_deltas)} relation changes")
 
     # Apply soft power delta
     sp_delta = consequences.get("soft_power_delta", 0)
