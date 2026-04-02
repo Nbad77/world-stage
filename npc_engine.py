@@ -6016,7 +6016,12 @@ def generate_declaration_consequences(game_state, declaration_text: str) -> dict
         '}\n\n'
         "Each NPC reaction delta is an integer from -15 to +15.\n"
         "soft_power_delta is an integer from -5 to +5.\n"
-        "generates_world_event should be true only for provocative or major declarations."
+        "generates_world_event: set to true when the declaration makes a clear "
+        "commitment, threat, or position that other world leaders would publicly "
+        "react to (e.g. aligning with an enemy, breaking an agreement, making "
+        "territorial claims, announcing major policy shifts). Set to false for "
+        "vague or routine statements. When in doubt, set to true — world "
+        "reactions make the game more interesting."
     )
 
     regime = getattr(game_state, 'state_identity', {}).get('regime_type', 'Managed Democracy')
@@ -6044,7 +6049,7 @@ def generate_declaration_consequences(game_state, declaration_text: str) -> dict
     try:
         response = _client.messages.create(
             model=MODEL,
-            max_tokens=300,
+            max_tokens=400,
             temperature=0.6,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}]
@@ -6083,6 +6088,43 @@ def generate_declaration_consequences(game_state, declaration_text: str) -> dict
             "generates_world_event": False,
             "world_event_hint": "",
         }
+
+
+def generate_declaration_event_choices(gs, event_title, event_summary):
+    """Generate 4 specific choices for a declaration response event."""
+    if not _client:
+        return []
+    try:
+        prompt = (
+            f"Europa's leader has made a public declaration: '{event_title}'\n"
+            f"The world has responded: {event_summary}\n\n"
+            f"Generate exactly 4 choices for how Europa's leader should respond "
+            f"to the international reaction. Return ONLY a JSON array. "
+            f"No markdown fences. Each entry:\n"
+            f'{{"label": "A", "text": "specific action (max 12 words, action-verb first)", '
+            f'"hint": "one sentence on the tradeoff"}}\n\n'
+            f"Choices must be specific to this situation. Cover the option space: "
+            f"comply/concede, hold firm, negotiate, escalate/deflect. "
+            f"Name each concretely."
+        )
+        response = _client.messages.create(
+            model=MODEL,
+            max_tokens=400,
+            temperature=0.7,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw = response.content[0].text.strip()
+        # Strip markdown fences
+        if raw.startswith('```'):
+            raw = raw.split('\n', 1)[-1]
+        if raw.endswith('```'):
+            raw = raw.rsplit('```', 1)[0]
+        choices = json.loads(raw.strip())
+        print(f"[DECLARATION_CHOICES] generated {len(choices)} choices")
+        return choices if isinstance(choices, list) else []
+    except Exception as e:
+        print(f"[DECLARATION_CHOICES] failed: {type(e).__name__}: {e}")
+        return []
 
 
 def generate_deal_consequences_and_reactions(game_state, npc_id: str, deal_text: str, is_backchannel: bool = False) -> tuple:

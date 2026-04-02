@@ -9400,10 +9400,18 @@ async def issue_declaration(session_id: str, request: Request, user: User = Depe
             "day": getattr(gs, 'current_turn', 1) + 1,
             "choices": [],
         }
+        # Generate event-specific choices
+        from npc_engine import generate_declaration_event_choices
+        _event_choices = await asyncio.to_thread(
+            generate_declaration_event_choices, gs,
+            new_event["title"], new_event["summary"])
+        if _event_choices:
+            new_event["choices"] = _event_choices
+        print(f"[DECLARATION_EVENT] staged for next day: {new_event['id']} "
+              f"choices={len(new_event.get('choices', []))}")
         if not hasattr(gs, 'pending_declaration_events'):
             gs.pending_declaration_events = []
         gs.pending_declaration_events.append(new_event)
-        print(f"[DECLARATION_EVENT] staged for next day: {new_event['id']}")
 
     # Mark declaration used
     gs.declaration_used_today = True
