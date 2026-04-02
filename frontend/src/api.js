@@ -462,6 +462,11 @@ export const api = {
   getEventNPCDialogue: (id, npc_id, event_id, event_context) =>
     request('POST', `/game/${id}/briefing/event-npc-dialogue`, { npc_id, event_id, event_context }),
 
+  /** POST /game/{id}/briefing/event-npc-message — threaded NPC conversation */
+  sendEventNPCMessage: (id, npc_id, event_id, event_context, history) =>
+    request('POST', `/game/${id}/briefing/event-npc-message`,
+      { npc_id, event_id, event_context, history }),
+
   /** POST /game/{id}/briefing/advisor-event-analysis — advisor takes on event */
   briefingAdvisorEventAnalysis: (id, event_id) =>
     request('POST', `/game/${id}/briefing/advisor-event-analysis`, { event_id }),

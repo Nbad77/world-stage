@@ -4468,6 +4468,47 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 .briefing-npc-loading { color: var(--muted); font-style: italic; }
 
+/* E4b: NPC event drawer conversation thread */
+.event-npc-thread {
+  max-height: 200px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 8px;
+  margin-bottom: 10px;
+}
+.event-npc-msg {
+  padding: 8px 10px; border-radius: 4px;
+  font-size: 0.82rem; line-height: 1.5;
+}
+.event-npc-msg p { margin: 0; }
+.event-npc-msg-npc {
+  background: rgba(255,255,255,0.04);
+  border-left: 2px solid rgba(255,255,255,0.2);
+}
+.event-npc-msg-user {
+  background: rgba(100,149,237,0.1);
+  border-left: 2px solid rgba(100,149,237,0.4);
+}
+.event-npc-msg-label {
+  font-size: 0.65rem; opacity: 0.5; display: block;
+  margin-bottom: 3px; letter-spacing: 0.05em;
+}
+.event-npc-input-row {
+  display: flex; gap: 8px; align-items: flex-end;
+}
+.event-npc-input {
+  flex: 1; background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 4px; color: inherit; font-family: inherit;
+  font-size: 0.8rem; padding: 6px 8px; resize: none;
+}
+.event-npc-send-btn {
+  padding: 6px 14px; font-size: 0.75rem; letter-spacing: 0.06em;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 3px; color: inherit; cursor: pointer;
+}
+.event-npc-send-btn:hover:not(:disabled) { background: rgba(255,255,255,0.18); }
+.event-npc-send-btn:disabled { opacity: 0.4; cursor: default; }
+
 /* E5: Mike confirmation modal */
 .briefing-modal-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.7);

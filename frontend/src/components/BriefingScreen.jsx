@@ -241,8 +241,10 @@ export default function BriefingScreen({
   const [eventNpcDrawerOpen, setEventNpcDrawerOpen] = useState(false)
   const [selectedEventNpc, setSelectedEventNpc] = useState(null)
   // { npc_id, display_name, flag }
-  const [eventNpcMessage, setEventNpcMessage] = useState(null)
-  // null = not fetched, '' = loading, string = message
+  const [eventNpcMessages, setEventNpcMessages] = useState([])
+  // Array of {role: 'npc'|'user', content: string}
+  const [eventNpcInput, setEventNpcInput] = useState('')
+  const [eventNpcSending, setEventNpcSending] = useState(false)
 
   // E5: Mike confirmation + resolution beat
   const [confirmModalOpen, setConfirmModalOpen] = useState(false)
@@ -594,12 +596,13 @@ export default function BriefingScreen({
     setTimeout(() => setEventScreenTransition(false), 50)
   }
 
-  // E3b: NPC event drawer handler + fetch
+  // E4b: NPC event drawer handler + fetch + send
   const handleEventNpcDrawer = (npc_id, display_name, flag) => {
     console.log('[EVENT_NPC_DRAWER] opened npc=', npc_id,
       'event=', activeEvent?.id)
     setSelectedEventNpc({ npc_id, display_name, flag })
-    setEventNpcMessage('')  // '' = loading state
+    setEventNpcMessages([])  // clear thread
+    setEventNpcInput('')
     setEventNpcDrawerOpen(true)
     fetchEventNpcDialogue(npc_id)
   }
@@ -607,7 +610,7 @@ export default function BriefingScreen({
   const fetchEventNpcDialogue = async (npc_id) => {
     const cacheKey = `${activeEvent?.id}:${npc_id}`
     if (eventNpcMessageCache.current[cacheKey]) {
-      setEventNpcMessage(eventNpcMessageCache.current[cacheKey])
+      setEventNpcMessages(eventNpcMessageCache.current[cacheKey])
       console.log('[EVENT_NPC_CACHE] HIT npc=', npc_id)
       return
     }
@@ -620,12 +623,40 @@ export default function BriefingScreen({
         activeEvent.id,
         { title: activeEvent.title, summary: activeEvent.summary }
       )
-      eventNpcMessageCache.current[cacheKey] = res.message
-      setEventNpcMessage(res.message)
+      const thread = [{role: 'npc', content: res.message}]
+      eventNpcMessageCache.current[cacheKey] = thread
+      setEventNpcMessages(thread)
       console.log('[EVENT_NPC_CACHE] MISS npc=', npc_id, '— fetched and cached')
     } catch (err) {
       console.log('[EVENT_NPC_DIALOGUE] failed:', err.message)
-      setEventNpcMessage('Channel unavailable \u2014 try again shortly.')
+      setEventNpcMessages([{role: 'npc', content: 'Channel unavailable \u2014 try again shortly.'}])
+    }
+  }
+
+  const handleEventNpcSend = async () => {
+    if (!eventNpcInput.trim() || eventNpcSending) return
+    const userMsg = eventNpcInput.trim()
+    setEventNpcInput('')
+    setEventNpcSending(true)
+    const withUser = [...eventNpcMessages, {role: 'user', content: userMsg}]
+    setEventNpcMessages(withUser)
+    try {
+      const res = await api.sendEventNPCMessage(
+        sessionId,
+        selectedEventNpc.npc_id,
+        activeEvent.id,
+        { title: activeEvent.title, summary: activeEvent.summary },
+        withUser
+      )
+      const withNpc = [...withUser, {role: 'npc', content: res.message}]
+      setEventNpcMessages(withNpc)
+      const cacheKey = `${activeEvent?.id}:${selectedEventNpc.npc_id}`
+      eventNpcMessageCache.current[cacheKey] = withNpc
+      console.log('[EVENT_NPC_THREAD] messages=', withNpc.length)
+    } catch (err) {
+      console.log('[EVENT_NPC_THREAD] send failed:', err.message)
+    } finally {
+      setEventNpcSending(false)
     }
   }
 
@@ -764,7 +795,8 @@ export default function BriefingScreen({
     setAdvisorDrawerOpen(false)
     setEventNpcDrawerOpen(false)
     setSelectedEventNpc(null)
-    setEventNpcMessage(null)
+    setEventNpcMessages([])
+    setEventNpcInput('')
     mikeConfirmCache.current = {}
     eventNpcMessageCache.current = {}
     advisorAnalysisCache.current = {}
@@ -989,7 +1021,7 @@ export default function BriefingScreen({
           </button>
         )}
 
-        {/* E3b: NPC event drawer — sticky bottom panel */}
+        {/* E4b: NPC event drawer — conversation thread */}
         {eventNpcDrawerOpen && selectedEventNpc && (
           <div className="briefing-event-npc-drawer">
             <div className="briefing-npc-drawer-header">
@@ -999,16 +1031,47 @@ export default function BriefingScreen({
                 onClick={() => {
                   setEventNpcDrawerOpen(false)
                   setSelectedEventNpc(null)
-                  setEventNpcMessage(null)
+                  setEventNpcMessages([])
+                  setEventNpcInput('')
                 }}>
                 {'\u2715'}
               </button>
             </div>
-            <div className="briefing-npc-drawer-body">
-              {eventNpcMessage === ''
-                ? <span className="briefing-npc-loading">...</span>
-                : <p>{eventNpcMessage}</p>
-              }
+            <div className="event-npc-thread">
+              {eventNpcMessages.length === 0 ? (
+                <span className="briefing-npc-loading">...</span>
+              ) : (
+                eventNpcMessages.map((msg, i) => (
+                  <div key={i} className={`event-npc-msg event-npc-msg-${msg.role}`}>
+                    {msg.role === 'npc' && (
+                      <span className="event-npc-msg-label">{selectedEventNpc.display_name}</span>
+                    )}
+                    <p>{msg.content}</p>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="event-npc-input-row">
+              <textarea
+                className="event-npc-input"
+                placeholder="Your message..."
+                value={eventNpcInput}
+                onChange={e => setEventNpcInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    handleEventNpcSend()
+                  }
+                }}
+                disabled={eventNpcSending}
+                rows={2}
+              />
+              <button
+                className="event-npc-send-btn"
+                onClick={handleEventNpcSend}
+                disabled={eventNpcSending || !eventNpcInput.trim()}>
+                {eventNpcSending ? '...' : 'Send'}
+              </button>
             </div>
           </div>
         )}

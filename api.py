@@ -9309,6 +9309,78 @@ async def briefing_event_npc_dialogue(session_id: str, req: EventNpcDialogueRequ
         return {"message": "No response at this time."}
 
 
+class EventNpcMessageRequest(BaseModel):
+    npc_id: str
+    event_id: str
+    event_context: dict
+    history: list  # [{role, content}]
+
+
+@app.post("/game/{session_id}/briefing/event-npc-message")
+async def briefing_event_npc_message(session_id: str, req: EventNpcMessageRequest,
+                                      user: User = Depends(get_optional_user)):
+    """E4b: Threaded NPC conversation within an event context."""
+    _verify_game_ownership(session_id, user)
+    gs = _load_gs(session_id)
+
+    _npc_display = {
+        'usa': 'Bill Hartwell', 'arabia': 'Sadam', 'eu': 'Marsha',
+        'dprg': 'Ji-won Ryang', 'russia': 'Nikolai Volkov', 'china': 'Wei Jianming',
+    }
+    _npc_name = _npc_display.get(req.npc_id, req.npc_id)
+
+    def _generate():
+        from npc_engine import build_npc_system_prompt, _client as _npc_client, MODEL as _npc_model
+        system = build_npc_system_prompt(req.npc_id, gs)
+        if not system:
+            return None
+
+        # Build messages from history with event context injection
+        context_text = (
+            f"Europa is facing: {req.event_context.get('title', '')}. "
+            f"{req.event_context.get('summary', '')}"
+        )
+        messages = []
+        # Prepend context as first exchange if not already in history
+        has_context = any(context_text[:30] in m.get('content', '') for m in req.history)
+        if not has_context and req.history:
+            messages.append({"role": "user", "content": context_text})
+            messages.append({"role": "assistant", "content": req.history[0].get('content', 'I am ready to discuss.')})
+            history_rest = req.history[1:]
+        else:
+            history_rest = req.history
+
+        for msg in history_rest:
+            role = 'user' if msg.get('role') == 'user' else 'assistant'
+            messages.append({"role": role, "content": msg.get('content', '')})
+
+        response = _npc_client.messages.create(
+            model=_npc_model,
+            max_tokens=400,
+            temperature=0.75,
+            system=system,
+            messages=messages
+        )
+        print(f"[EVENT_NPC_THREAD] npc={req.npc_id} "
+              f"history_len={len(req.history)} "
+              f"tokens={response.usage.output_tokens}")
+        raw = response.content[0].text.strip()
+        import re
+        msg = re.sub(r'\*[^*]+\*', '', raw).strip()
+        msg = msg.replace('**', '').replace('*', '').strip()
+        return msg
+
+    import asyncio
+    try:
+        message = await asyncio.to_thread(_generate)
+        if message is None:
+            return {"message": "No response at this time."}
+        return {"message": message}
+    except Exception as e:
+        print(f"[EVENT_NPC_THREAD] failed npc={req.npc_id}: {e}")
+        return {"message": "No response at this time."}
+
+
 @app.post("/game/{session_id}/briefing/advisor-event-analysis")
 async def get_advisor_event_analysis(session_id: str, request: Request, user: User = Depends(get_optional_user)):
     """10B-2: Generates advisor analyses for a specific world event.
