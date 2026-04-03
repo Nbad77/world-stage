@@ -4385,7 +4385,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   opacity: 1; transform: translateY(0);
 }
 .briefing-event-screen.npc-drawer-open {
-  padding-bottom: 300px;
+  padding-bottom: 340px;
 }
 .briefing-event-screen-header {
   display: flex; justify-content: space-between; align-items: center;
@@ -4449,7 +4449,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   background: var(--surface); border: 1px solid var(--border);
   border-top-left-radius: 14px; border-top-right-radius: 14px;
   display: flex; flex-direction: column;
-  max-height: 280px; overflow-y: auto;
+  height: 320px; max-height: 320px; overflow-y: auto;
   box-shadow: 0 -4px 20px rgba(0,0,0,0.5); padding: 16px;
   animation: panel-slide-up 0.22s ease;
 }

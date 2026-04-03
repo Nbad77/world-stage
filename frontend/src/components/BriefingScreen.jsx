@@ -256,6 +256,7 @@ export default function BriefingScreen({
   // keyed by choiceText, cleared when event changes
   const eventNpcMessageCache = useRef({})
   // keyed by `${event_id}:${npc_id}`, cleared on returnToBriefing
+  const eventNpcThreadEndRef = useRef(null)
   const advisorAnalysisCache = useRef({})
   // keyed by event_id → analyses array
   const [advisorAnalysisOpen, setAdvisorAnalysisOpen] = useState(true)
@@ -605,6 +606,12 @@ export default function BriefingScreen({
     setEventNpcInput('')
     setEventNpcDrawerOpen(true)
     fetchEventNpcDialogue(npc_id)
+    setTimeout(() => {
+      eventNpcThreadEndRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'end'
+      })
+    }, 150)
   }
 
   const fetchEventNpcDialogue = async (npc_id) => {
@@ -612,6 +619,9 @@ export default function BriefingScreen({
     if (eventNpcMessageCache.current[cacheKey]) {
       setEventNpcMessages(eventNpcMessageCache.current[cacheKey])
       console.log('[EVENT_NPC_CACHE] HIT npc=', npc_id)
+      setTimeout(() => {
+        eventNpcThreadEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      }, 50)
       return
     }
     try {
@@ -626,6 +636,9 @@ export default function BriefingScreen({
       const thread = [{role: 'npc', content: res.message}]
       eventNpcMessageCache.current[cacheKey] = thread
       setEventNpcMessages(thread)
+      setTimeout(() => {
+        eventNpcThreadEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      }, 50)
       console.log('[EVENT_NPC_CACHE] MISS npc=', npc_id, '— fetched and cached')
     } catch (err) {
       console.log('[EVENT_NPC_DIALOGUE] failed:', err.message)
@@ -650,6 +663,9 @@ export default function BriefingScreen({
       )
       const withNpc = [...withUser, {role: 'npc', content: res.message}]
       setEventNpcMessages(withNpc)
+      setTimeout(() => {
+        eventNpcThreadEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      }, 50)
       const cacheKey = `${activeEvent?.id}:${selectedEventNpc.npc_id}`
       eventNpcMessageCache.current[cacheKey] = withNpc
       console.log('[EVENT_NPC_THREAD] messages=', withNpc.length)
@@ -1050,6 +1066,7 @@ export default function BriefingScreen({
                   </div>
                 ))
               )}
+              <div ref={eventNpcThreadEndRef} />
             </div>
             <div className="event-npc-input-row">
               <textarea

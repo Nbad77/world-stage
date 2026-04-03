@@ -9339,6 +9339,7 @@ async def briefing_event_npc_message(session_id: str, req: EventNpcMessageReques
         context_text = (
             f"Europa is facing: {req.event_context.get('title', '')}. "
             f"{req.event_context.get('summary', '')}"
+            f"\n\nKeep your response to 2-4 sentences. Be direct. No pleasantries."
         )
         messages = []
         # Prepend context as first exchange if not already in history
