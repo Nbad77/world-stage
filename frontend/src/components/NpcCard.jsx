@@ -35,7 +35,23 @@ function riskTier(risk) {
 }
 
 const MIN_INTEL_TIER = 1
-const INTEL_COST = 1.5
+
+function calcIntelCost(relation, gs) {
+  // Base cost tiered by relation score
+  let base;
+  if (relation >= 60) base = 0.5;
+  else if (relation >= 30) base = 1.0;
+  else base = 1.5;
+
+  // Spy chief discount
+  const spyChief = gs?.advisors?.spy_chief;
+  if (spyChief?.assigned_this_turn) {
+    const comp = spyChief.competence ?? 70;
+    if (comp >= 80) return 0;       // free
+    return +(base * 0.6).toFixed(1); // 40% discount
+  }
+  return base;
+}
 
 // Detect urgent conditions per NPC
 function getUrgentState(npcKey, gs) {
@@ -243,6 +259,9 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
             {onGetIntel && gs && (() => {
               const intelGated = (gs.intelligence_tier ?? 0) < MIN_INTEL_TIER
               const alreadyGathered = (gs.intel_ops_today || []).some(op => op.target === npcKey)
+              const intelCost = calcIntelCost(relation, gs)
+              console.log(`[INTEL_DISPLAY] npc=${npcKey} relation=${relation} cost=${intelCost} spyChief=${!!gs?.advisors?.spy_chief?.assigned_this_turn}`)
+              const riskPct = Math.round(calcDetectionRisk(npcKey, gs) * 100)
               return (
                 <>
                   <button
@@ -256,10 +275,12 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
                         ? '📡 Intel gathered today'
                         : intelLoading
                           ? '📡 INTERCEPTING...'
-                          : `📡 GET INTEL — $${INTEL_COST}B`}
+                          : `📡 GET INTEL${intelCost === 0 ? ' — FREE' : ` — $${intelCost}B`}`}
                   </button>
                   {!intelGated && !alreadyGathered && (
-                    <div className="npc-intel-risk-text">Detection risk: 10%</div>
+                    <div className="npc-intel-risk-text npc-intel-risk-visible">
+                      ⚠ Detection risk: {riskPct}%
+                    </div>
                   )}
                 </>
               )

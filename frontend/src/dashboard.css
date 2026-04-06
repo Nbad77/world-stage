@@ -2260,6 +2260,12 @@
   opacity: 0.6;
   margin-top: 1px;
 }
+.npc-intel-risk-visible {
+  color: #f59e0b;
+  font-size: 0.875rem;
+  font-weight: 500;
+  opacity: 1;
+}
 
 /* 10B-2: Intel result inline display */
 .npc-intel-result {
