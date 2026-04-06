@@ -9332,6 +9332,11 @@ async def briefing_event_npc_message(session_id: str, req: EventNpcMessageReques
     def _generate():
         from npc_engine import build_npc_system_prompt, _client as _npc_client, MODEL as _npc_model
         system = build_npc_system_prompt(req.npc_id, gs)
+        system += (
+            "\n\nCONVERSATION RULE: Keep every response "
+            "to 2-4 sentences maximum. Be direct and "
+            "specific. No lengthy explanations."
+        )
         if not system:
             return None
 
@@ -9339,7 +9344,6 @@ async def briefing_event_npc_message(session_id: str, req: EventNpcMessageReques
         context_text = (
             f"Europa is facing: {req.event_context.get('title', '')}. "
             f"{req.event_context.get('summary', '')}"
-            f"\n\nKeep your response to 2-4 sentences. Be direct. No pleasantries."
         )
         messages = []
         # Prepend context as first exchange if not already in history
