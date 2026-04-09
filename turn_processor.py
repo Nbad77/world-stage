@@ -9,7 +9,7 @@ import random
 import re
 
 from diplomacy_utils import (
-    apply_standing_delta, check_ambassador_recalls,
+    apply_standing_delta, check_ambassador_recalls, generate_recall_debrief,
     STANDING_DELTAS, _RELATIONS_KEY_TO_NPC_ID, _NPC_ID_TO_NAME,
 )
 
@@ -5086,6 +5086,17 @@ def apply_end_of_turn_effects(game_state):
         if d.get('broken') and d.get('broken_turn') == game_state.current_turn
     )
 
+    # Session 11b: deal_kept standing delta — fire for deals that just expired without being broken
+    for _dk_deal in getattr(game_state, 'deal_history', []):
+        if _dk_deal.get('broken'):
+            continue
+        _dk_expires = _dk_deal.get('expires_turn', 0)
+        if _dk_expires > 0 and _dk_expires == game_state.current_turn:
+            _dk_rel_key = _dk_deal.get('npc_id') or _dk_deal.get('npc')
+            _dk_npc = _RELATIONS_KEY_TO_NPC_ID.get(_dk_rel_key, _dk_rel_key)
+            if _dk_npc and _dk_npc in ["bill", "eu", "volkov", "wei", "sadam", "dprg"]:
+                apply_standing_delta(game_state, _dk_npc, "deal_kept")
+
     # ──────────────────────────────────────────
     # 13e. SESSION 5: LATENT STATS — SOFT POWER + DIPLOMATIC CAPITAL
     # Computed from current state, not accumulated. Display-only.
@@ -5095,6 +5106,11 @@ def apply_end_of_turn_effects(game_state):
         _sp += min(25, max(0, game_state.relations.get(_npc_k, 50)) // 4)
     _sp += min(10, int(getattr(game_state, 'tech_level', 0)) // 10)
     _sp += min(15, game_state.public_approval // 7)
+    # Session 11b: diplomatic standing contribution to soft power
+    _standing_vals = getattr(game_state, 'diplomatic_standing', {})
+    _avg_standing = sum(_standing_vals.values()) / len(_standing_vals) if _standing_vals else 50.0
+    _sp += max(-5, min(5, int((_avg_standing - 50) / 10)))
+    print(f"[SOFT_POWER_STANDING] avg_standing={_avg_standing:.1f} contribution={max(-5, min(5, int((_avg_standing - 50) / 10)))}")
     game_state.soft_power = min(100, max(0, _sp - (_broken_this_turn * 5)))
 
     _dc = 0
@@ -5151,17 +5167,33 @@ def apply_end_of_turn_effects(game_state):
 
     print(f"[STANDING_EOT] drift pass complete: {_standing_dict}")
 
+    # Session 11b: Communiqué ignored penalty — incoming cable unread this turn
+    _cable_types = getattr(game_state, 'diplomatic_cable_types', {}) or {}
+    _NPC_ID_TO_RELATIONS_KEY = {"bill": "usa", "volkov": "russia", "sadam": "arabia", "wei": "china", "eu": "eu", "dprg": "dprg"}
+    for _ci_npc in ["bill", "eu", "volkov", "wei", "sadam", "dprg"]:
+        if _cable_types.get(_ci_npc) == "incoming":
+            apply_standing_delta(game_state, _ci_npc, "communique_ignored")
+            print(f"[STANDING_IGNORED] {_ci_npc}: incoming cable unread this turn")
+
     # Ambassador recall check
     _newly_recalled = check_ambassador_recalls(game_state)
     if _newly_recalled:
         for _recall_npc in _newly_recalled:
             _recall_name = _NPC_ID_TO_NAME.get(_recall_npc, _recall_npc)
+            _recall_rel_key = {"bill": "usa", "volkov": "russia", "sadam": "arabia", "wei": "china", "eu": "eu", "dprg": "dprg"}.get(_recall_npc, _recall_npc)
+            _recall_relations = getattr(game_state, 'relations', {}).get(_recall_rel_key, 50.0)
+            _recall_diplo_tier = getattr(game_state, 'diplomatic_tier', 0)
+            _recall_standing = _standing_dict.get(_recall_npc, 50.0)
+            _recall_summary = generate_recall_debrief(
+                _recall_npc, _recall_name, _recall_diplo_tier,
+                _recall_standing, _recall_relations
+            )
             _recall_event = {
                 "id": f"ambassador_recall_{_recall_npc}_{getattr(game_state, 'current_day', 0)}",
                 "title": f"Ambassador Recalled \u2014 {_recall_name}",
                 "type": "DIPLOMATIC",
                 "urgency": "URGENT",
-                "summary": f"Europa's ambassador to {_recall_name} has been recalled. She has returned to the capital and requests an audience to brief you.",
+                "summary": _recall_summary,
                 "applicable_npcs": [_recall_npc],
                 "required": False,
                 "recall_debrief": True,

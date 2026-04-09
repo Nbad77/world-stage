@@ -2921,7 +2921,17 @@ def calculate_willingness(game_state, npc_id: str, static_deal_value: float = 0.
     print(f"[WILLINGNESS] {npc_id} reliability_mod={reliability_mod:.3f} "
           f"(reliability_score={raw_score}, weight={npc_weight})")
 
-    willingness = round(base * rel_mod * aid_mod * budget_mod * reliability_mod, 1)
+    # Session 11b: Standing modifier
+    from diplomacy_utils import NPC_STANDING_WEIGHTS
+    _RELATIONS_TO_NPC_ID = {"usa": "bill", "russia": "volkov", "arabia": "sadam", "china": "wei", "eu": "eu", "dprg": "dprg"}
+    _npc_id_key = _RELATIONS_TO_NPC_ID.get(npc_id, npc_id)
+    _standing = (getattr(game_state, 'diplomatic_standing', None) or {}).get(_npc_id_key, 50.0)
+    _standing_weight = NPC_STANDING_WEIGHTS.get(_npc_id_key, 0.30)
+    standing_mod = 1.0 + (_standing_weight * ((_standing - 50.0) / 100.0))
+    standing_mod = max(0.80, min(1.20, standing_mod))
+    print(f"[WILLINGNESS_STANDING] {_npc_id_key}: standing={_standing:.1f} mod={standing_mod:.3f}")
+
+    willingness = round(base * rel_mod * aid_mod * budget_mod * reliability_mod * standing_mod, 1)
 
     # ITEM 5: DPRG ceiling increase at high relations.
     # Makes sustained DPRG investment meaningfully rewarding.

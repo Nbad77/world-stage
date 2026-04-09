@@ -35,6 +35,16 @@ STANDING_DELTAS = {
     "sharp_incident":        -3.0,
 }
 
+# NPC standing weights for willingness modifier (parallel to reliability weights)
+NPC_STANDING_WEIGHTS = {
+    "eu":     0.60,   # high — institutional, standing matters a lot
+    "bill":   0.50,   # high — credibility-driven
+    "wei":    0.40,   # medium
+    "sadam":  0.35,   # medium — responds to direct standing
+    "volkov": 0.35,   # medium — responds to direct standing
+    "dprg":   0.15,   # low — capabilities-based, not reputation
+}
+
 STANDING_RECALL_THRESHOLDS = {
     "eu":     25.0,
     "bill":   20.0,
@@ -136,3 +146,64 @@ def check_ambassador_recalls(gs):
             print(f"[RECALL] REINSTATED: {npc_id} standing={standing:.1f}")
 
     return newly_recalled
+
+
+def generate_recall_debrief(npc_id, npc_name, diplo_tier, standing, relations_val):
+    """Generate a debrief summary for an ambassador recall event.
+    Quality scales with diplo_tier (0–4). Sync — called from sync EOT.
+    Returns plain text, 2–3 sentences."""
+
+    if diplo_tier <= 1:
+        quality_instruction = (
+            "Your diplomatic corps is underfunded and overstretched. "
+            "The ambassador can only report that the NPC was angry and the meeting was tense. "
+            "She has limited intelligence on what specifically drove the recall or what repair would look like. "
+            "Convey rattled uncertainty and limited actionable detail."
+        )
+    elif diplo_tier <= 3:
+        quality_instruction = (
+            "Your diplomatic corps is professional. "
+            "The ambassador can identify the specific grievance and the general shape of what repair requires. "
+            "She has some read on their internal posture but not a complete picture."
+        )
+    else:
+        quality_instruction = (
+            "Your diplomatic corps is elite. "
+            "The ambassador has a full intelligence picture: the specific grievance, what the NPC mentioned twice "
+            "(the real ask beneath the official position), visible internal disagreements in their delegation, "
+            "and a clear read on what the repair path probably looks like. "
+            "Convey confidence and actionable specificity."
+        )
+
+    prompt = f"""You are writing a 2-3 sentence debrief summary for a political simulation game.
+Europa's ambassador to {npc_name} has been recalled (diplomatic standing has fallen critically low).
+She has returned and is briefing the President.
+
+Diplomatic corps quality: Tier {diplo_tier} — {quality_instruction}
+
+Current standing with {npc_name}: {standing:.0f}/100
+Current relations: {relations_val:.0f}/100
+
+Write 2-3 sentences in plain prose, past tense, third person (referring to the ambassador as "she").
+No markdown. No JSON. No bullet points. No hedging phrases like "it seems" or "apparently."
+Be specific to the relationship tension — this is {npc_name}, not a generic NPC."""
+
+    try:
+        import anthropic
+        import os
+        client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        text = response.content[0].text.strip()
+        print(f"[RECALL_DEBRIEF] {npc_id}: tier={diplo_tier} tokens={response.usage.input_tokens + response.usage.output_tokens}")
+        return text
+    except Exception as e:
+        print(f"[RECALL_DEBRIEF_FAIL] {npc_id}: {e}")
+        return (
+            f"Europa's ambassador to {npc_name} has returned. "
+            f"She reports the meeting was tense and the relationship is under serious strain. "
+            f"She requests an audience to brief you on next steps."
+        )
