@@ -1654,12 +1654,15 @@ def generate_world_event(game_state, last_action_type: str = ""):
         _token_log["output_tokens"] += response.usage.output_tokens
 
         raw = response.content[0].text.strip()
-        # Strip markdown code fences if present
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        event = json.loads(raw)
+        # Fence stripping: Haiku sometimes wraps JSON
+        # in markdown code fences
+        cleaned = raw.strip()
+        if cleaned.startswith('```'):
+            cleaned = cleaned.split('\n', 1)[-1]
+        if cleaned.endswith('```'):
+            cleaned = cleaned.rsplit('```', 1)[0]
+        cleaned = cleaned.strip()
+        event = json.loads(cleaned)
         # Validate required keys
         required = {"title", "description", "effects", "affected_npc"}
         if not required.issubset(event.keys()):
@@ -4942,10 +4945,19 @@ Generate today's successor event(s). JSON array only."""
     raw = response.content[0].text.strip()
     print(f'[9A] GM successor raw response: {raw[:200]}')
 
+    # Fence stripping: Haiku sometimes wraps JSON
+    # in markdown code fences
+    cleaned = raw.strip()
+    if cleaned.startswith('```'):
+        cleaned = cleaned.split('\n', 1)[-1]
+    if cleaned.endswith('```'):
+        cleaned = cleaned.rsplit('```', 1)[0]
+    cleaned = cleaned.strip()
+
     # Parse JSON from response
     try:
         # Try direct parse first
-        events = json.loads(raw)
+        events = json.loads(cleaned)
     except json.JSONDecodeError:
         # Try extracting JSON array from text
         import re as _re9a
@@ -6394,7 +6406,15 @@ def generate_deal_consequences(game_state, npc_id: str, deal_text: str, is_backc
             if not txt:
                 raise ValueError("Empty response from Haiku")
             _token_log["haiku_calls"] = _token_log.get("haiku_calls", 0) + 1
-            return json.loads(txt)
+            # Fence stripping: Haiku sometimes wraps JSON
+            # in markdown code fences
+            cleaned = txt.strip()
+            if cleaned.startswith('```'):
+                cleaned = cleaned.split('\n', 1)[-1]
+            if cleaned.endswith('```'):
+                cleaned = cleaned.rsplit('```', 1)[0]
+            cleaned = cleaned.strip()
+            return json.loads(cleaned)
 
         try:
             return _log_and_return(_try_consequences())
@@ -6504,7 +6524,15 @@ def generate_advisor_deal_reactions(game_state, deal_text: str, npc_id: str) -> 
         raw = response.content[0].text.strip()
         if not raw:
             raise ValueError("Empty response from Haiku")
-        parsed = json.loads(raw)
+        # Fence stripping: Haiku sometimes wraps JSON
+        # in markdown code fences
+        cleaned = raw.strip()
+        if cleaned.startswith('```'):
+            cleaned = cleaned.split('\n', 1)[-1]
+        if cleaned.endswith('```'):
+            cleaned = cleaned.rsplit('```', 1)[0]
+        cleaned = cleaned.strip()
+        parsed = json.loads(cleaned)
         if not isinstance(parsed, list):
             raise ValueError(f"Expected JSON array, got {type(parsed)}")
         return parsed
