@@ -159,6 +159,15 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   const [exileMessages, setExileMessages] = useState([])
   const [exileDialogue, setExileDialogue] = useState(null) // Fix E: AI-generated NPC dialogue from reach-out
 
+  // Advisory council — lifted from BriefingScreen so state survives tab switches
+  const [chiefOfStaff, setChiefOfStaff] = useState(null)
+  const [advisorBriefings, setAdvisorBriefings] = useState(null)
+  const [briefingFetchedDay, setBriefingFetchedDay] = useState(null)
+  const [advisorProfileCache, setAdvisorProfileCache] = useState({})
+  const [poolProfileCache, setPoolProfileCache] = useState({})
+  const [availableAdvisors, setAvailableAdvisors] = useState([])
+  const [morningBriefingLoading, setMorningBriefingLoading] = useState(false)
+
   // FIX C: Track in_exile transitions for post-return game load
   const prevInExileRef = useRef(gs?.in_exile)
 
@@ -1488,6 +1497,20 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
               onGsUpdate={setGs}
               dealsRefreshing={dealsRefreshing}
               onSwitchToAdvisors={() => setActiveTab('domestic')}
+              chiefOfStaff={chiefOfStaff}
+              setChiefOfStaff={setChiefOfStaff}
+              advisorBriefings={advisorBriefings}
+              setAdvisorBriefings={setAdvisorBriefings}
+              briefingFetchedDay={briefingFetchedDay}
+              setBriefingFetchedDay={setBriefingFetchedDay}
+              advisorProfileCache={advisorProfileCache}
+              setAdvisorProfileCache={setAdvisorProfileCache}
+              poolProfileCache={poolProfileCache}
+              setPoolProfileCache={setPoolProfileCache}
+              availableAdvisors={availableAdvisors}
+              setAvailableAdvisors={setAvailableAdvisors}
+              morningBriefingLoading={morningBriefingLoading}
+              setMorningBriefingLoading={setMorningBriefingLoading}
             />
 
             {/* 10B-2: When Foreign Affairs tab is active, BriefingScreen handles everything.

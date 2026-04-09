@@ -168,8 +168,22 @@ export default function BriefingScreen({
   onGsUpdate,
   dealsRefreshing,
   onSwitchToAdvisors,
-  // existing content to wrap in event_active state
   existingDiplomaticContent,
+  // Lifted advisory council state:
+  chiefOfStaff,
+  setChiefOfStaff,
+  advisorBriefings,
+  setAdvisorBriefings,
+  briefingFetchedDay,
+  setBriefingFetchedDay,
+  advisorProfileCache,
+  setAdvisorProfileCache,
+  poolProfileCache,
+  setPoolProfileCache,
+  availableAdvisors,
+  setAvailableAdvisors,
+  morningBriefingLoading,
+  setMorningBriefingLoading,
 }) {
   const [briefingState, setBriefingState] = useState('hub')
   const [activeEvent, setActiveEvent] = useState(null)
@@ -180,20 +194,14 @@ export default function BriefingScreen({
     can_end_day: false,
     deals_today: [],
   })
-  const [advisorBriefings, setAdvisorBriefings] = useState(null)
-  const [briefingFetchedDay, setBriefingFetchedDay] = useState(null)
-  const [chiefOfStaff, setChiefOfStaff] = useState(null)
   const [councilOpen, setCouncilOpen] = useState(true)
 
   // Advisor profile expand state
   const [expandedAdvisor, setExpandedAdvisor] = useState(null)
-  const [advisorProfileCache, setAdvisorProfileCache] = useState({})
   const [profileLoading, setProfileLoading] = useState(false)
   const [assignLoading, setAssignLoading] = useState(null) // advisor key or null
 
   // Advisor pool (available to hire) state
-  const [availableAdvisors, setAvailableAdvisors] = useState([])
-  const [poolProfileCache, setPoolProfileCache] = useState({})
   const [poolProfileLoading, setPoolProfileLoading] = useState(false)
   const [expandedPoolAdvisor, setExpandedPoolAdvisor] = useState(null)
   const [hiring, setHiring] = useState(false)
@@ -221,7 +229,6 @@ export default function BriefingScreen({
       }).catch(() => {})
     }
   }, [gameState?.deals_today?.length])
-  const [morningBriefingLoading, setMorningBriefingLoading] = useState(false)
   const [eventsLoading, setEventsLoading] = useState(false)
   const [resolving, setResolving] = useState(false)
   const [expandedDealId, setExpandedDealId] = useState(null)
