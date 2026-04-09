@@ -501,6 +501,17 @@ class GameState:
         self.summit_credibility = 100.0       # starts 100, drops when commitments broken
         self.reliability_score = 100.0       # 0-100, tracks commitment follow-through
 
+        # ── Session 11: Diplomatic Standing ──────────────────────────────────
+        self.diplomatic_standing = {
+            "bill": 50.0, "eu": 50.0, "volkov": 50.0,
+            "wei": 50.0, "sadam": 50.0, "dprg": 50.0,
+        }
+        self.ambassador_recalled = {
+            "bill": False, "eu": False, "volkov": False,
+            "wei": False, "sadam": False, "dprg": False,
+        }
+        self.diplomatic_isolation = False
+
         # ── Advisor System (v2: full 9-archetype system with gate-based pool) ──
         self.advisors = {}  # dict keyed by archetype: {archetype, name, background, trust, competence, loyalty, ...}
         self.advisor_slots_available = 2  # daily assignment slots (can increase via Shadow Cabinet)
@@ -790,6 +801,7 @@ class GameState:
         self.events_resolved_today = 0         # Resets each EOT
         self.events_required_today = 3         # Tunable constant
         self.day_events_generated = False       # Prevents re-generation within same day
+        self.pre_seeded_events = []            # Events injected by EOT for next day
 
         # Communiqué escalation tracking
         self.communique_days_without_response = {}  # {npc_id: int} — increments each EOT
@@ -879,6 +891,16 @@ class GameState:
         """
         _old = self.relations[npc]
         _cap = 100  # hard cap for all NPCs
+
+        # Session 11: Diplomatic dampening — reduces negative penalties based on standing
+        if change < 0:
+            from diplomacy_utils import calculate_diplomatic_dampening, _RELATIONS_KEY_TO_NPC_ID
+            _npc_id = _RELATIONS_KEY_TO_NPC_ID.get(npc)
+            if _npc_id:
+                _damp = calculate_diplomatic_dampening(self, _npc_id)
+                _eff = change * (1.0 - _damp)
+                print(f"[DAMPENING_APPLIED] {_npc_id}: base={change:.1f} effective={_eff:.1f}")
+                change = _eff
 
         # EU soft cap from tech level: 60 + (tech × 2), capped at 100
         # Above soft cap: positive gains halved (stacks with diminishing returns)
@@ -1430,6 +1452,10 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'active_summit_commitments': getattr(self, 'active_summit_commitments', []),
             'summit_credibility': getattr(self, 'summit_credibility', 100.0),
             'reliability_score': getattr(self, 'reliability_score', 100.0),
+            # Session 11: Diplomatic Standing
+            'diplomatic_standing': getattr(self, 'diplomatic_standing', {"bill":50.0,"eu":50.0,"volkov":50.0,"wei":50.0,"sadam":50.0,"dprg":50.0}),
+            'ambassador_recalled': getattr(self, 'ambassador_recalled', {"bill":False,"eu":False,"volkov":False,"wei":False,"sadam":False,"dprg":False}),
+            'diplomatic_isolation': getattr(self, 'diplomatic_isolation', False),
             # Advisor System (restored 9-archetype pool)
             'advisors': getattr(self, 'advisors', {}),
             'advisor_slots_available': getattr(self, 'advisor_slots_available', 2),
@@ -1601,6 +1627,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
             'events_resolved_today': getattr(self, 'events_resolved_today', 0),
             'events_required_today': getattr(self, 'events_required_today', 3),
             'day_events_generated': getattr(self, 'day_events_generated', False),
+            'pre_seeded_events': getattr(self, 'pre_seeded_events', []),
             'communique_days_without_response': getattr(self, 'communique_days_without_response', {}),
             'morning_briefing_read': getattr(self, 'morning_briefing_read', False),
             'chief_of_staff_intro_done': getattr(self, 'chief_of_staff_intro_done', False),
@@ -1883,6 +1910,10 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.active_summit_commitments = data.get('active_summit_commitments', [])
         gs.summit_credibility = data.get('summit_credibility', 100.0)
         gs.reliability_score = data.get('reliability_score', 100.0)
+        # Session 11: Diplomatic Standing
+        gs.diplomatic_standing = data.get('diplomatic_standing', {"bill":50.0,"eu":50.0,"volkov":50.0,"wei":50.0,"sadam":50.0,"dprg":50.0})
+        gs.ambassador_recalled = data.get('ambassador_recalled', {"bill":False,"eu":False,"volkov":False,"wei":False,"sadam":False,"dprg":False})
+        gs.diplomatic_isolation = data.get('diplomatic_isolation', False)
         # Advisor System v2: full 9-archetype with gates
         _raw_advisors = data.get('advisors', {})
         # Migration: old formats -> v2 archetype dict
@@ -2100,6 +2131,7 @@ Relations: USA {self.relations['usa']} | Arabia {self.relations['arabia']} | EU 
         gs.events_resolved_today = data.get('events_resolved_today', 0)
         gs.events_required_today = data.get('events_required_today', 3)
         gs.day_events_generated = data.get('day_events_generated', False)
+        gs.pre_seeded_events = data.get('pre_seeded_events', [])
         gs.communique_days_without_response = data.get('communique_days_without_response', {})
         gs.morning_briefing_read = data.get('morning_briefing_read', False)
         gs.chief_of_staff_intro_done = data.get('chief_of_staff_intro_done', False)

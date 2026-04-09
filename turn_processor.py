@@ -8,6 +8,11 @@ Session 4B: Election mechanic
 import random
 import re
 
+from diplomacy_utils import (
+    apply_standing_delta, check_ambassador_recalls,
+    STANDING_DELTAS, _RELATIONS_KEY_TO_NPC_ID, _NPC_ID_TO_NAME,
+)
+
 
 # ── Session 4B: Election Consequences (hard-coded, Claude never decides these) ──
 
@@ -2985,6 +2990,9 @@ def check_broken_promises(game_state) -> list:
             old_rel = game_state.relations[promise_npc]
             game_state.update_relations(promise_npc, -12)
             new_rel = game_state.relations[promise_npc]
+            # Session 11: standing penalty for broken promise
+            _bp_npc_id = _RELATIONS_KEY_TO_NPC_ID.get(promise_npc, promise_npc)
+            apply_standing_delta(game_state, _bp_npc_id, "deal_broken")
             npc_labels = {'usa': 'Bill Hartwell', 'arabia': 'Sadam', 'eu': 'Marsha', 'dprg': 'Ji-won', 'russia': 'Nikolai Volkov', 'china': 'Wei Jianming'}
             messages.append(
                 f"💔 BROKEN PROMISE — {npc_labels.get(promise_npc, promise_npc.upper())} "
@@ -4501,10 +4509,14 @@ def apply_end_of_turn_effects(game_state):
                 )
                 if contradicted:
                     deal['broken'] = True
+                    deal['broken_turn'] = game_state.current_turn
                     messages.append(
                         f"💔 Deal broken: commitment to {deal_npc.upper()} ('{deal['summary']}') "
                         f"contradicted by {last_npc.upper()} alignment"
                     )
+                    # Session 11: standing penalty for broken deal
+                    _broken_npc_id = _RELATIONS_KEY_TO_NPC_ID.get(deal_npc, deal_npc)
+                    apply_standing_delta(game_state, _broken_npc_id, "deal_broken")
                     # Session 5 Phase C Hook 2: store_memory on promise broken
                     try:
                         from memory_engine import store_memory
@@ -5109,6 +5121,72 @@ def apply_end_of_turn_effects(game_state):
     print(f"[RELIABILITY] EOT: broken={_broken_this_turn}, "
           f"kept={_kept_this_turn}, soft_power={game_state.soft_power}, "
           f"new_reliability={game_state.reliability_score:.1f}")
+
+    # ──────────────────────────────────────────
+    # 13g. SESSION 11: DIPLOMATIC STANDING DRIFT
+    # Daily drift toward neutral (50.0). Rate: 0.5/day if no interaction moved standing.
+    # Recall-unaddressed penalty: -1/day per NPC with ambassador_recalled=True.
+    # ──────────────────────────────────────────
+    _standing_dict = getattr(game_state, 'diplomatic_standing', {})
+    if not _standing_dict:
+        _standing_dict = {"bill":50.0,"eu":50.0,"volkov":50.0,"wei":50.0,"sadam":50.0,"dprg":50.0}
+        game_state.diplomatic_standing = _standing_dict
+
+    for _s_npc in ["bill", "eu", "volkov", "wei", "sadam", "dprg"]:
+        _s_cur = _standing_dict.get(_s_npc, 50.0)
+        if _s_cur > 50.0:
+            _s_drift = -0.5
+        elif _s_cur < 50.0:
+            _s_drift = +0.5
+        else:
+            _s_drift = 0.0
+        _s_new = max(0.0, min(100.0, _s_cur + _s_drift))
+        _standing_dict[_s_npc] = _s_new
+
+        # Recall-unaddressed penalty
+        if getattr(game_state, 'ambassador_recalled', {}).get(_s_npc, False):
+            _s_new = max(0.0, _s_new + STANDING_DELTAS["recall_unaddressed"])
+            _standing_dict[_s_npc] = _s_new
+            print(f"[STANDING] {_s_npc} recall_unaddressed penalty: now {_s_new:.1f}")
+
+    print(f"[STANDING_EOT] drift pass complete: {_standing_dict}")
+
+    # Ambassador recall check
+    _newly_recalled = check_ambassador_recalls(game_state)
+    if _newly_recalled:
+        for _recall_npc in _newly_recalled:
+            _recall_name = _NPC_ID_TO_NAME.get(_recall_npc, _recall_npc)
+            _recall_event = {
+                "id": f"ambassador_recall_{_recall_npc}_{getattr(game_state, 'current_day', 0)}",
+                "title": f"Ambassador Recalled \u2014 {_recall_name}",
+                "type": "DIPLOMATIC",
+                "urgency": "URGENT",
+                "summary": f"Europa's ambassador to {_recall_name} has been recalled. She has returned to the capital and requests an audience to brief you.",
+                "applicable_npcs": [_recall_npc],
+                "required": False,
+                "recall_debrief": True,
+                "choices": [
+                    {"label": "Send her back", "text": "Reinstate the ambassador immediately. Signal repair intent.", "hint": "Costs diplomatic credibility. They know you need them."},
+                    {"label": "Request direct audience", "text": f"Contact {_recall_name} directly yourself.", "hint": "High stakes. Works well or makes it significantly worse."},
+                    {"label": "Wait", "text": "Hold position. Let them send their ambassador first.", "hint": "A power play. Tests whether they want repair as much as you do."},
+                    {"label": "Use intermediary", "text": "Route through a third party to open a back channel.", "hint": "Slower but lower risk. Ji-won is well-positioned for Eastern bloc recalls."},
+                ],
+            }
+            if not hasattr(game_state, 'pre_seeded_events'):
+                game_state.pre_seeded_events = []
+            game_state.pre_seeded_events.append(_recall_event)
+            print(f"[RECALL] Event pre-seeded for next day: {_recall_npc}")
+
+    # Diplomatic isolation: standing at zero with 3+ NPCs simultaneously
+    _standing_at_zero = sum(
+        1 for _iso_npc in ["bill", "eu", "volkov", "wei", "sadam", "dprg"]
+        if _standing_dict.get(_iso_npc, 50.0) <= 0.0
+    )
+    game_state.diplomatic_isolation = (_standing_at_zero >= 3)
+    if game_state.diplomatic_isolation:
+        print(f"[ISOLATION] FLAG SET \u2014 {_standing_at_zero} NPCs at zero standing")
+    else:
+        print(f"[ISOLATION] clear ({_standing_at_zero} NPCs at zero)")
 
     # ──────────────────────────────────────────
     # 13e-ii. SESSION 5 PHASE C: RELATIONS MILESTONE MEMORY HOOKS

@@ -9047,10 +9047,16 @@ async def resolve_event(session_id: str, request: Request, user: User = Depends(
         generate_event_resolution_consequences, gs, target_event, resolution
     )
 
-    # Apply NPC relation deltas
+    # Apply NPC relation deltas (with Session 11 dampening for negative deltas)
+    from diplomacy_utils import calculate_diplomatic_dampening, _RELATIONS_KEY_TO_NPC_ID
     rels = gs.relations or {}
     for npc_id, delta in consequences.get("npc_reactions", {}).items():
-        if npc_id in rels:
+        if npc_id in rels and delta:
+            if delta < 0:
+                _npc_id_key = _RELATIONS_KEY_TO_NPC_ID.get(npc_id, npc_id)
+                _damp = calculate_diplomatic_dampening(gs, _npc_id_key)
+                delta = delta * (1.0 - _damp)
+                print(f"[DAMPENING_EVENT] {npc_id}: effective_delta={delta:.2f}")
             rels[npc_id] = max(0, min(100, rels[npc_id] + delta))
     gs.relations = rels
 

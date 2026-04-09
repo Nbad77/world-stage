@@ -9,6 +9,20 @@
 import { useState } from 'react'
 
 // Client-side detection risk calculator (mirrors npc_engine.calculate_detection_risk)
+// Session 11: Map relations keys -> npc_id keys for diplomatic_standing
+const RELATIONS_TO_NPC_ID = { usa: 'bill', russia: 'volkov', arabia: 'sadam', china: 'wei', eu: 'eu', dprg: 'dprg' }
+
+function standingLabel(npcKey, diplomaticStanding, ambassadorRecalled) {
+  const npcId = RELATIONS_TO_NPC_ID[npcKey] || npcKey
+  if (ambassadorRecalled?.[npcId]) return { label: 'RECALLED', color: '#e53935' }
+  const s = diplomaticStanding?.[npcId] ?? 50
+  if (s >= 75) return { label: 'RESPECTED',   color: '#66bb6a' }
+  if (s >= 50) return { label: 'ESTABLISHED', color: '#a5d6a7' }
+  if (s >= 25) return { label: 'STRAINED',    color: '#ffa726' }
+  if (s >= 10) return { label: 'DAMAGED',     color: '#ef5350' }
+  return             { label: 'CRITICAL',     color: '#b71c1c' }
+}
+
 const BASE_RISK = { usa: 0.25, arabia: 0.20, eu: 0.15, dprg: 0.10, russia: 0.20, china: 0.18 }
 const OPSEC_MULT = { 0: 1.0, 1: 0.7, 2: 0.45 }
 
@@ -173,6 +187,15 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
           <div className="npc-card-status">
             {statusText} ({Math.round(relation)})
           </div>
+          {(() => {
+            const sl = standingLabel(npcKey, gs?.diplomatic_standing, gs?.ambassador_recalled)
+            console.log(`[STANDING_DISPLAY] ${npcKey}: label=${sl.label} standing=${gs?.diplomatic_standing?.[RELATIONS_TO_NPC_ID[npcKey] || npcKey]}`)
+            return (
+              <div style={{ fontSize: '10px', color: sl.color, letterSpacing: '0.08em', marginTop: '2px' }}>
+                STANDING: {sl.label}
+              </div>
+            )
+          })()}
 
           {/* Incoming communiqué — auto-displayed from EOT logic */}
           {cableType === 'incoming' && cableText && (

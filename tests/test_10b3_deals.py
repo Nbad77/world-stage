@@ -79,7 +79,9 @@ def test_deal_consequences_applied():
     gs.legitimacy_stability += consequences['stability_delta']
 
     assert gs.relations['usa'] == old_usa + 5
-    assert gs.relations['russia'] == 35 - 3  # 32
+    # Session 11: negative deltas are dampened (standing=50, reliability=100 -> ~0.40 dampening)
+    # effective = -3 * (1 - 0.40) = -1.8 -> 35 - 1.8 = 33.2
+    assert abs(gs.relations['russia'] - 33.2) < 0.1
     assert gs.budget == 50.0 - 1.5
     assert gs.personal_wealth == 10.5
     assert gs.legitimacy_stability == old_stability + 2.0
