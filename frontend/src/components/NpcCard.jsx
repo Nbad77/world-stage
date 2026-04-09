@@ -53,6 +53,29 @@ function calcIntelCost(relation, gs) {
   return base;
 }
 
+function calcNegotiateCost(relation, gs) {
+  // Base tier
+  let base;
+  if (relation >= 60) base = 0.3;
+  else if (relation >= 30) base = 0.5;
+  else base = 0.8;
+
+  // Diplomat advisor discount
+  const diplomat = gs?.advisors?.diplomat;
+  if (diplomat?.assigned_this_turn) {
+    const comp = diplomat.competence ?? 70;
+    if (comp >= 80) return 0;   // free
+    base = +(base * 0.5).toFixed(2); // 50% off
+  }
+
+  // Political axis discount (stacks on top)
+  const polAxis = gs?.cabinet_axes?.political ?? 0;
+  if (polAxis >= 8) base = +(base * 0.5).toFixed(2);
+  else if (polAxis >= 5) base = +(base * 0.75).toFixed(2);
+
+  return base;
+}
+
 // Detect urgent conditions per NPC
 function getUrgentState(npcKey, gs) {
   if (!gs) return null
@@ -205,19 +228,20 @@ export default function NpcCard({ npcKey, label, flag, relation, subtitle, hasWa
           <div className="npc-action-buttons">
             {/* Model C: Contact / Request Meeting based on relations */}
             {canDirectContact ? (
-              onContact && (
-                <>
+              onContact && (() => {
+                const negotiateCost = calcNegotiateCost(relation, gs)
+                console.log(`[NEGOTIATE_DISPLAY] npc=${npcKey} relation=${relation} cost=${negotiateCost} diplomat=${!!gs?.advisors?.diplomat?.assigned_this_turn} polAxis=${gs?.cabinet_axes?.political ?? 0}`)
+                return (
                   <button
                     className={`npc-contact-btn ${isCrisis ? 'crisis' : ''}`}
                     onClick={() => onContact(npcKey)}
                     disabled={contactDisabled || contactLoading}
                     title={contactDisabled ? 'Contact unavailable' : `Open diplomatic channel with ${label}`}
                   >
-                    {contactLoading ? 'Connecting...' : isCrisis ? '⚠ URGENT CONTACT' : 'CONTACT'}
+                    {contactLoading ? 'Connecting...' : isCrisis ? '⚠ URGENT CONTACT' : `CONTACT${negotiateCost === 0 ? ' — FREE' : ` — $${negotiateCost}B`}`}
                   </button>
-                  <span className="npc-contact-cost">Negotiation fee: ${relation >= 60 ? '0.3' : relation >= 30 ? '0.5' : '0.8'}B</span>
-                </>
-              )
+                )
+              })()
             ) : (
               onContactRequest && (
                 <button
