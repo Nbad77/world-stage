@@ -234,6 +234,7 @@ export default function BriefingScreen({
   const [expandedDealId, setExpandedDealId] = useState(null)
   const lastDayRef = useRef(null)
   const eventsLoadingRef = useRef(false)
+  const morningBriefingInFlight = useRef(false)
 
   // 10B-2: Event screen state
   const [eventDialogues, setEventDialogues] = useState([])
@@ -355,8 +356,10 @@ export default function BriefingScreen({
 
   // Advisory Council: auto-fetch morning briefings on mount / day change
   useEffect(() => {
-    if (!sessionId || morningBriefingLoading) return
+    if (!sessionId) return
     if (advisorBriefings && briefingFetchedDay === currentDay) return
+    if (morningBriefingInFlight.current) return
+    morningBriefingInFlight.current = true
     setMorningBriefingLoading(true)
     api.briefingMorning(sessionId)
       .then(result => {
@@ -367,17 +370,12 @@ export default function BriefingScreen({
         if (result.game_state && onGsUpdate) onGsUpdate(result.game_state)
       })
       .catch(e => {
-        console.error('[BRIEFING] Advisor morning briefing failed:', e)
-        setChiefOfStaff({
-          name: "Mikhail 'Mike' Sorel",
-          role: "chief_of_staff",
-          label: "Chief of Staff",
-          icon: "\uD83E\uDDED",
-          text: "Intelligence services unavailable."
-        })
-        setAdvisorBriefings([])
+        console.error('[BRIEFING] morning briefing failed:', e)
       })
-      .finally(() => setMorningBriefingLoading(false))
+      .finally(() => {
+        morningBriefingInFlight.current = false
+        setMorningBriefingLoading(false)
+      })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, currentDay])
 
