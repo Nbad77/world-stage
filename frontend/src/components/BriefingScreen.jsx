@@ -1263,34 +1263,38 @@ export default function BriefingScreen({
               <div className="advisory-council-loading">Assembling briefings...</div>
             )}
             {/* Chief of Staff — always shown */}
-            {chiefOfStaff && (
-              <div className="advisor-briefing-card advisor-briefing-card--chief"
-                   onClick={() => {
-                     if (expandedAdvisor?.role === 'chief_of_staff') {
-                       setExpandedAdvisor(null)
-                       return
-                     }
-                     setExpandedAdvisor({ role: 'chief_of_staff' })
-                   }}
-                   style={{ cursor: 'pointer' }}>
-                <div className="advisor-briefing-header">
-                  <span className="advisor-briefing-icon">{chiefOfStaff.icon}</span>
-                  <div className="advisor-briefing-meta">
-                    <span className="advisor-briefing-name">{chiefOfStaff.name}</span>
-                    <span className="advisor-briefing-label">{chiefOfStaff.label}</span>
-                  </div>
+            <div className="advisor-briefing-card advisor-briefing-card--chief"
+                 onClick={() => {
+                   if (expandedAdvisor?.role === 'chief_of_staff') {
+                     setExpandedAdvisor(null)
+                     return
+                   }
+                   setExpandedAdvisor({ role: 'chief_of_staff' })
+                 }}
+                 style={{ cursor: 'pointer' }}>
+              <div className="advisor-briefing-header">
+                <span className="advisor-briefing-icon">🧭</span>
+                <div className="advisor-briefing-meta">
+                  <span className="advisor-briefing-name">Mikhail 'Mike' Sorel</span>
+                  <span className="advisor-briefing-label">Chief of Staff</span>
                 </div>
-                <div className="advisor-briefing-text">{chiefOfStaff.text}</div>
-                {expandedAdvisor?.role === 'chief_of_staff' && (
-                  <div className="advisor-profile-expand">
-                    <div className="advisor-profile-divider"/>
-                    <div className="advisor-profile-text">
-                      Mikhail Sorel cannot be dismissed. He serves Europa regardless of who leads it.
-                    </div>
-                  </div>
+              </div>
+              <div className="advisor-briefing-text">
+                {chiefOfStaff?.text || (
+                  morningBriefingLoading
+                    ? "Assembling briefing..."
+                    : "Briefing unavailable."
                 )}
               </div>
-            )}
+              {expandedAdvisor?.role === 'chief_of_staff' && (
+                <div className="advisor-profile-expand">
+                  <div className="advisor-profile-divider"/>
+                  <div className="advisor-profile-text">
+                    Mikhail Sorel cannot be dismissed. He serves Europa regardless of who leads it.
+                  </div>
+                </div>
+              )}
+            </div>
             {/* Hired advisor cards */}
             {(advisorBriefings || []).map(advisor => {
               const _assignedToday = gameState?.advisor_assigned_today || []

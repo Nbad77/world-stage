@@ -9182,13 +9182,21 @@ async def get_morning_briefing(session_id: str, user: User = Depends(get_optiona
           f"advisors={len(advisor_briefings)} "
           f"intro_done={getattr(gs, 'chief_of_staff_intro_done', False)}")
 
+    cos_text = briefings.get("chief_of_staff")
+    if not cos_text:
+        cos_text = (
+            "Monitoring the situation. "
+            "Check the events panel and "
+            "tend to any overdue communiqués."
+        )
+
     return {
         "chief_of_staff": {
             "name": "Mikhail 'Mike' Sorel",
             "role": "chief_of_staff",
             "label": "Chief of Staff",
             "icon": "\U0001f9ed",
-            "text": briefings.get("chief_of_staff"),
+            "text": cos_text,
         },
         "advisor_briefings": advisor_briefings,
         "intro_done": getattr(gs, 'chief_of_staff_intro_done', False),
