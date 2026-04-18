@@ -168,6 +168,14 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
   const [availableAdvisors, setAvailableAdvisors] = useState([])
   const [morningBriefingLoading, setMorningBriefingLoading] = useState(false)
 
+  // Stable currentDay — holds last known good turn, never falls back to 1
+  // when gs briefly becomes null during state updates. Prevents spurious
+  // day-change reset + morning briefing re-fetch in BriefingScreen.
+  const stableCurrentDay = useRef(1)
+  if (gs?.current_turn) {
+    stableCurrentDay.current = gs.current_turn
+  }
+
   // FIX C: Track in_exile transitions for post-return game load
   const prevInExileRef = useRef(gs?.in_exile)
 
@@ -1480,7 +1488,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
             <BriefingScreen
               gameState={gs}
               sessionId={sessionId}
-              currentDay={gs?.current_turn ?? 1}
+              currentDay={stableCurrentDay.current}
               currentEra={gs?.current_era ?? 1}
               onEndDay={() => _executeSkim(1)}
               onEventResolved={async (evt, res) => {
@@ -1562,7 +1570,7 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
                   onHistoryChange={(msgs, offers, held) => handleHistoryChange(negotiatingNpc, msgs, offers, held)}
                   onGsUpdate={(newGs) => setGs(newGs)}
                   activeDealSummary={activeDealSummary}
-                  currentTurn={gs?.current_turn ?? 1}
+                  currentTurn={stableCurrentDay.current}
                   gs={gs}
                 />
               )
