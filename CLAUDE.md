@@ -133,6 +133,14 @@ Never fix what you don't understand.
 Never fix things outside the stated scope.
 If you find a bug while reading, note it — do not fix it.
 
+Before marking any task complete,
+cross-reference your changes against
+the Architecture Notes and Console Log
+Contracts in the session's handoff
+document. Flag any field name, key
+format, or ordering constraint that
+your implementation might violate.
+
 ---
 
 ## TEMP FILES
