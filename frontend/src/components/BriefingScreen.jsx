@@ -232,7 +232,7 @@ export default function BriefingScreen({
   const [eventsLoading, setEventsLoading] = useState(false)
   const [resolving, setResolving] = useState(false)
   const [expandedDealId, setExpandedDealId] = useState(null)
-  const lastDayRef = useRef(null)
+  const lastDayRef = useRef(currentDay)
   const eventsLoadingRef = useRef(false)
   const morningBriefingInFlight = useRef(false)
 
