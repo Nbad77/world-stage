@@ -8,6 +8,13 @@
 
 **Never create new branches. Never use git worktrees.**
 
+If you find yourself on a branch named
+claude/*, you are in a worktree.
+Always run:
+  git push origin HEAD:main
+to push commits to main regardless of
+which branch you are on locally.
+
 Never run `git reset --hard` when uncommitted changes
 exist in the working tree. Always run `git status` first.
 Uncommitted changes are silently and permanently lost.
