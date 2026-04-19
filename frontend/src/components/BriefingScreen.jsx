@@ -235,6 +235,7 @@ export default function BriefingScreen({
   const lastDayRef = useRef(currentDay)
   const eventsLoadingRef = useRef(false)
   const morningBriefingInFlight = useRef(false)
+  const poolFetchedDayRef = useRef(currentDay)
 
   // 10B-2: Event screen state
   const [eventDialogues, setEventDialogues] = useState([])
@@ -490,8 +491,12 @@ export default function BriefingScreen({
   // Fetch available advisor pool on mount / day change
   useEffect(() => {
     if (!sessionId) return
-    setAdvisorProfileCache({})
-    setPoolProfileCache({})
+    const dayChanged = currentDay !== poolFetchedDayRef.current
+    if (dayChanged) {
+      poolFetchedDayRef.current = currentDay
+      setAdvisorProfileCache({})
+      setPoolProfileCache({})
+    }
     api.getAdvisorPool(sessionId)
       .then(result => {
         setAvailableAdvisors(result.pool || [])
