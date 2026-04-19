@@ -97,16 +97,83 @@ Check all fire-and-forget async calls before reporting complete.
 
 ---
 
+## ADDITIONAL ARCHITECTURE INVARIANTS
+
+**NPC ID key convention (critical):**
+All dicts keyed by npc_id use character-name
+keys: bill, eu, sadam, dprg, volkov, wei.
+Relations keys (usa, arabia, russia, china)
+are different. Mixing causes silent fallthrough.
+See WorldStage_ClaudeCode_Reference.md for
+the full mapping table.
+
+**cabinet_axes vs display tiers:**
+cabinet_axes['military'] gates advisor unlocks
+and regime calculations.
+military_tier / mil_tier is the display/decay
+stat shown in the UI.
+These are completely separate fields.
+Never conflate them.
+
+**Fence stripping — required before json.loads():**
+ALL Haiku JSON responses must be stripped
+before parsing. Canonical pattern:
+  cleaned = raw.strip()
+  if cleaned.startswith('```'):
+      cleaned = cleaned.split('\n', 1)[-1]
+  if cleaned.endswith('```'):
+      cleaned = cleaned.rsplit('```', 1)[0]
+  cleaned = cleaned.strip()
+  result = json.loads(cleaned)
+Never call json.loads() directly on a raw
+Haiku response.
+
+**diplomatic_standing is ABSENT:**
+Confirmed absent by grep. Do not assume
+this field exists. Do not write code that
+references it without first confirming it
+has been implemented.
+
+**Advisory council state lives in GameScreen:**
+chiefOfStaff, advisorBriefings, briefingFetchedDay,
+advisorProfileCache, poolProfileCache,
+availableAdvisors, morningBriefingLoading
+are all lifted to GameScreen and passed as
+props to BriefingScreen. Do not re-add local
+useState declarations for these in BriefingScreen.
+
+**Stable advisor pool:**
+generate_advisor_pool() reuses existing pool
+entries by archetype. Only creates new advisor
+objects when an archetype first becomes eligible.
+Do not revert to always-create pattern.
+
+**Reload-and-patch pattern:**
+Always reload gs_fresh before saving.
+Only write fields the endpoint owns.
+Never save a full gs if another endpoint
+writes it concurrently.
+
+**eot_data try/except:**
+EOT data construction is wrapped in try/except
+with silent null fallback. Do not remove.
+
+**Budget sign convention:**
+Negative = Europa pays. Positive = Europa receives.
+Applies to all budget_delta fields.
+
+---
+
 ## TESTING PHILOSOPHY
 
 - pytest: endings, math, state transitions, 3+ conditions simultaneously
 - Comet: UI rendering, button visibility, modal open/close
 - Manual: prose quality, NPC dialogue, game feel
 - Any ending or complex condition → pytest first, never Comet
-- Target baseline: 463 passing, 4 pre-existing failures (acceptable)
-- Pre-existing failures: test_serialize_deserialize_advisors (x2),
-  test_coup_fires_at_military_zero, test_no_contacts_when_conditions_not_met
-- Pre-existing collection errors: test_advisors.py, test_session4d.py
+- Target baseline: confirm current count with
+  pytest before each session. Pre-existing
+  failures are acceptable if present before
+  your changes.
 
 ---
 
@@ -118,6 +185,16 @@ Check all fire-and-forget async calls before reporting complete.
 - Any ending condition logic unless explicitly in scope
 - The exile system, biography system
 - ShadowCabinet.jsx shadow axis tiers (already implemented)
+- Advisory council state lift in GameScreen.jsx
+  (chiefOfStaff, advisorBriefings, and related
+  lifted state — do not move back to BriefingScreen)
+- lastDayRef, poolFetchedDayRef, morningBriefingInFlight
+  ref initialization patterns in BriefingScreen.jsx
+- generate_deal_consequences_and_reactions()
+  combined call — existing separate functions
+  are fallbacks only
+- turn_dialogues cache in game_state — cached
+  per {npc_id}_{turn}, never bypass
 
 ---
 
@@ -149,23 +226,3 @@ Do not create temporary files at the C: root or anywhere outside
 the project directory. If you need temp files, use the project
 directory. Clean up temp files before committing.
 
----
-
-## CURRENT STATE (as of March 2026)
-
-Sessions complete: 1-9C, 9.5A through 9.5G, 10A, 10C
-Test count: 463 passing, 4 pre-existing failures
-Last commit: e1b1a30
-
-Key systems implemented:
-- 10-tier commitment model (9.5A)
-- Shadow State axes: Media, Judicial, Surveillance, Extraction, Militia (9.5A-Shadow)
-- Two-component stability: legitimacy + coercion (9.5B)
-- Loyal Generals / Loyal Intel Chief (9.5C)
-- Diplomatic effectiveness: soft power, reliability, standing (9.5D)
-- Resource policy, bond market, Volkov trap, client states (9.5E)
-- Peacekeeping + intervention conditions (9.5F)
-- Era system, historian on-demand, open world (10A)
-- Operations redesign: 23 operations across 4 categories (10C)
-
-Next session: 10B-1 (Daily Briefing Screen + GM World Events)
