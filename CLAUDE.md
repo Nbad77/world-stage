@@ -135,11 +135,17 @@ before parsing. Canonical pattern:
 Never call json.loads() directly on a raw
 Haiku response.
 
-**diplomatic_standing is ABSENT:**
-Confirmed absent by grep. Do not assume
-this field exists. Do not write code that
-references it without first confirming it
-has been implemented.
+**diplomatic_standing EXISTS (Session 11):**
+gs.diplomatic_standing is a dict keyed by
+character name: {bill, eu, volkov, wei,
+sadam, dprg} with float values 0-100
+(default 50.0). Defined in game_state.py
+alongside gs.ambassador_recalled (same
+keys, bool) and gs.diplomatic_isolation
+(bool). Note the character-name key
+convention — do not mix with the
+usa/arabia/eu/dprg/russia/china relations
+keys.
 
 **Advisory council state lives in GameScreen:**
 chiefOfStaff, advisorBriefings, briefingFetchedDay,
