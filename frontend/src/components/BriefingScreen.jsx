@@ -255,6 +255,16 @@ export default function BriefingScreen({
   const [eventNpcInput, setEventNpcInput] = useState('')
   const [eventNpcSending, setEventNpcSending] = useState(false)
 
+  // E4b: Propose-deal state for event NPC drawer
+  const [proposingDeal, setProposingDeal] = useState(false)
+  const [proposedDealForCurrentThread, setProposedDealForCurrentThread] = useState(null)
+  // Accept-event-deal flow (parallel to resolution Mike confirm)
+  const [pendingDealAccept, setPendingDealAccept] = useState(null)
+  // { deal } | null — active deal awaiting Mike confirmation
+  const [mikeDealRead, setMikeDealRead] = useState(null)
+  // '' = loading, string = read, null = idle
+  const [acceptingDeal, setAcceptingDeal] = useState(false)
+
   // E5: Mike confirmation + resolution beat
   const [confirmModalOpen, setConfirmModalOpen] = useState(false)
   const [pendingResolution, setPendingResolution] = useState(null)
@@ -686,6 +696,86 @@ export default function BriefingScreen({
     }
   }
 
+  // E4b: Propose a deal from the current event NPC conversation.
+  //      Extracts terms via Haiku server-side and surfaces the result
+  //      in Today's Decisions as a closeable deal.
+  const handleProposeDeal = async () => {
+    if (proposingDeal || !selectedEventNpc || !activeEvent) return
+    setProposingDeal(true)
+    try {
+      const res = await api.registerEventDeal(
+        sessionId,
+        selectedEventNpc.npc_id,
+        activeEvent.id,
+        { title: activeEvent.title, summary: activeEvent.summary },
+        eventNpcMessages
+      )
+      if (res.deal) {
+        setProposedDealForCurrentThread(res.deal)
+        // Optimistic: surface in Today's Decisions immediately.
+        setDayStatus(prev => ({
+          ...prev,
+          deals_today: [...(prev.deals_today || []), res.deal],
+        }))
+        console.log(`[EVENT_DEAL_UI] registered: deal_id=${res.deal.id} npc=${selectedEventNpc.npc_id}`)
+      }
+    } catch (err) {
+      console.error('[EVENT_DEAL_UI_FAIL]', err)
+    } finally {
+      setProposingDeal(false)
+    }
+  }
+
+  // E4b: Accept flow for event-negotiation deals — Mike confirmation first,
+  //      then call accept-event-deal. Parallel to the event-resolution
+  //      confirmation pattern so each can fire independently.
+  const handleOpenDealAccept = (deal) => {
+    setPendingDealAccept({ deal })
+    setMikeDealRead('')
+    fetchMikeDealRead(deal)
+  }
+
+  const fetchMikeDealRead = async (deal) => {
+    // Reuse the existing deal assessment endpoint for the Mike read — it
+    // already knows how to produce a short COS-style take on a deal.
+    try {
+      const res = await api.getDealAssessment(
+        sessionId,
+        deal.id,
+        deal.briefing_summary || deal.deal_text || ''
+      )
+      setMikeDealRead(res.assessment)
+    } catch (err) {
+      console.log('[MIKE_DEAL] fetch failed:', err.message)
+      setMikeDealRead('This commitment will shape our foreign posture. Proceed carefully.')
+    }
+  }
+
+  const handleConfirmDealAccept = async () => {
+    if (!pendingDealAccept || acceptingDeal) return
+    setAcceptingDeal(true)
+    try {
+      const res = await api.acceptEventDeal(sessionId, pendingDealAccept.deal.id)
+      // Mark the deal as accepted locally — budget_applied > 0 hides Accept
+      // button and enables budget reversal on dismiss.
+      setDayStatus(prev => ({
+        ...prev,
+        deals_today: (prev.deals_today || []).map(d =>
+          d.id === pendingDealAccept.deal.id
+            ? { ...d, budget_applied: res.budget_delta }
+            : d
+        ),
+      }))
+      console.log(`[EVENT_DEAL_UI_ACCEPTED] deal_id=${pendingDealAccept.deal.id} rel=${res.relation_delta} bud=${res.budget_delta}`)
+      setPendingDealAccept(null)
+      setMikeDealRead(null)
+    } catch (err) {
+      console.error('[EVENT_DEAL_UI_ACCEPT_FAIL]', err)
+    } finally {
+      setAcceptingDeal(false)
+    }
+  }
+
   // Deal assessment fetch for Today's Decisions expanded cards
   const fetchDealAssessment = async (dealId, deal) => {
     setDealAssessments(prev => ({
@@ -823,6 +913,7 @@ export default function BriefingScreen({
     setSelectedEventNpc(null)
     setEventNpcMessages([])
     setEventNpcInput('')
+    setProposedDealForCurrentThread(null)
     mikeConfirmCache.current = {}
     eventNpcMessageCache.current = {}
     advisorAnalysisCache.current = {}
@@ -1059,6 +1150,7 @@ export default function BriefingScreen({
                   setSelectedEventNpc(null)
                   setEventNpcMessages([])
                   setEventNpcInput('')
+                  setProposedDealForCurrentThread(null)
                 }}>
                 {'\u2715'}
               </button>
@@ -1099,6 +1191,87 @@ export default function BriefingScreen({
                 disabled={eventNpcSending || !eventNpcInput.trim()}>
                 {eventNpcSending ? '...' : 'Send'}
               </button>
+            </div>
+
+            {/* E4b: Propose Deal — surfaces after 4+ messages, hides once proposed */}
+            {eventNpcMessages.length >= 4 && !proposedDealForCurrentThread && (
+              <button
+                onClick={handleProposeDeal}
+                disabled={proposingDeal}
+                style={{
+                  marginTop: '8px',
+                  width: '100%',
+                  padding: '6px',
+                  background: 'transparent',
+                  border: '1px solid #4caf50',
+                  color: '#4caf50',
+                  fontSize: '11px',
+                  letterSpacing: '0.08em',
+                  cursor: proposingDeal ? 'not-allowed' : 'pointer',
+                  opacity: proposingDeal ? 0.5 : 1,
+                }}>
+                {proposingDeal ? 'EXTRACTING TERMS...' : '\u2295 PROPOSE DEAL'}
+              </button>
+            )}
+            {proposedDealForCurrentThread && (
+              <div style={{
+                marginTop: '8px',
+                padding: '8px',
+                border: '1px solid #4caf50',
+                fontSize: '11px',
+                color: '#a5d6a7',
+                letterSpacing: '0.05em',
+              }}>
+                {'\u2713 DEAL PROPOSED \u2014 review in Today\u2019s Decisions'}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* E4b: Mike confirmation modal for event-deal acceptance
+             (parallel to the resolution Mike modal below) */}
+        {pendingDealAccept && (
+          <div className="briefing-modal-overlay">
+            <div className="briefing-modal">
+
+              <div className="briefing-modal-event-title">
+                {pendingDealAccept.deal.npc_name}
+              </div>
+
+              <div className="briefing-modal-choice">
+                <span className="briefing-modal-choice-label">PROPOSED DEAL</span>
+                <span>{pendingDealAccept.deal.briefing_summary || pendingDealAccept.deal.deal_text}</span>
+              </div>
+
+              <div className="briefing-modal-mike">
+                <span className="briefing-modal-mike-label">
+                  MIKE SOREL {'\u2014'} CHIEF OF STAFF
+                </span>
+                <div className="briefing-modal-mike-body">
+                  {mikeDealRead === ''
+                    ? <span className="briefing-npc-loading">...</span>
+                    : <p>{mikeDealRead}</p>
+                  }
+                </div>
+              </div>
+
+              <div className="briefing-modal-actions">
+                <button
+                  className="briefing-modal-confirm"
+                  onClick={handleConfirmDealAccept}
+                  disabled={mikeDealRead === '' || acceptingDeal}>
+                  {acceptingDeal ? 'ACCEPTING...' : 'CONFIRM'}
+                </button>
+                <button
+                  className="briefing-modal-back"
+                  onClick={() => {
+                    setPendingDealAccept(null)
+                    setMikeDealRead(null)
+                  }}>
+                  GO BACK
+                </button>
+              </div>
+
             </div>
           </div>
         )}
@@ -1655,9 +1828,24 @@ export default function BriefingScreen({
                         })}
                       </div>
                     )}
-                    {/* Dismiss deal button */}
+                    {/* Dismiss deal button (+ Accept for un-accepted event deals) */}
                     {deal.id && (
                       <div className="deal-dismiss-row">
+                        {/* E4b: Event-negotiation deals land in PROPOSED state
+                            (budget_applied === 0). Accept routes through the
+                            parallel Mike-confirm flow -> /briefing/accept-event-deal. */}
+                        {deal.source === 'event_negotiation' && !deal.budget_applied && (
+                          <button
+                            className="advisor-action-btn"
+                            style={{ marginRight: '8px' }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleOpenDealAccept(deal)
+                            }}
+                          >
+                            ACCEPT DEAL
+                          </button>
+                        )}
                         <button
                           className="advisor-action-btn advisor-action-btn--dismiss"
                           onClick={async (e) => {
@@ -1666,6 +1854,13 @@ export default function BriefingScreen({
                               const res = await api.dismissDeal(sessionId, deal.id)
                               console.log('[DISMISS_UI] success dealId=', deal.id)
                               if (res.game_state && onGsUpdate) onGsUpdate(res.game_state)
+                              // Ensure local dayStatus drops it too (dismiss endpoint
+                              // already removes from gs.deals_today, but our optimistic
+                              // copy in dayStatus needs parallel cleanup).
+                              setDayStatus(prev => ({
+                                ...prev,
+                                deals_today: (prev.deals_today || []).filter(d => d.id !== deal.id),
+                              }))
                             } catch (err) {
                               console.error('[DISMISS_UI] failed:', err)
                             }

@@ -7300,3 +7300,74 @@ def generate_advisor_pool_read(gs, advisor_dict) -> dict:
     except Exception as e:
         print(f"[ADVISOR_POOL_READ] generation failed: {e}")
         return _advisor_pool_fallback(advisor_dict)
+
+
+def extract_deal_terms(npc_id: str, npc_name: str, event_title: str,
+                        conversation_history: list) -> dict:
+    """E4b: Read a negotiation conversation and extract structured deal terms.
+
+    Returns a dict with: value_b, description, duration_turns, parties,
+    summary, relation_delta. Falls back to safe defaults on parse failure.
+
+    npc_id is a relations key (usa/arabia/eu/dprg/russia/china) — matches
+    the convention used by briefing_event_npc_message and deals_today.
+    """
+    # Format conversation for the extractor — skip empties defensively
+    thread_text = "\n".join(
+        f"{'Player' if m.get('role') == 'user' else npc_name}: {m.get('content', '').strip()}"
+        for m in (conversation_history or [])
+        if (m.get('content') or '').strip()
+    )
+
+    prompt = f"""You are extracting structured deal terms from a diplomatic negotiation transcript.
+
+Event: {event_title}
+Negotiating party: {npc_name} (relations key: {npc_id})
+
+Transcript:
+{thread_text}
+
+Extract the final agreed or proposed terms from this conversation.
+Return ONLY valid JSON, no markdown, no preamble:
+{{
+  "value_b": <float, deal value in billions. Positive = Europa receives, negative = Europa pays. 0.0 if unclear>,
+  "description": "<one sentence describing what Europa agreed to>",
+  "duration_turns": <int, deal length in turns. Use 10 if unspecified>,
+  "parties": ["<relations_key_1>", "<relations_key_2>"],
+  "summary": "<2-3 sentence plain-English summary of the deal terms for the player>",
+  "relation_delta": <int, expected relation change with primary NPC, typically +3 to +8>
+}}
+
+Use relations keys for parties: usa, arabia, eu, dprg, russia, china.
+If no clear terms were reached, return value_b: 0.0 and description: "Terms under discussion."
+"""
+
+    try:
+        response = _client.messages.create(
+            model=MODEL,
+            max_tokens=400,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = response.content[0].text.strip()
+        # Canonical fence-stripping pattern (CLAUDE.md)
+        cleaned = raw
+        if cleaned.startswith('```'):
+            cleaned = cleaned.split('\n', 1)[-1]
+        if cleaned.endswith('```'):
+            cleaned = cleaned.rsplit('```', 1)[0]
+        cleaned = cleaned.strip()
+        result = json.loads(cleaned)
+        print(f"[EVENT_DEAL_EXTRACT] {npc_id}: "
+              f"value={result.get('value_b')} "
+              f"dur={result.get('duration_turns')}")
+        return result
+    except Exception as e:
+        print(f"[EVENT_DEAL_EXTRACT_FAIL] {npc_id}: {e}")
+        return {
+            "value_b": 0.0,
+            "description": "Negotiated terms — details under review.",
+            "duration_turns": 10,
+            "parties": [npc_id],
+            "summary": f"A deal was negotiated with {npc_name}. Review terms before accepting.",
+            "relation_delta": 3,
+        }

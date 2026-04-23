@@ -467,6 +467,17 @@ export const api = {
     request('POST', `/game/${id}/briefing/event-npc-message`,
       { npc_id, event_id, event_context, history }),
 
+  /** POST /game/{id}/briefing/register-event-deal — E4b: extract terms from a
+   *  conversation and surface as a proposed deal in deals_today */
+  registerEventDeal: (id, npc_id, event_id, event_context, conversation_history) =>
+    request('POST', `/game/${id}/briefing/register-event-deal`,
+      { npc_id, event_id, event_context, conversation_history }),
+
+  /** POST /game/{id}/briefing/accept-event-deal — E4b: accept a previously
+   *  registered event deal (applies relation + budget deltas, fires standing) */
+  acceptEventDeal: (id, deal_id) =>
+    request('POST', `/game/${id}/briefing/accept-event-deal`, { deal_id }),
+
   /** POST /game/{id}/briefing/advisor-event-analysis — advisor takes on event */
   briefingAdvisorEventAnalysis: (id, event_id) =>
     request('POST', `/game/${id}/briefing/advisor-event-analysis`, { event_id }),

@@ -9400,6 +9400,154 @@ async def briefing_event_npc_message(session_id: str, req: EventNpcMessageReques
         return {"message": "No response at this time."}
 
 
+# ── E4b: Event deal registration and acceptance ─────────────────────────────
+
+class RegisterEventDealRequest(BaseModel):
+    npc_id: str                   # relations key (usa/arabia/eu/dprg/russia/china)
+    event_id: str
+    event_context: dict           # { title, summary, ... } — title read server-side
+    conversation_history: list    # [{role, content}]
+
+
+@app.post("/game/{session_id}/briefing/register-event-deal")
+async def register_event_deal(session_id: str, req: RegisterEventDealRequest,
+                               user: User = Depends(get_optional_user)):
+    """E4b: Extract deal terms from an NPC event conversation and surface
+    them as a closeable deal in deals_today. Does NOT apply consequences —
+    that happens at accept via /briefing/accept-event-deal."""
+    _verify_game_ownership(session_id, user)
+    gs = _load_gs(session_id)
+
+    _npc_display = {
+        'usa': 'Bill Hartwell', 'arabia': 'Sadam', 'eu': 'Marsha',
+        'dprg': 'Ji-won Ryang', 'russia': 'Nikolai Volkov', 'china': 'Wei Jianming',
+    }
+    _npc_name = _npc_display.get(req.npc_id, req.npc_id)
+    _event_title = (req.event_context or {}).get('title', '') if isinstance(req.event_context, dict) else ''
+
+    # Extract structured terms (Haiku call, run in thread to avoid blocking loop)
+    import asyncio
+    from npc_engine import extract_deal_terms
+    terms = await asyncio.to_thread(
+        extract_deal_terms,
+        req.npc_id, _npc_name, _event_title, req.conversation_history or []
+    )
+
+    # Stash event_id inside proposed_terms for traceability without
+    # polluting the top-level deal shape (amendment 2 is explicit on fields).
+    if isinstance(terms, dict):
+        terms.setdefault('event_id', req.event_id)
+
+    import uuid as _uuid
+    _rel_delta = terms.get('relation_delta', 3) if isinstance(terms, dict) else 3
+    _deal_id = f"deal_{gs.current_turn}_{req.npc_id}_{_uuid.uuid4().hex[:6]}"
+    _description = (terms.get('description') if isinstance(terms, dict) else None) or 'Negotiated terms'
+    _summary = (terms.get('summary') if isinstance(terms, dict) else None) or f"Agreement with {_npc_name}"
+
+    deal_entry = {
+        'id': _deal_id,
+        'npc_id': req.npc_id,              # relations key — matches existing deals_today
+        'npc_name': _npc_name,
+        'deal_text': _description,
+        'briefing_summary': _summary,
+        'source': 'event_negotiation',     # distinguishes from sidebar deals
+        'day': gs.current_turn,
+        'is_backchannel': False,
+        'relation_delta': _rel_delta,
+        'gm_consequences': None,
+        'advisor_reactions': [],
+        'budget_applied': 0,               # dismiss reversal is a no-op until accept
+        'proposed_terms': terms,           # full extracted terms (value_b, duration, parties, etc.)
+    }
+
+    # Reload-and-patch — only fields this endpoint owns
+    gs_fresh = _load_gs(session_id)
+    if not hasattr(gs_fresh, 'deals_today') or gs_fresh.deals_today is None:
+        gs_fresh.deals_today = []
+    gs_fresh.deals_today.append(deal_entry)
+    _save_gs(session_id, gs_fresh)
+
+    print(f"[EVENT_DEAL_REGISTERED] {req.npc_id}: deal_id={_deal_id} "
+          f"value={(terms or {}).get('value_b')} source=event_negotiation")
+
+    return {
+        "deal": deal_entry,
+        "npc_name": _npc_name,
+        "terms": terms,
+    }
+
+
+class AcceptEventDealRequest(BaseModel):
+    deal_id: str
+
+
+@app.post("/game/{session_id}/briefing/accept-event-deal")
+async def accept_event_deal(session_id: str, req: AcceptEventDealRequest,
+                             user: User = Depends(get_optional_user)):
+    """E4b: Accept an event-registered deal previously created via
+    /briefing/register-event-deal. Applies relation_delta, budget delta
+    (from proposed_terms.value_b), and fires deal_kept standing delta.
+    The existing DELETE /deals/{deal_id} dismissal path still applies —
+    budget_applied is set here so dismiss (if called later) reverses cleanly."""
+    _verify_game_ownership(session_id, user)
+    gs = _load_gs(session_id)
+
+    # Locate the deal — must match id AND source to avoid accepting
+    # sidebar deals through the event path.
+    _deal = next(
+        (d for d in (gs.deals_today or [])
+         if str(d.get('id')) == req.deal_id
+         and d.get('source') == 'event_negotiation'),
+        None,
+    )
+    if not _deal:
+        raise HTTPException(status_code=404, detail="Event deal not found")
+
+    _npc_id = _deal.get('npc_id')  # relations key
+    _rel_delta = _deal.get('relation_delta', 3)
+    _proposed = _deal.get('proposed_terms') or {}
+    try:
+        _budget_delta = float(_proposed.get('value_b', 0) or 0)
+    except (TypeError, ValueError):
+        _budget_delta = 0.0
+
+    # Apply relation delta — relations key convention
+    if _npc_id and _npc_id in gs.relations and isinstance(_rel_delta, (int, float)):
+        gs.update_relations(_npc_id, _rel_delta, source='event_deal_accepted')
+
+    # Apply budget delta and record on the deal for dismiss reversal
+    if _budget_delta:
+        gs.update_budget(_budget_delta)
+    _deal['budget_applied'] = _budget_delta
+
+    # Fire standing delta — translate relations key → npc_id key for diplomatic_standing
+    from diplomacy_utils import apply_standing_delta, _RELATIONS_KEY_TO_NPC_ID
+    _std_npc = _RELATIONS_KEY_TO_NPC_ID.get(_npc_id)
+    if _std_npc:
+        apply_standing_delta(gs, _std_npc, 'deal_kept')
+
+    print(f"[EVENT_DEAL_ACCEPTED] deal_id={req.deal_id} "
+          f"npc_id={_npc_id} relation_delta={_rel_delta} "
+          f"budget_delta={_budget_delta}")
+
+    # Reload-and-patch — write only fields this endpoint owns.
+    # diplomatic_standing included because apply_standing_delta mutated it
+    # in place; without this line the deal_kept delta would be silently
+    # discarded on the next load.
+    gs_fresh = _load_gs(session_id)
+    gs_fresh.relations = gs.relations
+    gs_fresh.budget = gs.budget
+    gs_fresh.deals_today = gs.deals_today
+    gs_fresh.diplomatic_standing = gs.diplomatic_standing
+    _save_gs(session_id, gs_fresh)
+
+    return {
+        "success": True,
+        "relation_delta": _rel_delta,
+        "budget_delta": _budget_delta,
+    }
+
+
 @app.post("/game/{session_id}/briefing/advisor-event-analysis")
 async def get_advisor_event_analysis(session_id: str, request: Request, user: User = Depends(get_optional_user)):
     """10B-2: Generates advisor analyses for a specific world event.
