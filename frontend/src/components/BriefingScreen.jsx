@@ -622,10 +622,19 @@ export default function BriefingScreen({
     console.log('[EVENT_NPC_DRAWER] opened npc=', npc_id,
       'event=', activeEvent?.id)
     setSelectedEventNpc({ npc_id, display_name, flag })
-    setEventNpcMessages([])  // clear thread
     setEventNpcInput('')
     setEventNpcDrawerOpen(true)
-    fetchEventNpcDialogue(npc_id)
+    // Phase 1b: synchronous cache lookup avoids the brief empty-thread
+    // flash and skips the fetch entirely on hit.
+    const cacheKey = `${activeEvent?.id}:${npc_id}`
+    const cached = eventNpcMessageCache.current[cacheKey]
+    if (cached && cached.length > 0) {
+      setEventNpcMessages(cached)
+      console.log('[EVENT_NPC_CACHE] HIT npc=', npc_id, '(drawer-open path)')
+    } else {
+      setEventNpcMessages([])
+      fetchEventNpcDialogue(npc_id)
+    }
     setTimeout(() => {
       eventNpcThreadEndRef.current?.scrollIntoView({
         behavior: 'smooth',
@@ -758,21 +767,87 @@ export default function BriefingScreen({
       const res = await api.acceptEventDeal(sessionId, pendingDealAccept.deal.id)
       // Mark the deal as accepted locally — budget_applied > 0 hides Accept
       // button and enables budget reversal on dismiss.
-      setDayStatus(prev => ({
-        ...prev,
-        deals_today: (prev.deals_today || []).map(d =>
-          d.id === pendingDealAccept.deal.id
+      // 12b: pattern-faithful events_resolved mirror — only after API success,
+      // and only if the underlying event isn't already marked resolved.
+      const _deal = pendingDealAccept.deal
+      const _eventId = _deal.event_id || _deal.proposed_terms?.event_id
+      const _alreadyResolved = !!dailyEvents.find(e => e.id === _eventId)?.resolved
+      setDayStatus(prev => {
+        const nextDeals = (prev.deals_today || []).map(d =>
+          d.id === _deal.id
             ? { ...d, budget_applied: res.budget_delta }
             : d
-        ),
-      }))
-      console.log(`[EVENT_DEAL_UI_ACCEPTED] deal_id=${pendingDealAccept.deal.id} rel=${res.relation_delta} bud=${res.budget_delta}`)
+        )
+        if (_alreadyResolved || !_eventId) {
+          return { ...prev, deals_today: nextDeals }
+        }
+        const newResolved = (prev.events_resolved ?? 0) + 1
+        const required = prev.events_required ?? 3
+        return {
+          ...prev,
+          deals_today: nextDeals,
+          events_resolved: newResolved,
+          can_end_day: newResolved >= required,
+        }
+      })
+      if (!_alreadyResolved && _eventId) {
+        setDailyEvents(prev => prev.map(e =>
+          e.id === _eventId
+            ? { ...e, resolved: true, resolution: 'NEGOTIATED DEAL' }
+            : e
+        ))
+      }
+      console.log(`[EVENT_DEAL_UI_ACCEPTED] deal_id=${_deal.id} rel=${res.relation_delta} bud=${res.budget_delta}`)
       setPendingDealAccept(null)
       setMikeDealRead(null)
     } catch (err) {
       console.error('[EVENT_DEAL_UI_ACCEPT_FAIL]', err)
     } finally {
       setAcceptingDeal(false)
+    }
+  }
+
+  // 12b: ACCEPT/DISMISS handlers for the proposed-deal block on the event
+  // screen. Accept routes through the existing Mike confirmation flow;
+  // dismiss hits the standard dismissDeal endpoint. Both pattern-mirror
+  // the static A/B/C/D events_resolved bump on success (handled in
+  // handleConfirmDealAccept and handleDismissProposedDeal respectively).
+  const handleSelectProposedDeal = (deal) => {
+    setPendingDealAccept({ deal })
+    setMikeDealRead('')
+    fetchMikeDealRead(deal)
+    console.log(`[EVENT_DEAL_SELECTED] deal_id=${deal.id} from event screen`)
+  }
+
+  const handleDismissProposedDeal = async (dealId) => {
+    try {
+      const res = await api.dismissDeal(sessionId, dealId)
+      if (res?.game_state && onGsUpdate) onGsUpdate(res.game_state)
+      const _alreadyResolved = !!dailyEvents.find(e => e.id === activeEvent?.id)?.resolved
+      setDayStatus(prev => {
+        const nextDeals = (prev.deals_today || []).filter(d => d.id !== dealId)
+        if (_alreadyResolved || !activeEvent) {
+          return { ...prev, deals_today: nextDeals }
+        }
+        const newResolved = (prev.events_resolved ?? 0) + 1
+        const required = prev.events_required ?? 3
+        return {
+          ...prev,
+          deals_today: nextDeals,
+          events_resolved: newResolved,
+          can_end_day: newResolved >= required,
+        }
+      })
+      if (!_alreadyResolved && activeEvent) {
+        setDailyEvents(prev => prev.map(e =>
+          e.id === activeEvent.id
+            ? { ...e, resolved: true, resolution: 'DISMISSED DEAL' }
+            : e
+        ))
+      }
+      console.log(`[EVENT_DEAL_DISMISSED] deal_id=${dealId}`)
+    } catch (err) {
+      console.error('[EVENT_DEAL_DISMISS_FAIL]', err)
     }
   }
 
@@ -1002,6 +1077,16 @@ export default function BriefingScreen({
       ? activeEvent.choices
       : _getDefaultChoices(activeEvent)
 
+    // E4b/12b: surface a player-proposed deal under the static A/B/C/D
+    // choices. event_id may live top-level (12b+) or stashed in proposed_terms
+    // (12 deals). Hide once the player has accepted (budget_applied != 0).
+    const proposedEventDeal = (dayStatus?.deals_today || []).find(d => {
+      if (d.source !== 'event_negotiation') return false
+      if (d.budget_applied) return false
+      const eid = d.event_id || d.proposed_terms?.event_id
+      return eid === activeEvent?.id
+    })
+
     return (
       <div className={`briefing-event-screen ${eventScreenTransition ? 'entering' : 'entered'}${eventNpcDrawerOpen ? ' npc-drawer-open' : ''}`}>
         {/* Header */}
@@ -1129,6 +1214,49 @@ export default function BriefingScreen({
               </button>
             )
           })}
+          {proposedEventDeal && (
+            <div style={{
+              marginTop: '12px',
+              padding: '10px 12px',
+              border: '1px solid #4caf50',
+              borderRadius: '4px',
+              background: 'rgba(76, 175, 80, 0.05)'
+            }}>
+              <div style={{
+                fontSize: '10px', color: '#4caf50',
+                letterSpacing: '0.1em', marginBottom: '6px'
+              }}>
+                {'\u2605 NEGOTIATED DEAL'}
+              </div>
+              <div style={{ fontSize: '12px', color: '#ddd', lineHeight: '1.5' }}>
+                {proposedEventDeal.briefing_summary}
+              </div>
+              <div style={{
+                marginTop: '8px', display: 'flex', gap: '8px'
+              }}>
+                <button
+                  onClick={() => handleSelectProposedDeal(proposedEventDeal)}
+                  style={{
+                    padding: '5px 12px', background: 'transparent',
+                    border: '1px solid #4caf50', color: '#4caf50',
+                    fontSize: '10px', letterSpacing: '0.08em', cursor: 'pointer'
+                  }}
+                >
+                  ACCEPT
+                </button>
+                <button
+                  onClick={() => handleDismissProposedDeal(proposedEventDeal.id)}
+                  style={{
+                    padding: '5px 12px', background: 'transparent',
+                    border: '1px solid #666', color: '#888',
+                    fontSize: '10px', letterSpacing: '0.08em', cursor: 'pointer'
+                  }}
+                >
+                  DISMISS
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Optional events can go back without resolving */}
@@ -1747,14 +1875,26 @@ export default function BriefingScreen({
             const delta = deal.relation_delta
             const isExpanded = expandedDealId === deal.id
             const gm = deal.gm_consequences
+            // 12b: gate the chevron on actual expand-content. Event deals
+            // surface mike_assessment instead of gm_consequences; older
+            // event deals registered before 12b have neither — chevron stays
+            // hidden in that case (graceful fallback).
+            const isEventDeal = deal.source === 'event_negotiation'
+            const showExpand = isEventDeal
+              ? !!deal.mike_assessment
+              : !!(gm || deal.advisor_reactions?.length)
             return (
               <div key={deal.id} className={`deal-entry ${isExpanded ? 'expanded' : ''}`}>
                 <div
                   className="deal-item deal-item-clickable"
                   onClick={() => {
+                    if (!showExpand) return
                     const newId = isExpanded ? null : deal.id
                     setExpandedDealId(newId)
-                    if (newId && !dealAssessments[deal.id]) fetchDealAssessment(deal.id, deal)
+                    // Event deals carry mike_assessment statically — no fetch needed.
+                    if (newId && !isEventDeal && !dealAssessments[deal.id]) {
+                      fetchDealAssessment(deal.id, deal)
+                    }
                   }}
                 >
                   <span className="deal-npc">{flag} {deal.npc_name}</span>
@@ -1763,6 +1903,7 @@ export default function BriefingScreen({
                     <span className="deal-source">
                       {deal.is_backchannel ? '🔒 Covert'
                         : deal.source === 'world_event' ? '🌐 Event'
+                        : isEventDeal ? '🤝 Negotiated'
                         : '📋 Direct'}
                     </span>
                     {delta != null && delta !== 0 && (
@@ -1770,10 +1911,59 @@ export default function BriefingScreen({
                         {delta > 0 ? '+' : ''}{delta}
                       </span>
                     )}
-                    <span className="deal-expand-icon">{isExpanded ? '▲' : '▼'}</span>
+                    {showExpand && (
+                      <span className="deal-expand-icon">{isExpanded ? '▲' : '▼'}</span>
+                    )}
                   </span>
                 </div>
-                {isExpanded && gm && (
+                {isExpanded && showExpand && isEventDeal && (
+                  <div className="deal-consequences-panel">
+                    <div className="deal-full-text">{deal.deal_text}</div>
+                    <div style={{ fontSize: '11px', color: '#aaa', lineHeight: '1.6', padding: '8px 0' }}>
+                      <span style={{ color: '#888', fontSize: '10px', letterSpacing: '0.08em' }}>
+                        MIKE&apos;S ASSESSMENT
+                      </span>
+                      <div style={{ marginTop: '4px' }}>{deal.mike_assessment}</div>
+                    </div>
+                    {/* Accept + Dismiss buttons for un-accepted event deals */}
+                    {deal.id && (
+                      <div className="deal-dismiss-row">
+                        {!deal.budget_applied && (
+                          <button
+                            className="advisor-action-btn"
+                            style={{ marginRight: '8px' }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleOpenDealAccept(deal)
+                            }}
+                          >
+                            ACCEPT DEAL
+                          </button>
+                        )}
+                        <button
+                          className="advisor-action-btn advisor-action-btn--dismiss"
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            try {
+                              const res = await api.dismissDeal(sessionId, deal.id)
+                              if (res?.game_state && onGsUpdate) onGsUpdate(res.game_state)
+                              setDayStatus(prev => ({
+                                ...prev,
+                                deals_today: (prev.deals_today || []).filter(d => d.id !== deal.id),
+                              }))
+                              console.log('[DISMISS_UI] success dealId=', deal.id)
+                            } catch (err) {
+                              console.error('[DISMISS_UI] failed:', err)
+                            }
+                          }}
+                        >
+                          DISMISS DEAL
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {isExpanded && showExpand && !isEventDeal && gm && (
                   <div className="deal-consequences-panel">
                     <div className="deal-full-text">{deal.deal_text}</div>
                     <h5 className="deal-impact-header">DIPLOMATIC IMPACT</h5>
@@ -1828,24 +2018,10 @@ export default function BriefingScreen({
                         })}
                       </div>
                     )}
-                    {/* Dismiss deal button (+ Accept for un-accepted event deals) */}
+                    {/* Dismiss deal button (regular deals — event deals
+                        render their own accept/dismiss row above). */}
                     {deal.id && (
                       <div className="deal-dismiss-row">
-                        {/* E4b: Event-negotiation deals land in PROPOSED state
-                            (budget_applied === 0). Accept routes through the
-                            parallel Mike-confirm flow -> /briefing/accept-event-deal. */}
-                        {deal.source === 'event_negotiation' && !deal.budget_applied && (
-                          <button
-                            className="advisor-action-btn"
-                            style={{ marginRight: '8px' }}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleOpenDealAccept(deal)
-                            }}
-                          >
-                            ACCEPT DEAL
-                          </button>
-                        )}
                         <button
                           className="advisor-action-btn advisor-action-btn--dismiss"
                           onClick={async (e) => {

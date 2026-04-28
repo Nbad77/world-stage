@@ -9427,7 +9427,7 @@ async def register_event_deal(session_id: str, req: RegisterEventDealRequest,
 
     # Extract structured terms (Haiku call, run in thread to avoid blocking loop)
     import asyncio
-    from npc_engine import extract_deal_terms
+    from npc_engine import extract_deal_terms, generate_event_deal_assessment
     terms = await asyncio.to_thread(
         extract_deal_terms,
         req.npc_id, _npc_name, _event_title, req.conversation_history or []
@@ -9444,6 +9444,13 @@ async def register_event_deal(session_id: str, req: RegisterEventDealRequest,
     _description = (terms.get('description') if isinstance(terms, dict) else None) or 'Negotiated terms'
     _summary = (terms.get('summary') if isinstance(terms, dict) else None) or f"Agreement with {_npc_name}"
 
+    # 12b: Mike's assessment of the negotiated terms — populated at
+    # registration so the deal expand panel has content immediately.
+    _mike_assessment = await asyncio.to_thread(
+        generate_event_deal_assessment,
+        _description, _npc_name, gs
+    )
+
     deal_entry = {
         'id': _deal_id,
         'npc_id': req.npc_id,              # relations key — matches existing deals_today
@@ -9451,12 +9458,14 @@ async def register_event_deal(session_id: str, req: RegisterEventDealRequest,
         'deal_text': _description,
         'briefing_summary': _summary,
         'source': 'event_negotiation',     # distinguishes from sidebar deals
+        'event_id': req.event_id,          # 12b: surfaces this deal under the right event screen
         'day': gs.current_turn,
         'is_backchannel': False,
         'relation_delta': _rel_delta,
         'gm_consequences': None,
         'advisor_reactions': [],
         'budget_applied': 0,               # dismiss reversal is a no-op until accept
+        'mike_assessment': _mike_assessment,  # 12b: shown in the deal-expand panel
         'proposed_terms': terms,           # full extracted terms (value_b, duration, parties, etc.)
     }
 
@@ -9474,6 +9483,7 @@ async def register_event_deal(session_id: str, req: RegisterEventDealRequest,
         "deal": deal_entry,
         "npc_name": _npc_name,
         "terms": terms,
+        "mike_assessment": _mike_assessment,
     }
 
 

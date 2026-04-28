@@ -7331,14 +7331,20 @@ Extract the final agreed or proposed terms from this conversation.
 Return ONLY valid JSON, no markdown, no preamble:
 {{
   "value_b": <float, deal value in billions. Positive = Europa receives, negative = Europa pays. 0.0 if unclear>,
-  "description": "<one sentence describing what Europa agreed to>",
+  "description": "<one sentence: what Europa specifically commits to doing>",
   "duration_turns": <int, deal length in turns. Use 10 if unspecified>,
   "parties": ["<relations_key_1>", "<relations_key_2>"],
-  "summary": "<2-3 sentence plain-English summary of the deal terms for the player>",
+  "summary": "<three sentences: (1) what Europa receives in concrete terms (dollars, resources, capabilities), (2) what Europa commits to in concrete terms, (3) the main risk or condition to watch>",
   "relation_delta": <int, expected relation change with primary NPC, typically +3 to +8>
 }}
 
 Use relations keys for parties: usa, arabia, eu, dprg, russia, china.
+
+The summary should read like a deal card written for the player, not negotiation notes.
+Write from Europa's perspective: what we get, what we owe, what could go wrong.
+Use concrete figures (dollars, ships, barrels, troop counts) when the transcript supports them.
+Avoid abstract phrases like "Europa secures..." or "Europa secures majority local employment (70%)".
+
 If no clear terms were reached, return value_b: 0.0 and description: "Terms under discussion."
 """
 
@@ -7371,3 +7377,39 @@ If no clear terms were reached, return value_b: 0.0 and description: "Terms unde
             "summary": f"A deal was negotiated with {npc_name}. Review terms before accepting.",
             "relation_delta": 3,
         }
+
+
+def generate_event_deal_assessment(deal_text: str, npc_name: str, gs) -> str:
+    """
+    12b: Generates Mike Sorel's assessment of a player-negotiated event deal.
+    Plain text, 2-4 sentences. Same voice as existing deal assessments.
+    """
+    reliability = getattr(gs, 'reliability_score', 100.0)
+    budget = getattr(gs, 'budget', 50.0)
+    stability = getattr(gs, 'stability', 70)
+
+    prompt = f"""You are Mike Sorel, Chief of Staff to the President of Europa.
+The President has just negotiated the following deal directly with {npc_name}:
+
+Deal terms: {deal_text}
+
+Context: Europa's current budget is ${budget:.1f}B, stability is {stability}%,
+reliability score is {reliability:.0f}/100.
+
+Write 2-4 sentences assessing this deal in Mike's voice — direct, no fluff,
+slightly cautious. Note what Europa gains, what it commits to, and one risk
+worth watching. Do not use bullet points, headers, or markdown.
+Do not reference game mechanics by name."""
+
+    try:
+        resp = _client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        text = resp.content[0].text.strip()
+        print(f"[EVENT_DEAL_ASSESSMENT] npc={npc_name} tokens={resp.usage.input_tokens + resp.usage.output_tokens}")
+        return text
+    except Exception as e:
+        print(f"[EVENT_DEAL_ASSESSMENT_FAIL] {e}")
+        return f"You negotiated this deal directly with {npc_name}. Review the terms carefully before the day ends."
