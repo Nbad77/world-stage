@@ -8,6 +8,7 @@ import SignUpPage from './components/SignUpPage'
 import './index.css'
 import './tailwind.css'
 import './dashboard.css'
+import './mobile.css'
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 

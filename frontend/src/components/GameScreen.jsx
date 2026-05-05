@@ -30,6 +30,8 @@ import BriefingScreen from './BriefingScreen'
 import ExileDashboard from './ExileDashboard'
 import LeakCrisisModal from './LeakCrisisModal'
 import BiographyModal from './BiographyModal'
+import { useIsMobile } from '../hooks/useIsMobile'
+import MobileGameScreen from './MobileGameScreen'
 
 /**
  * GameScreen manages the full turn lifecycle:
@@ -62,6 +64,7 @@ const NPC_INFO = {
 }
 
 export default function GameScreen({ sessionId, initialData, onGameEnd, onRestart, onSnapshotLoad }) {
+  const isMobile = useIsMobile()
   const [gs, setGs] = useState(initialData.game_state)
   const [dialogue, setDialogue] = useState(initialData.dialogue)
   const [offers, setOffers] = useState(initialData.offers)
@@ -1400,6 +1403,40 @@ export default function GameScreen({ sessionId, initialData, onGameEnd, onRestar
           isDraft={false}
         />
       </div>
+    )
+  }
+
+  // ── Render: GAME (mobile branch) ─────────────────────────────────────────
+  if (isMobile) {
+    console.log('[MOBILE_ROUTE] isMobile=', isMobile)
+    return (
+      <MobileGameScreen
+        gs={gs}
+        sessionId={sessionId}
+        setGs={setGs}
+        phase={phase}
+        ending={ending}
+        eotData={eotData}
+        eotMessages={eotMessages}
+        onEndDay={() => _executeSkim(1)}
+        onContinue={handleContinue}
+        onContact={!loading && (phase === PHASE.DIALOGUE || activeTab === 'foreign') ? handleDirectContact : null}
+        onContactRequest={handleContactRequest}
+        onBackchannel={!loading && (phase === PHASE.DIALOGUE || activeTab === 'foreign') ? handleOpenBackchannel : null}
+        onGetIntel={handleGetIntel}
+        onRequestBriefing={handleRequestBriefing}
+        contactLoading={contactLoading}
+        contactResults={contactResults}
+        intelLoading={intelLoading}
+        intelResults={intelResults}
+        briefingLoading={briefingLoading}
+        backchannelDisabled={loading}
+        contactsDisabled={loading}
+        onShadowCabinet={() => setShadowCabinetOpen(true)}
+        onHistorian={handleHistorianAssessment}
+        historianLoading={historianLoading}
+        onBiography={() => { console.log('[9B] opening draft biography from mobile'); setShowBiography(true) }}
+      />
     )
   }
 
