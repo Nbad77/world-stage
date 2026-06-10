@@ -245,12 +245,34 @@ def _build_event_state_summary(gs) -> str:
     leg = getattr(gs, 'legitimacy_stability', gs.stability * 0.5)
     coe = getattr(gs, 'coercion_stability', gs.stability * 0.5)
 
+    # Power base composition (string field in state_identity, NOT a numeric gs attr)
+    _pb_str = (getattr(gs, 'state_identity', {}) or {}).get('power_base', 'Mass-Dependent')
+    if _pb_str == 'Mass-Dependent':
+        _pb_label = "mass-dependent (approval-sensitive, labor/street pressure)"
+    elif _pb_str == 'Elite-Captured':
+        _pb_label = "elite-dependent (oligarch/military/institutional pressure)"
+    else:
+        _pb_label = "mixed base (balanced mass and elite pressures)"
+
+    # Political axis tier (gates stabilization options)
+    _pol_tier = (getattr(gs, 'cabinet_axes', {}) or {}).get('political', 0)
+
+    # Legitimacy vs coercion breakdown
+    _regime_character = "legitimacy-anchored" if leg > coe * 1.5 else (
+        "coercion-heavy" if coe > leg else "mixed"
+    )
+
     lines = [
         f"Regime: {regime}",
         f"Stability: {gs.stability}% (legitimacy: {leg:.0f}%, coercion: {coe:.0f}%)",
         f"Approval: {gs.public_approval}%",
         f"Treasury: ${gs.budget:.1f}B | Personal wealth: ${gs.personal_wealth:.1f}B",
+        f"Power base: {_pb_label}",
+        f"Political axis tier: {_pol_tier}",
+        f"Regime character: {_regime_character} (legitimacy: {leg:.0f}%, coercion: {coe:.0f}%)",
     ]
+
+    print(f"[GM_STATE_SUMMARY] power_base={_pb_str} pol_tier={_pol_tier} regime_char={_regime_character}")
 
     # NPC relations
     npc_map = {
