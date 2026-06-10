@@ -275,7 +275,7 @@ class TestEventStructure:
         """Era 1 prompt uses AUTHORED_EVENT_TYPES."""
         from gm_engine import AUTHORED_EVENT_TYPES, _build_event_user_prompt
         gs = make_gs(current_era=1)
-        prompt = _build_event_user_prompt(gs, 5)
+        prompt = _build_event_user_prompt(gs, 5, 1, 4)
         # Era 1 prompt should reference authored event types
         for event_type in AUTHORED_EVENT_TYPES[:3]:
             assert event_type in prompt

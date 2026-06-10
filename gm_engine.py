@@ -203,6 +203,12 @@ AUTHORED_EVENT_TYPES = [
     "diplomatic_incident",          # NPC bilateral friction
     "regional_security_event",      # military/border
     "corruption_exposure_risk",     # heat/detection pressure
+    # Domestic event types (Session 14: stability-gated event mix)
+    "labor_unrest",              # mass-dependent: strikes, work stoppages
+    "elite_pressure",            # elite-dependent: oligarch/institutional pushback
+    "military_restlessness",     # high coercion: loyalty test in security forces
+    "legitimacy_erosion",        # low stability: public trust collapse
+    "coalition_fracture",        # legitimacy-anchored: governing coalition strain
 ]
 
 # NPC mapping for authored event types
@@ -215,6 +221,12 @@ _EVENT_TYPE_NPCS = {
     "diplomatic_incident": ["bill", "sadam", "volkov"],
     "regional_security_event": ["volkov", "ji_won"],
     "corruption_exposure_risk": ["bill", "marsha"],
+    # Domestic events don't automatically involve foreign NPCs
+    "labor_unrest": [],
+    "elite_pressure": [],
+    "military_restlessness": [],
+    "legitimacy_erosion": [],
+    "coalition_fracture": [],
 }
 
 _EVENT_SYSTEM_PROMPT = (
@@ -231,6 +243,24 @@ _EVENT_SYSTEM_PROMPT = (
     "a genuine stake in this specific event. Default to fewer "
     "NPCs, not more."
 )
+
+# Session 14: appended to the system prompt (local copy, never mutate the
+# constant above) only when the stability band calls for multiple domestic
+# events — kept out of normal-state generation to avoid prompt pollution.
+_DOMESTIC_GUIDANCE = """
+When generating domestic events, match the event type to the regime's
+power base and character:
+- Mass-dependent regimes: labor disputes, street protests, public service
+  failures, food/fuel price pressure, approval-driven coalition stress
+- Elite-dependent regimes: oligarch pushback, parliamentary bloc maneuvers,
+  military command loyalty signals, media owner pressure
+- Coercion-heavy regimes at low stability: enforcer loyalty tests, crackdown
+  backlash events, detained figure complications, surveillance exposure
+- Legitimacy-anchored regimes at low stability: coalition partner ultimatums,
+  reform movement demands, public institution pressure
+Domestic events should have empty or minimal applicable_npcs unless a
+foreign actor is directly involved in the domestic situation.
+"""
 
 
 def _random_event_id():
@@ -315,18 +345,40 @@ def _build_event_state_summary(gs) -> str:
     return "\n".join(lines)
 
 
-def _build_event_user_prompt(gs, count: int) -> str:
+def _build_event_user_prompt(gs, count: int, domestic_count: int,
+                             foreign_count: int, npc_tone_instruction: str = "") -> str:
     """Build the user prompt for event generation based on era."""
     state_summary = _build_event_state_summary(gs)
     era = getattr(gs, 'current_era', 1)
     turn = getattr(gs, 'current_turn', 1)
 
+    _count_instruction = (
+        f"Generate exactly {count} world events: "
+        f"{domestic_count} domestic event(s) (category: 'domestic') and "
+        f"{foreign_count} foreign/diplomatic event(s) (category: 'diplomatic', "
+        f"'economic', 'military', or 'crisis')."
+    )
+
     era_instruction = ""
     if era <= 1:
+        _domestic_types = [
+            "domestic_stability_risk", "labor_unrest", "elite_pressure",
+            "military_restlessness", "legitimacy_erosion", "coalition_fracture",
+            "economic_shock"
+        ]
+        _foreign_types = [
+            "energy_supply_pressure", "western_alignment_demand",
+            "eastern_partnership_offer", "diplomatic_incident",
+            "regional_security_event", "corruption_exposure_risk"
+        ]
         era_instruction = (
-            f"Use only these event type categories: {AUTHORED_EVENT_TYPES}\n"
+            f"Generate {domestic_count} domestic event(s) using types from: "
+            f"{_domestic_types}\n"
+            f"Generate {foreign_count} foreign event(s) using types from: "
+            f"{_foreign_types}\n"
             "Instantiate each with specific details from the current game state.\n"
-            f"Return exactly {count} events."
+            f"Return exactly {count} events total: {domestic_count} domestic "
+            f"and {foreign_count} foreign."
         )
     elif era <= 3:
         era_instruction = (
@@ -339,9 +391,12 @@ def _build_event_user_prompt(gs, count: int) -> str:
             "game state. NPCs that have been ignored should feature prominently."
         )
 
+    _tone_block = f"{npc_tone_instruction}\n\n" if npc_tone_instruction else ""
+
     return (
-        f"Generate {count} world events for Day {turn}, Era {era}.\n\n"
+        f"{_count_instruction}\nThese events are for Day {turn}, Era {era}.\n\n"
         f"Current state:\n{state_summary}\n\n"
+        f"{_tone_block}"
         f"{era_instruction}\n\n"
         f"Return ONLY a JSON array. No preamble. No explanation. Each event object:\n"
         '{\n'
@@ -487,18 +542,81 @@ def generate_daily_events(gs) -> list:
     # Reduce Haiku generation count so total stays in range
     haiku_count = max(2, count - len(pre_seeded))
 
+    # Stability band — determines domestic/foreign event split.
+    # Operates on haiku_count (post pre-seed reduction), not raw count.
+    _stability = getattr(gs, 'stability', 70)
+    if _stability >= 60:
+        _domestic_count = 1
+        _foreign_count = haiku_count - 1
+        _stability_band = "stable"
+        _npc_tone_instruction = ""
+    elif _stability >= 40:
+        _domestic_count = min(3, haiku_count - 2)
+        _foreign_count = haiku_count - _domestic_count
+        _stability_band = "stressed"
+        _npc_tone_instruction = (
+            "Some NPCs are aware of Europa's internal stress. "
+            "1-2 foreign events may reference or probe this weakness."
+        )
+    elif _stability >= 20:
+        _domestic_count = min(4, haiku_count - 1)
+        _foreign_count = haiku_count - _domestic_count
+        _stability_band = "crisis"
+        _npc_tone_instruction = (
+            "Europa is visibly unstable. Adversarial NPCs (Volkov, Wei, Sadam) "
+            "should generate opportunistic events — pressure, ultimatums, or "
+            "advantageous offers that exploit the moment. Allied NPCs watch "
+            "carefully but have not yet moved."
+        )
+    else:
+        _domestic_count = min(5, haiku_count - 1)
+        _foreign_count = haiku_count - _domestic_count
+        _stability_band = "collapse"
+        # Close allies only referenced as helpers at relation >= 45
+        _relations = gs.relations or {}
+        _ally_helpers = []
+        if _relations.get('usa', 50) >= 45:
+            _ally_helpers.append("Bill (USA)")
+        if _relations.get('eu', 50) >= 45:
+            _ally_helpers.append("Marsha (EU)")
+        _npc_tone_instruction = (
+            "Europa is in open crisis. Adversarial NPCs exploit this directly. "
+        )
+        if _ally_helpers:
+            _npc_tone_instruction += (
+                f"Close allies ({', '.join(_ally_helpers)}) may offer "
+                "stabilization help but will extract political or economic "
+                "concessions — a lifeline with a price tag. "
+            )
+        _npc_tone_instruction += "No NPC is neutral at this stability level."
+
+    # Floor: on declaration days haiku_count can drop to 2 — always keep
+    # at least 1 domestic and 1 foreign regardless of band
+    _domestic_count = max(1, _domestic_count)
+    _foreign_count = max(1, haiku_count - _domestic_count)
+    print(f"[GM_BAND] stability={_stability} band={_stability_band} "
+          f"domestic={_domestic_count} foreign={_foreign_count}")
+
     if not _client:
         print("[GM-Events] No API key — returning fallback events")
         return pre_seeded + _generate_fallback_events(gs)
 
-    user_prompt = _build_event_user_prompt(gs, haiku_count)
+    user_prompt = _build_event_user_prompt(
+        gs, haiku_count, _domestic_count, _foreign_count, _npc_tone_instruction
+    )
+
+    # Domestic-event guidance only when the band calls for multiple domestic
+    # events — keep it out of normal-state generation
+    _system_prompt = _EVENT_SYSTEM_PROMPT
+    if _domestic_count > 1:
+        _system_prompt = _EVENT_SYSTEM_PROMPT + _DOMESTIC_GUIDANCE
 
     try:
         response = _client.messages.create(
             model=GM_MODEL,
             max_tokens=3500,
             temperature=0.7,
-            system=_EVENT_SYSTEM_PROMPT,
+            system=_system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
         raw_text = response.content[0].text.strip()
