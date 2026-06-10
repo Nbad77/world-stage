@@ -2094,17 +2094,27 @@ export default function BriefingScreen({
               const bDelta = cons.budget_delta || 0
               const sDelta = cons.stability_delta || 0
               const isEvtExpanded = expandedEventId === evt.id
+              // 12b: mirror the deal-card showExpand pattern \u2014 if there's
+              // no mike_beat for this event (e.g. resolved via deal accept/
+              // dismiss which don't generate one), hide the chevron, the
+              // click target, and the expanded panel entirely. No fallback
+              // text \u2014 render nothing instead of "No assessment available."
+              const evtShowExpand = !!resolvedEventBeats[evt.id]
               return (
                 <div key={evt.id} className="briefing-decision-event"
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => setExpandedEventId(isEvtExpanded ? null : evt.id)}>
+                  style={{ cursor: evtShowExpand ? 'pointer' : 'default' }}
+                  onClick={evtShowExpand
+                    ? () => setExpandedEventId(isEvtExpanded ? null : evt.id)
+                    : undefined}>
                   <div className="briefing-decision-event-header">
                     <span className="briefing-decision-category-badge"
                       style={{ color: catColor, borderColor: catColor }}>
                       {(evt.category || 'event').toUpperCase()}
                     </span>
                     <span className="briefing-decision-event-title">{evt.title}</span>
-                    <span className="decisions-chevron">{isEvtExpanded ? '\u25B2' : '\u25BC'}</span>
+                    {evtShowExpand && (
+                      <span className="decisions-chevron">{isEvtExpanded ? '\u25B2' : '\u25BC'}</span>
+                    )}
                   </div>
                   <div className="briefing-decision-event-resolution">{evt.resolution}</div>
                   {(bDelta !== 0 || sDelta !== 0) && (
@@ -2121,14 +2131,11 @@ export default function BriefingScreen({
                       )}
                     </div>
                   )}
-                  {isEvtExpanded && (
+                  {isEvtExpanded && evtShowExpand && (
                     <div className="decisions-event-expanded">
                       <div className="decisions-mike-assessment">
                         <span className="decisions-mike-label">MIKE SOREL</span>
-                        {resolvedEventBeats[evt.id]
-                          ? <p>{resolvedEventBeats[evt.id]}</p>
-                          : <p className="decisions-mike-muted">No assessment available.</p>
-                        }
+                        <p>{resolvedEventBeats[evt.id]}</p>
                       </div>
                     </div>
                   )}
