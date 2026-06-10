@@ -634,6 +634,28 @@ def generate_daily_events(gs) -> list:
         for e in events:
             e['required'] = False
 
+        # Verify domestic/foreign split was respected — soft check only.
+        # Haiku won't always honor exact counts; regenerating would double
+        # latency. Log and accept.
+        _generated_domestic = sum(1 for e in events if e.get('category') == 'domestic')
+        _generated_foreign = len(events) - _generated_domestic
+        if abs(_generated_domestic - _domestic_count) > 1:
+            print(f"[GM_BAND_DRIFT] expected {_domestic_count} domestic, "
+                  f"got {_generated_domestic}. Accepting anyway.")
+        else:
+            print(f"[GM_BAND_OK] domestic={_generated_domestic} "
+                  f"foreign={_generated_foreign}")
+
+        # Domestic events should rarely involve foreign NPCs
+        # Keep applicable_npcs only if non-empty and fewer than 2 NPCs
+        # (a domestic event involving 4 NPCs is almost certainly wrong)
+        for event in events:
+            if event.get('category') == 'domestic':
+                if len(event.get('applicable_npcs', [])) > 2:
+                    event['applicable_npcs'] = []
+                    print(f"[GM_DOMESTIC_NPC_TRIM] {event.get('id')} "
+                          f"had >2 NPCs, cleared")
+
         # Log choices validation
         choices_present = all(
             'choices' in e and len(e.get('choices', [])) == 4
